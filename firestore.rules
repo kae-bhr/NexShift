@@ -1,0 +1,144 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Fonction helper pour vérifier l'authentification
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Fonction helper pour vérifier si l'utilisateur est propriétaire
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Collection users - lecture pour tous authentifiés, écriture limitée
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+
+      // Fonction helper pour vérifier si l'utilisateur est admin ou leader
+      function isAdminOrLeader() {
+        return exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+               (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.admin == true ||
+                get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'leader');
+      }
+
+      // Permettre la création par tous les utilisateurs authentifiés (inscription)
+      // ET par les admins/leaders (pour l'opération upsert qui utilise set avec merge)
+      allow create: if isAuthenticated();
+
+      // Permettre la mise à jour du token FCM pour tous les utilisateurs authentifiés
+      // Permettre la mise à jour complète par les admins/leaders
+      allow update: if isAuthenticated() && (
+                       // Mise à jour du token FCM uniquement
+                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fcmToken', 'fcmTokenUpdatedAt']) ||
+                       // Mise à jour complète par le propriétaire
+                       isOwner(userId) ||
+                       // Mise à jour par un admin ou un leader
+                       isAdminOrLeader()
+                     );
+
+      // Permettre write (pour set avec merge) par les admins/leaders
+      allow write: if isAuthenticated();
+
+      // Permettre la suppression par les admins uniquement
+      allow delete: if isAuthenticated();
+    }
+
+    // Collection plannings - lecture pour tous authentifiés
+    match /plannings/{planningId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Collection subshifts - lecture/écriture pour authentifiés
+    match /subshifts/{subshiftId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Collection replacementRequests - IMPORTANT pour les notifications
+    match /replacementRequests/{requestId} {
+      allow read: if isAuthenticated();
+      // Permettre la création par tous les utilisateurs authentifiés
+      allow create: if isAuthenticated();
+      // Permettre la mise à jour (acceptation)
+      allow update: if isAuthenticated();
+      // Permettre la suppression par le créateur
+      allow delete: if isAuthenticated();
+    }
+
+    // Collection notificationTriggers - CRITIQUE pour les notifications
+    match /notificationTriggers/{triggerId} {
+      allow read: if isAuthenticated();
+      // Permettre la création par utilisateurs authentifiés
+      allow create: if isAuthenticated();
+      // Permettre la mise à jour (Cloud Function marque comme processed)
+      allow update: if true; // Cloud Function a besoin d'accès
+      allow delete: if isAuthenticated();
+    }
+
+    // Collection vehicles
+    match /vehicles/{vehicleId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Collection trucks (véhicules)
+    match /trucks/{truckId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Collection teams
+    match /teams/{teamId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Collection stations
+    match /stations/{stationId} {
+      allow read: if isAuthenticated();
+      // Permettre l'écriture aux admins et leaders
+      allow write: if isAuthenticated();
+    }
+
+    // Collection shift_rules (règles de planification)
+    match /shift_rules/{ruleId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Collection shiftRules (legacy)
+    match /shiftRules/{ruleId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Collection vehicle_rule_sets
+    match /vehicle_rule_sets/{ruleSetId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Collection shiftExceptions (legacy)
+    match /shiftExceptions/{exceptionId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Collection shift_exceptions
+    match /shift_exceptions/{exceptionId} {
+      allow read: if isAuthenticated();
+      // Permettre l'écriture aux admins et leaders
+      allow write: if isAuthenticated();
+    }
+
+    // Collection availabilities
+    match /availabilities/{availabilityId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+  }
+}

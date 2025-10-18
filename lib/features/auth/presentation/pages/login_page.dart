@@ -1,10 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:nexshift_app/core/presentation/widgets/hero_widget.dart';
+import 'package:nexshift_app/core/repositories/local_repositories.dart';
+import 'package:nexshift_app/core/services/firebase_auth_service.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
-import 'package:nexshift_app/features/app/presentation/pages/home_page.dart';
+import 'package:nexshift_app/features/auth/presentation/pages/confirmation_page.dart';
+import 'package:nexshift_app/features/auth/presentation/widgets/enter_app_widget.dart';
+import 'package:nexshift_app/features/auth/presentation/widgets/password_strength_field_widget.dart';
+import 'package:nexshift_app/features/auth/presentation/widgets/snake_bar_widget.dart';
+import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+  const LoginPage({super.key, required this.chgtPw});
+
+  final bool chgtPw;
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -16,10 +24,6 @@ class _LoginPageState extends State<LoginPage> {
   TextEditingController controllerId = TextEditingController();
   TextEditingController controllerPw = TextEditingController();
 
-  // TODO : A supprimer lorsque l'authentification sera opérationnelle
-  String confirmedId = '8513';
-  String confirmedPw = '1234';
-
   @override
   void dispose() {
     controllerId.dispose();
@@ -30,104 +34,220 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text("Connexion", style: KTextStyle.regularTextStyleLightMode),
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          children: [
-            HeroWidget(),
-            Text(
-              "Insérez vos identifiants de connexion",
-              style: KTextStyle.descriptionTextStyleLightMode,
-            ),
-            SizedBox(height: 10.0),
-            TextField(
-              controller: controllerId,
-              style: KTextStyle.descriptionTextStyleLightMode,
-              decoration: InputDecoration(
-                hintText: 'Matricule',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(15.0),
+      appBar: CustomAppBar(title: "Connexion"),
+      body: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            children: [
+              HeroWidget(),
+              Text(
+                widget.chgtPw
+                    ? "Veuillez vous réauthentifier"
+                    : "Insérez vos identifiants de connexion",
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.tertiary,
+                  fontSize: KTextStyle.descriptionTextStyle.fontSize,
+                  fontFamily: KTextStyle.descriptionTextStyle.fontFamily,
+                  fontWeight: KTextStyle.descriptionTextStyle.fontWeight,
                 ),
-                prefixIcon: const Icon(Icons.person, color: Colors.grey),
               ),
-              onEditingComplete: () {
-                setState(() {});
-              },
-            ),
-            SizedBox(height: 10.0),
-            TextField(
-              controller: controllerPw,
-              style: KTextStyle.descriptionTextStyleLightMode,
-              obscureText: isPasswordVisible ? false : true,
-              decoration: InputDecoration(
+              SizedBox(height: 10.0),
+              TextField(
+                controller: controllerId,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.tertiary,
+                  fontSize: KTextStyle.descriptionTextStyle.fontSize,
+                  fontFamily: KTextStyle.descriptionTextStyle.fontFamily,
+                  fontWeight: KTextStyle.descriptionTextStyle.fontWeight,
+                ),
+                decoration: InputDecoration(
+                  hintText: 'Matricule',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(15.0),
+                  ),
+                  prefixIcon: const Icon(Icons.person, color: Colors.grey),
+                ),
+                onEditingComplete: () {
+                  setState(() {});
+                },
+              ),
+              SizedBox(height: 10.0),
+              PasswordStrengthField(
+                controller: controllerPw,
                 hintText: 'Mot de passe',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(15.0),
-                ),
-                prefixIcon: const Icon(Icons.lock, color: Colors.grey),
-                suffixIcon: IconButton(
-                  onPressed: () {
-                    setState(() {
-                      isPasswordVisible = !isPasswordVisible;
-                      if (isPasswordVisible) {
-                        passwordIcon = const Icon(
-                          Icons.visibility,
-                          color: Colors.grey,
-                        );
-                      } else {
-                        passwordIcon = const Icon(
-                          Icons.visibility_off,
-                          color: Colors.grey,
-                        );
-                      }
-                    });
-                  },
-                  icon: passwordIcon,
-                ),
+                isVisible: isPasswordVisible,
+                onToggle: () =>
+                    setState(() => isPasswordVisible = !isPasswordVisible),
+                showStrengthBar: false,
               ),
-              onEditingComplete: () {
-                setState(() {});
-              },
-            ),
-            SizedBox(height: 10.0),
-            FilledButton(
-              onPressed: () {
-                onLoginPressed();
-              },
-              style: FilledButton.styleFrom(
-                minimumSize: Size(double.infinity, 40.0),
+              SizedBox(height: 10.0),
+              FilledButton(
+                onPressed: () {
+                  onLoginPressed();
+                },
+                style: FilledButton.styleFrom(
+                  minimumSize: Size(double.infinity, 40.0),
+                ),
+                child: Text("Se connecter", style: TextStyle(fontSize: 16)),
               ),
-              child: Text("Se connecter", style: TextStyle(fontSize: 16)),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 
-  void onLoginPressed() {
-    if (controllerId.text == confirmedId && controllerPw.text == confirmedPw) {
-      Navigator.pushReplacement(
+  void onLoginPressed() async {
+    final id = controllerId.text.trim();
+    final pw = controllerPw.text.trim();
+    final colorScheme = Theme.of(context).colorScheme;
+
+    if (id.isEmpty || pw.isEmpty) {
+      SnakebarWidget.showSnackBar(
         context,
-        MaterialPageRoute(
-          builder: (context) {
-            return HomePage();
-          },
-        ),
+        'Veuillez remplir les deux champs.',
+        colorScheme.error,
       );
-    } else {
-      controllerPw.text = '';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Mot de passe erroné',
-            style: KTextStyle.descriptionTextStyleLightMode,
+      return;
+    }
+
+    final repo = LocalRepository();
+    try {
+      // Login with Firebase Auth - returns User profile directly
+      final user = await repo.login(id, pw);
+
+      if (!widget.chgtPw) {
+        EnterApp.build(context, user.id);
+      } else {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ConfirmationPage(id: user.id),
           ),
-        ),
+          (route) => false,
+        );
+      }
+      return;
+    } on UserProfileNotFoundException catch (e) {
+      // L'authentification a réussi mais pas de profil dans Firestore
+      // Afficher popup pour créer le profil
+      await _showCreateProfileDialog(e.matricule, pw);
+      return;
+    } catch (e) {
+      controllerPw.clear();
+      SnakebarWidget.showSnackBar(
+        context,
+        'Mot de passe erroné.',
+        colorScheme.error,
       );
+      return;
+    }
+  }
+
+  Future<void> _showCreateProfileDialog(
+    String matricule,
+    String password,
+  ) async {
+    final firstNameController = TextEditingController();
+    final lastNameController = TextEditingController();
+
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Créer votre profil'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Votre compte existe mais votre profil n\'est pas encore configuré.',
+              style: TextStyle(fontSize: 14),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: firstNameController,
+              decoration: const InputDecoration(
+                labelText: 'Prénom',
+                border: OutlineInputBorder(),
+              ),
+              textCapitalization: TextCapitalization.words,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: lastNameController,
+              decoration: const InputDecoration(
+                labelText: 'Nom',
+                border: OutlineInputBorder(),
+              ),
+              textCapitalization: TextCapitalization.words,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final firstName = firstNameController.text.trim();
+              final lastName = lastNameController.text.trim();
+
+              if (firstName.isEmpty || lastName.isEmpty) {
+                SnakebarWidget.showSnackBar(
+                  context,
+                  'Veuillez remplir tous les champs.',
+                  Theme.of(context).colorScheme.error,
+                );
+                return;
+              }
+
+              Navigator.pop(context, true);
+            },
+            child: const Text('Créer le profil'),
+          ),
+        ],
+      ),
+    );
+
+    if (result == true) {
+      final firstName = firstNameController.text.trim();
+      final lastName = lastNameController.text.trim();
+
+      try {
+        // Créer le profil utilisateur dans Firestore
+        final authService = FirebaseAuthService();
+        final user = await authService.createUserProfile(
+          matricule: matricule,
+          firstName: firstName,
+          lastName: lastName,
+        );
+
+        // Connecter l'utilisateur
+        if (!widget.chgtPw) {
+          EnterApp.build(context, user.id);
+        } else {
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ConfirmationPage(id: user.id),
+            ),
+            (route) => false,
+          );
+        }
+      } catch (e) {
+        SnakebarWidget.showSnackBar(
+          context,
+          'Erreur lors de la création du profil: $e',
+          Theme.of(context).colorScheme.error,
+        );
+      }
+    } else {
+      // Déconnecter l'utilisateur si annulation
+      final authService = FirebaseAuthService();
+      await authService.signOut();
     }
   }
 }

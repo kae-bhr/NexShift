@@ -1,0 +1,255 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ==================== FONCTIONS HELPER ====================
+
+    // Vérifier l'authentification
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Vérifier si l'utilisateur est le propriétaire
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Récupérer les données de l'utilisateur courant
+    function getCurrentUser() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    // Vérifier si l'utilisateur est admin
+    function isAdmin() {
+      return isAuthenticated() && getCurrentUser().admin == true;
+    }
+
+    // Vérifier si l'utilisateur est leader
+    function isLeader() {
+      return isAuthenticated() && getCurrentUser().status == 'leader';
+    }
+
+    // Vérifier si l'utilisateur est admin OU leader
+    function isAdminOrLeader() {
+      return isAdmin() || isLeader();
+    }
+
+    // Vérifier si l'utilisateur est chef de garde
+    function isChief() {
+      return isAuthenticated() && getCurrentUser().status == 'chief';
+    }
+
+    // Vérifier si l'utilisateur appartient à la même station
+    function isSameStation(stationId) {
+      return isAuthenticated() && getCurrentUser().station == stationId;
+    }
+
+    // Vérifier si l'utilisateur appartient à la même équipe
+    function isSameTeam(teamId) {
+      return isAuthenticated() && getCurrentUser().team == teamId;
+    }
+
+    // ==================== COLLECTION USERS ====================
+
+    match /users/{userId} {
+      // Lecture: tous les utilisateurs authentifiés peuvent lire tous les profils
+      allow read: if isAuthenticated();
+
+      // Création: uniquement pour l'inscription initiale
+      allow create: if isAuthenticated() && (
+        // L'utilisateur crée son propre compte
+        request.auth.uid == userId ||
+        // Ou c'est un admin/leader qui crée un compte
+        isAdminOrLeader()
+      );
+
+      // Mise à jour: selon les champs modifiés
+      allow update: if isAuthenticated() && (
+        // Mise à jour du token FCM uniquement (par n'importe quel utilisateur)
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fcmToken', 'fcmTokenUpdatedAt']) &&
+         isOwner(userId)) ||
+
+        // Mise à jour de certains champs par le propriétaire
+        (isOwner(userId) &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fcmToken', 'fcmTokenUpdatedAt', 'skills'])) ||
+
+        // Mise à jour complète par admin/leader
+        isAdminOrLeader()
+      );
+
+      // Suppression: uniquement par admin
+      allow delete: if isAdmin();
+    }
+
+    // ==================== COLLECTION PLANNINGS ====================
+
+    match /plannings/{planningId} {
+      // Lecture: tous les utilisateurs authentifiés de la même station
+      allow read: if isAuthenticated();
+
+      // Création/Modification: admin, leader, ou chef
+      allow create, update: if isAdminOrLeader() || isChief();
+
+      // Suppression: admin ou leader uniquement
+      allow delete: if isAdminOrLeader();
+    }
+
+    // ==================== COLLECTION SUBSHIFTS ====================
+
+    match /subshifts/{subshiftId} {
+      // Lecture: tous les authentifiés
+      allow read: if isAuthenticated();
+
+      // Création: utilisateur qui crée un remplacement pour lui-même
+      allow create: if isAuthenticated() && (
+        request.resource.data.replacedId == request.auth.uid ||
+        isAdminOrLeader()
+      );
+
+      // Mise à jour: seulement si on est concerné (replacé ou remplaçant) ou admin/leader
+      allow update: if isAuthenticated() && (
+        resource.data.replacedId == request.auth.uid ||
+        resource.data.replacerId == request.auth.uid ||
+        isAdminOrLeader()
+      );
+
+      // Suppression: seulement si on est concerné ou admin/leader
+      allow delete: if isAuthenticated() && (
+        resource.data.replacedId == request.auth.uid ||
+        resource.data.replacerId == request.auth.uid ||
+        isAdminOrLeader()
+      );
+    }
+
+    // ==================== COLLECTION REPLACEMENT REQUESTS ====================
+
+    match /replacementRequests/{requestId} {
+      // Lecture: tous les authentifiés
+      allow read: if isAuthenticated();
+
+      // Création: n'importe quel utilisateur pour lui-même
+      allow create: if isAuthenticated() && request.resource.data.requesterId == request.auth.uid;
+
+      // Mise à jour: le créateur, le remplaçant acceptant, ou admin/leader
+      allow update: if isAuthenticated() && (
+        resource.data.requesterId == request.auth.uid ||
+        request.resource.data.replacerId == request.auth.uid ||
+        isAdminOrLeader()
+      );
+
+      // Suppression: seulement le créateur ou admin/leader
+      allow delete: if isAuthenticated() && (
+        resource.data.requesterId == request.auth.uid ||
+        isAdminOrLeader()
+      );
+    }
+
+    // ==================== COLLECTION NOTIFICATION TRIGGERS ====================
+
+    match /notificationTriggers/{triggerId} {
+      // Lecture: tous les authentifiés
+      allow read: if isAuthenticated();
+
+      // Création: utilisateurs authentifiés (pour créer des notifications)
+      allow create: if isAuthenticated();
+
+      // Mise à jour: IMPORTANT - permettre aux Cloud Functions de marquer comme processed
+      // Les Cloud Functions utilisent les credentials de service
+      allow update: if true;
+
+      // Suppression: admin ou Cloud Functions
+      allow delete: if isAdmin();
+    }
+
+    // ==================== COLLECTION AVAILABILITIES ====================
+
+    match /availabilities/{availabilityId} {
+      // Lecture: tous les authentifiés
+      allow read: if isAuthenticated();
+
+      // Création: l'utilisateur pour lui-même
+      allow create: if isAuthenticated() && request.resource.data.agentId == request.auth.uid;
+
+      // Mise à jour: l'agent concerné ou admin/leader
+      allow update: if isAuthenticated() && (
+        resource.data.agentId == request.auth.uid ||
+        isAdminOrLeader()
+      );
+
+      // Suppression: l'agent concerné ou admin/leader
+      allow delete: if isAuthenticated() && (
+        resource.data.agentId == request.auth.uid ||
+        isAdminOrLeader()
+      );
+    }
+
+    // ==================== COLLECTION VEHICLES/TRUCKS ====================
+
+    match /vehicles/{vehicleId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAdminOrLeader();
+    }
+
+    match /trucks/{truckId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAdminOrLeader();
+    }
+
+    // ==================== COLLECTION TEAMS ====================
+
+    match /teams/{teamId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAdminOrLeader();
+    }
+
+    // ==================== COLLECTION STATIONS ====================
+
+    match /stations/{stationId} {
+      allow read: if isAuthenticated();
+      // Seuls les admins et leaders peuvent modifier les stations
+      allow create, update: if isAdminOrLeader();
+      allow delete: if isAdmin();
+    }
+
+    // ==================== COLLECTION SHIFT RULES ====================
+
+    match /shift_rules/{ruleId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAdminOrLeader();
+    }
+
+    // Legacy collection
+    match /shiftRules/{ruleId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAdminOrLeader();
+    }
+
+    // ==================== COLLECTION VEHICLE RULE SETS ====================
+
+    match /vehicle_rule_sets/{ruleSetId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAdminOrLeader();
+    }
+
+    // ==================== COLLECTION SHIFT EXCEPTIONS ====================
+
+    match /shift_exceptions/{exceptionId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAdminOrLeader() || isChief();
+    }
+
+    // Legacy collection
+    match /shiftExceptions/{exceptionId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAdminOrLeader() || isChief();
+    }
+
+    // ==================== RÈGLES PAR DÉFAUT ====================
+
+    // Bloquer tous les autres accès non explicitement autorisés
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
