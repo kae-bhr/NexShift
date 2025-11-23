@@ -1,3 +1,4 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/foundation.dart';
@@ -8,10 +9,30 @@ import 'debug_logger.dart';
 /// DOIT être une fonction top-level (en dehors de toute classe)
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  // S'assurer que Firebase est initialisé dans cet isolat
+  // Nécessaire car le background handler s'exécute dans un isolat séparé
+  await _ensureFirebaseInitialized();
+
   debugPrint('📬 Background message received: ${message.messageId}');
   debugPrint('  Title: ${message.notification?.title}');
   debugPrint('  Body: ${message.notification?.body}');
   debugPrint('  Data: ${message.data}');
+}
+
+/// Initialise Firebase de manière sûre (évite l'erreur duplicate-app)
+Future<void> _ensureFirebaseInitialized() async {
+  // Vérifier si Firebase est déjà initialisé
+  if (Firebase.apps.isNotEmpty) {
+    debugPrint('Firebase already initialized, skipping...');
+    return;
+  }
+
+  try {
+    await Firebase.initializeApp();
+  } catch (e) {
+    // Firebase déjà initialisé, c'est OK
+    debugPrint('Firebase initialization skipped: $e');
+  }
 }
 
 /// Service de gestion des notifications push

@@ -45,6 +45,14 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
+# iOS build artifacts
+ios/build/
+ios/.symlinks/
+ios/Pods/
+ios/Runner.xcworkspace/xcuserdata/
+ios/Runner.xcodeproj/xcuserdata/
+ios/Runner.xcodeproj/project.xcworkspace/xcuserdata/
+
 # Keystore files and sensitive configuration
 /android/*.properties
 /android/key.properties

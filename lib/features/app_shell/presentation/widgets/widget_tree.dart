@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
 import 'package:nexshift_app/core/data/datasources/notifiers.dart';
@@ -366,24 +367,67 @@ class _WidgetTreeState extends State<WidgetTree> {
                             ),
                           );
                         },
-                        child: ListTile(
-                          minTileHeight: 0.0,
-                          leading: Icon(
-                            Icons.swap_horiz,
-                            color: Theme.of(context).colorScheme.primary,
-                          ),
-                          title: Text(
-                            "Remplacements",
-                            style: TextStyle(
-                              color: Theme.of(context).colorScheme.tertiary,
-                              fontSize:
-                                  KTextStyle.descriptionTextStyle.fontSize,
-                              fontFamily:
-                                  KTextStyle.descriptionTextStyle.fontFamily,
-                              fontWeight:
-                                  KTextStyle.descriptionTextStyle.fontWeight,
-                            ),
-                          ),
+                        child: StreamBuilder<QuerySnapshot>(
+                          stream: FirebaseFirestore.instance
+                              .collection('replacementRequests')
+                              .where('status', isEqualTo: 'pending')
+                              .where('station', isEqualTo: user.station)
+                              .snapshots(),
+                          builder: (context, snapshot) {
+                            // Compter les demandes où l'utilisateur est demandeur OU notifié
+                            int pendingCount = 0;
+                            if (snapshot.hasData) {
+                              pendingCount = snapshot.data!.docs.where((doc) {
+                                final data = doc.data() as Map<String, dynamic>;
+                                final requesterId = data['requesterId'] as String?;
+                                final notifiedUserIds = List<String>.from(
+                                  data['notifiedUserIds'] ?? [],
+                                );
+                                return requesterId == user.id ||
+                                    notifiedUserIds.contains(user.id);
+                              }).length;
+                            }
+
+                            return ListTile(
+                              minTileHeight: 0.0,
+                              leading: Icon(
+                                Icons.swap_horiz,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                              title: Text(
+                                "Remplacements",
+                                style: TextStyle(
+                                  color: Theme.of(context).colorScheme.tertiary,
+                                  fontSize:
+                                      KTextStyle.descriptionTextStyle.fontSize,
+                                  fontFamily:
+                                      KTextStyle.descriptionTextStyle.fontFamily,
+                                  fontWeight:
+                                      KTextStyle.descriptionTextStyle.fontWeight,
+                                ),
+                              ),
+                              trailing: pendingCount > 0
+                                  ? Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Theme.of(context).colorScheme.primary,
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Text(
+                                        pendingCount.toString(),
+                                        style: TextStyle(
+                                          color: Theme.of(context).colorScheme.onPrimary,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    )
+                                  : null,
+                            );
+                          },
                         ),
                       ),
                     ],

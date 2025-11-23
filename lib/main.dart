@@ -45,16 +45,29 @@ void main() async {
     DeviceOrientation.portraitDown,
   ]);
 
-  // Initialize Firebase
+  // Initialize Firebase (vérifie si déjà initialisé pour éviter duplicate-app)
   try {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
-    debugPrint('Firebase initialized successfully');
-    await LogService().log('Firebase initialized', level: LogLevel.info);
+    if (Firebase.apps.isEmpty) {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+      debugPrint('Firebase initialized successfully');
+      await LogService().log('Firebase initialized', level: LogLevel.info);
+    } else {
+      debugPrint('Firebase already initialized by native plugin');
+      await LogService().log('Firebase already initialized', level: LogLevel.info);
+    }
   } catch (e) {
-    debugPrint('Error initializing Firebase: $e');
-    await LogService().log('Firebase initialization error: $e', level: LogLevel.error);
+    // Sur iOS, Firebase peut être initialisé par le plugin natif avant Dart
+    // L'erreur duplicate-app est normale et peut être ignorée
+    final errorStr = e.toString();
+    if (errorStr.contains('duplicate-app')) {
+      debugPrint('Firebase already initialized by iOS plugin - OK');
+      await LogService().log('Firebase ready (native init)', level: LogLevel.info);
+    } else {
+      debugPrint('Error initializing Firebase: $e');
+      await LogService().log('Firebase initialization error: $e', level: LogLevel.error);
+    }
   }
 
   // Initialize Push Notifications
