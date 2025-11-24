@@ -127,8 +127,18 @@ List<Subshift> resolveReplacementCascades(List<Subshift> subshifts) {
     while (!foundOriginal && iteration < maxIterations) {
       iteration++;
 
+      // IMPORTANT: On cherche un subshift où:
+      // 1. Le remplaçant (replacerId) est celui qu'on cherche à remonter (finalReplacedId)
+      // 2. Les périodes se chevauchent (au moins partiellement)
+      // 3. C'est le même planning
       final parentReplacement = subshifts.firstWhereOrNull(
-        (s) => s.replacerId == finalReplacedId && s.id != subshift.id,
+        (s) =>
+            s.replacerId == finalReplacedId &&
+            s.id != subshift.id &&
+            s.planningId == subshift.planningId &&
+            // Vérifier le chevauchement temporel
+            s.start.isBefore(subshift.end) &&
+            s.end.isAfter(subshift.start),
       );
 
       if (parentReplacement != null) {

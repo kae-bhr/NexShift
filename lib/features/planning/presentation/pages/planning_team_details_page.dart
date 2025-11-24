@@ -189,7 +189,9 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
     final Map<String, String> activeReplacementMap =
         {}; // replacedId -> replacerId
 
-    for (final s in subshifts) {
+    // IMPORTANT: Utiliser _subshifts (après resolveReplacementCascades) pour être
+    // cohérent avec le build() qui utilise aussi _subshifts
+    for (final s in _subshifts) {
       final start = s.start.toUtc();
       final end = s.end.toUtc();
       if ((start.isBefore(atUtc) || start.isAtSameMomentAs(atUtc)) &&
