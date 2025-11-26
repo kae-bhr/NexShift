@@ -293,17 +293,26 @@ class ReplacementNotificationService {
 
       if (wave1Users.isEmpty) {
         debugPrint('⚠️ No team members available, wave 1 is empty');
-        // Mettre lastWaveSentAt à une date très ancienne (1970) pour forcer
-        // la Cloud Function à traiter immédiatement la vague suivante
+        // Mettre à jour currentWave sans lastWaveSentAt pour permettre
+        // le traitement immédiat de la vague suivante
         await firestore
             .collection('replacementRequests')
             .doc(request.id)
             .update({
               'currentWave': 1,
               'notifiedUserIds': [],
-              'lastWaveSentAt': Timestamp.fromDate(DateTime(1970, 1, 1)),
+              // NE PAS mettre lastWaveSentAt, pour forcer le traitement immédiat
             });
-        debugPrint('  → Cloud Function will process next wave immediately');
+
+        // Créer un document trigger spécial pour traiter la vague suivante immédiatement
+        await firestore.collection('waveSkipTriggers').add({
+          'requestId': request.id,
+          'skippedWave': 1,
+          'createdAt': FieldValue.serverTimestamp(),
+          'processed': false,
+        });
+
+        debugPrint('  → Wave skip trigger created, next wave will be processed immediately');
         return;
       }
 

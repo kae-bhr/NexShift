@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:lottie/lottie.dart';
 import 'package:nexshift_app/core/data/datasources/notifiers.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
@@ -163,7 +164,7 @@ class _WidgetTreeState extends State<WidgetTree> {
         if (didPop) return;
         final shouldPop = await _onWillPop();
         if (shouldPop && context.mounted) {
-          Navigator.of(context).pop();
+          SystemNavigator.pop();
         }
       },
       child: Scaffold(
@@ -373,20 +374,72 @@ class _WidgetTreeState extends State<WidgetTree> {
                               .where('status', isEqualTo: 'pending')
                               .where('station', isEqualTo: user.station)
                               .snapshots(),
-                          builder: (context, snapshot) {
-                            // Compter les demandes où l'utilisateur est demandeur OU notifié
-                            int pendingCount = 0;
-                            if (snapshot.hasData) {
-                              pendingCount = snapshot.data!.docs.where((doc) {
-                                final data = doc.data() as Map<String, dynamic>;
-                                final requesterId = data['requesterId'] as String?;
-                                final notifiedUserIds = List<String>.from(
-                                  data['notifiedUserIds'] ?? [],
-                                );
-                                return requesterId == user.id ||
-                                    notifiedUserIds.contains(user.id);
-                              }).length;
+                          builder: (context, requestsSnapshot) {
+                            if (!requestsSnapshot.hasData) {
+                              return ListTile(
+                                minTileHeight: 0.0,
+                                leading: Icon(
+                                  Icons.swap_horiz,
+                                  color: Theme.of(context).colorScheme.primary,
+                                ),
+                                title: Text(
+                                  "Remplacements",
+                                  style: TextStyle(
+                                    color: Theme.of(context).colorScheme.tertiary,
+                                    fontSize: KTextStyle.descriptionTextStyle.fontSize,
+                                    fontFamily: KTextStyle.descriptionTextStyle.fontFamily,
+                                    fontWeight: KTextStyle.descriptionTextStyle.fontWeight,
+                                  ),
+                                ),
+                              );
                             }
+
+                            return StreamBuilder<QuerySnapshot>(
+                              stream: FirebaseFirestore.instance
+                                  .collection('replacementRequestDeclines')
+                                  .where('userId', isEqualTo: user.id)
+                                  .snapshots(),
+                              builder: (context, declinesSnapshot) {
+                                // Compter les demandes où l'utilisateur est demandeur OU notifié
+                                // ET n'a PAS refusé
+                                int pendingCount = 0;
+
+                                if (declinesSnapshot.hasData) {
+                                  final declinedRequestIds = declinesSnapshot.data!.docs
+                                      .map((doc) {
+                                        final data = doc.data() as Map<String, dynamic>;
+                                        return data['requestId'] as String;
+                                      })
+                                      .toSet();
+
+                                  pendingCount = requestsSnapshot.data!.docs.where((doc) {
+                                    final data = doc.data() as Map<String, dynamic>;
+                                    final requestId = doc.id;
+                                    final requesterId = data['requesterId'] as String?;
+                                    final notifiedUserIds = List<String>.from(
+                                      data['notifiedUserIds'] ?? [],
+                                    );
+
+                                    // Exclure les demandes refusées par l'utilisateur
+                                    if (declinedRequestIds.contains(requestId)) {
+                                      return false;
+                                    }
+
+                                    return requesterId == user.id ||
+                                        notifiedUserIds.contains(user.id);
+                                  }).length;
+                                } else {
+                                  // Si pas encore de données sur les refus, compter toutes les demandes
+                                  pendingCount = requestsSnapshot.data!.docs.where((doc) {
+                                    final data = doc.data() as Map<String, dynamic>;
+                                    final requesterId = data['requesterId'] as String?;
+                                    final notifiedUserIds = List<String>.from(
+                                      data['notifiedUserIds'] ?? [],
+                                    );
+                                    return requesterId == user.id ||
+                                        notifiedUserIds.contains(user.id);
+                                  }).length;
+                                }
 
                             return ListTile(
                               minTileHeight: 0.0,
@@ -426,6 +479,8 @@ class _WidgetTreeState extends State<WidgetTree> {
                                       ),
                                     )
                                   : null,
+                            );
+                              },
                             );
                           },
                         ),

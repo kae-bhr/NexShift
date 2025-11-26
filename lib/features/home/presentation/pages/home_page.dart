@@ -746,7 +746,13 @@ class _HomePageState extends State<HomePage> {
   Future<void> _openAddSubPlanningDialog(Planning planning) async {
     final sub = await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => ReplacementPage(planning: planning)),
+      MaterialPageRoute(
+        builder: (_) => ReplacementPage(
+          planning: planning,
+          currentUser: _user,
+          isManualMode: true, // Mode manuel
+        ),
+      ),
     );
 
     if (sub != null && mounted) {
@@ -955,16 +961,20 @@ class _HomePageState extends State<HomePage> {
                                                     "Je souhaite m'absenter",
                                                   ),
                                                 ),
-                                              if ((_user.admin ||
+                                              if (!isAvailability &&
+                                                  (_user.admin ||
+                                                      _user.status ==
+                                                          KConstants
+                                                              .statusLeader ||
                                                       (_user.status ==
                                                               KConstants
                                                                   .statusChief &&
                                                           _user.team ==
                                                               planning.team) ||
-                                                      _user.status ==
-                                                          KConstants
-                                                              .statusLeader) &&
-                                                  !isAvailability)
+                                                      ((isOnGuard &&
+                                                              !isReplacedFully) ||
+                                                          replacerSubshift !=
+                                                              null)))
                                                 TextButton(
                                                   onPressed: () =>
                                                       _openAddSubPlanningDialog(

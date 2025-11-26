@@ -16,6 +16,7 @@ import 'package:nexshift_app/features/settings/presentation/pages/logs_viewer_pa
 import 'package:nexshift_app/features/skills/presentation/pages/skills_page.dart';
 import 'package:nexshift_app/features/settings/presentation/pages/notification_settings_page.dart';
 import 'package:nexshift_app/features/settings/presentation/pages/sync_settings_page.dart';
+import 'package:nexshift_app/features/settings/presentation/pages/similar_agents_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -190,6 +191,21 @@ class _SettingsPageState extends State<SettingsPage> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(builder: (context) => const SkillsPage()),
+                  );
+                },
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.people_outline, color: Colors.blue),
+                title: const Text('Agents similaires'),
+                subtitle: const Text('Découvrez qui vous ressemble le plus'),
+                trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const SimilarAgentsPage(),
+                    ),
                   );
                 },
               ),

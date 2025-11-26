@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:nexshift_app/core/repositories/local_repositories.dart';
 import 'package:nexshift_app/core/repositories/subshift_repositories.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
@@ -16,12 +17,16 @@ class ReplacementPage extends StatefulWidget {
   final User? currentUser;
   // optional: when provided this indicates we are replacing a replacer's subshift
   final Subshift? parentSubshift;
+  // Mode manuel = proposition directe à une personne
+  // Mode automatique = recherche avec système de vagues
+  final bool isManualMode;
 
   const ReplacementPage({
     super.key,
     required this.planning,
     this.currentUser,
     this.parentSubshift,
+    this.isManualMode = false, // Par défaut: mode automatique
   });
 
   @override
@@ -38,12 +43,30 @@ class _ReplacementPageState extends State<ReplacementPage> {
   DateTime? endDateTime;
   String? error;
 
-  bool get isValid =>
-      replacedId != null &&
-      replacerId != null &&
-      startDateTime != null &&
-      endDateTime != null &&
-      error == null;
+  bool get isValid {
+    // Mode manuel: require both replaced and replacer
+    if (widget.isManualMode) {
+      return replacedId != null &&
+          replacerId != null &&
+          startDateTime != null &&
+          endDateTime != null &&
+          error == null;
+    }
+    // Mode automatique: require only dates (replaced = current user)
+    return replacedId != null &&
+        startDateTime != null &&
+        endDateTime != null &&
+        error == null;
+  }
+
+  /// Determine if the current user can select who to replace
+  /// Only admins, leaders, and team chiefs (of the planning's team) can select
+  bool get canSelectReplaced =>
+      widget.currentUser != null &&
+      (widget.currentUser!.admin ||
+          widget.currentUser!.status == KConstants.statusLeader ||
+          (widget.currentUser!.status == KConstants.statusChief &&
+              widget.currentUser!.team == widget.planning.team));
 
   /// Determine if text should be dark or light based on background luminance.
   /// If backgroundColor is null, uses the theme cardColor (Card default bg).
@@ -423,6 +446,14 @@ class _ReplacementPageState extends State<ReplacementPage> {
       return;
     }
 
+    // For manual replacements, send a proposal to the replacer
+    // instead of saving directly
+    // Exception: when replacing a replacer's subshift (parentSubshift), save directly
+    if (widget.parentSubshift == null) {
+      await _sendManualReplacementProposal();
+      return;
+    }
+
     // If we are replacing a replacer's subshift (parentSubshift provided), we need to split/replace that parent
     if (widget.parentSubshift != null) {
       final p = widget.parentSubshift!;
@@ -511,22 +542,114 @@ class _ReplacementPageState extends State<ReplacementPage> {
     if (mounted) Navigator.pop(context, subshift);
   }
 
+  /// Send a manual replacement proposal to the replacer
+  /// The replacer will receive a notification and can accept or decline
+  Future<void> _sendManualReplacementProposal() async {
+    try {
+      // Determine who is the proposer (current user if provided, otherwise use replacedId as proposer)
+      User proposerUser;
+      if (widget.currentUser != null) {
+        proposerUser = widget.currentUser!;
+      } else {
+        // Fallback: shouldn't happen but handle gracefully
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text("Utilisateur non trouvé")));
+        return;
+      }
+
+      // Get the replaced and replacer users
+      final replacedUser = allUsers.firstWhere(
+        (u) => u.id == replacedId,
+        orElse: User.empty,
+      );
+      final replacerUser = allUsers.firstWhere(
+        (u) => u.id == replacerId,
+        orElse: User.empty,
+      );
+
+      if (replacedUser.id.isEmpty || replacerUser.id.isEmpty) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text("Utilisateur non trouvé")));
+        return;
+      }
+
+      // Create a proposal document in Firestore
+      final proposalRef = FirebaseFirestore.instance
+          .collection('manualReplacementProposals')
+          .doc();
+
+      await proposalRef.set({
+        'id': proposalRef.id,
+        'proposerId': proposerUser.id,
+        'proposerName': '${proposerUser.firstName} ${proposerUser.lastName}',
+        'replacedId': replacedId,
+        'replacedName': '${replacedUser.firstName} ${replacedUser.lastName}',
+        'replacerId': replacerId,
+        'replacerName': '${replacerUser.firstName} ${replacerUser.lastName}',
+        'planningId': widget.planning.id,
+        'startTime': Timestamp.fromDate(startDateTime!),
+        'endTime': Timestamp.fromDate(endDateTime!),
+        'status': 'pending', // pending, accepted, declined
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      // Send notification to the replacer via notificationTriggers
+      await FirebaseFirestore.instance.collection('notificationTriggers').add({
+        'type': 'manual_replacement_proposal',
+        'proposalId': proposalRef.id,
+        'proposerId': proposerUser.id,
+        'proposerName': '${proposerUser.firstName} ${proposerUser.lastName}',
+        'replacedId': replacedId,
+        'replacedName': '${replacedUser.firstName} ${replacedUser.lastName}',
+        'replacerId': replacerId,
+        'planningId': widget.planning.id,
+        'startTime': Timestamp.fromDate(startDateTime!),
+        'endTime': Timestamp.fromDate(endDateTime!),
+        'targetUserIds': [replacerId],
+        'createdAt': FieldValue.serverTimestamp(),
+        'processed': false,
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              "Proposition envoyée à ${replacerUser.firstName} ${replacerUser.lastName}",
+            ),
+          ),
+        );
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      debugPrint('❌ Error sending manual replacement proposal: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Erreur lors de l'envoi de la proposition"),
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _searchForReplacer() async {
     // Validate first
     _validate();
     if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error!)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error!)));
       return;
     }
 
     // Get the current user (replaced agent)
     final currentUser = widget.currentUser;
     if (currentUser == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Utilisateur non trouvé")),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("Utilisateur non trouvé")));
       return;
     }
 
@@ -560,7 +683,7 @@ class _ReplacementPageState extends State<ReplacementPage> {
 
     return Scaffold(
       appBar: CustomAppBar(
-        title: widget.currentUser == null
+        title: widget.isManualMode
             ? "Remplacement manuel"
             : "Recherche de remplaçant",
         bottomColor: KColors.appNameColor,
@@ -569,29 +692,41 @@ class _ReplacementPageState extends State<ReplacementPage> {
         padding: const EdgeInsets.all(16),
         child: ListView(
           children: [
-            // If a currentUser was provided, the replaced agent is forced and not selectable
-            if (widget.currentUser == null)
-              DropdownButtonFormField<String>(
-                value: replacedId,
-                decoration: const InputDecoration(labelText: "Remplacé"),
-                items: replacedCandidates
-                    .map(
-                      (u) => DropdownMenuItem(
-                        value: u.id,
-                        child: Text("${u.lastName} ${u.firstName}"),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (v) {
-                  setState(() {
-                    replacedId = v;
-                  });
-                  _validate();
-                },
-              ),
-            const SizedBox(height: 12),
-            // If currentUser is provided, we hide the replacer selector and switch to search mode
-            if (widget.currentUser == null)
+            // MODE MANUEL: afficher les champs Remplacé et Remplaçant
+            if (widget.isManualMode) ...[
+              // "Remplacé" field: only show dropdown if user has permission
+              // Otherwise show read-only field with their name
+              if (canSelectReplaced)
+                DropdownButtonFormField<String>(
+                  value: replacedId,
+                  decoration: const InputDecoration(labelText: "Remplacé"),
+                  items: replacedCandidates
+                      .map(
+                        (u) => DropdownMenuItem(
+                          value: u.id,
+                          child: Text("${u.lastName} ${u.firstName}"),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (v) {
+                    setState(() {
+                      replacedId = v;
+                    });
+                    _validate();
+                  },
+                )
+              else if (widget.currentUser != null)
+                // Show read-only field with current user's name
+                TextFormField(
+                  initialValue:
+                      "${widget.currentUser!.lastName} ${widget.currentUser!.firstName}",
+                  decoration: const InputDecoration(labelText: "Remplacé"),
+                  readOnly: true,
+                  enabled: false,
+                ),
+              const SizedBox(height: 12),
+              // Show replacer dropdown for all users (both privileged and regular)
+              // Everyone can select the replacer
               DropdownButtonFormField<String>(
                 value: replacerId,
                 decoration: const InputDecoration(labelText: "Remplaçant"),
@@ -608,7 +743,10 @@ class _ReplacementPageState extends State<ReplacementPage> {
                   _validate();
                 },
               ),
-            const SizedBox(height: 16),
+              const SizedBox(height: 16),
+            ],
+            // MODE AUTOMATIQUE: pas de champs, juste les horaires
+            // Le remplacé = user courant, le remplaçant sera déterminé par les vagues
             PlanningTile(
               planning: widget.planning,
               startDateTime: startDateTime,
@@ -617,20 +755,19 @@ class _ReplacementPageState extends State<ReplacementPage> {
               onTap: () => _showDateTimePickerDialog(),
             ),
             const SizedBox(height: 16),
-            if (widget.currentUser == null)
-              ElevatedButton.icon(
-                onPressed: isValid ? _save : null,
-                icon: const Icon(Icons.check),
-                label: const Text("Valider"),
-              )
-            else
-              ElevatedButton.icon(
-                onPressed: () => _searchForReplacer(),
-                icon: const Icon(Icons.search),
-                label: const Text("Rechercher un remplaçant"),
+            // Bouton différent selon le mode
+            ElevatedButton.icon(
+              onPressed: isValid
+                  ? (widget.isManualMode ? _save : _searchForReplacer)
+                  : null,
+              icon: Icon(widget.isManualMode ? Icons.check : Icons.search),
+              label: Text(
+                widget.isManualMode ? "Valider" : "Rechercher un remplaçant",
               ),
+            ),
 
             // --- Display uncovered periods for the selected replaced agent ---
+            // Affiché en mode automatique ET manuel
             const SizedBox(height: 16),
             if (replacedId != null) ...[
               Builder(
@@ -699,187 +836,197 @@ class _ReplacementPageState extends State<ReplacementPage> {
               ),
             ],
 
-            // --- Display unavailable periods for the selected replacer ---
-            if (replacerId != null) ...[
-              const SizedBox(height: 12),
-              Builder(
-                builder: (context) {
-                  final user = allUsers.firstWhere(
-                    (u) => u.id == replacerId,
-                    orElse: User.empty,
-                  );
-                  final busy = _unavailablePeriodsFor(replacerId!);
-                  final cardColor = busy.isEmpty ? Colors.green[50] : null;
-                  final textColor = _adaptiveTextColor(
-                    context,
-                    backgroundColor: cardColor,
-                  );
-                  return Card(
-                    color: cardColor,
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            "Périodes où ${user.firstName} ${user.lastName} est indisponible :",
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: textColor,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          if (busy.isEmpty)
+            // --- Sections affichées seulement en mode manuel ---
+            if (widget.isManualMode) ...[
+              // --- Display unavailable periods for the selected replacer ---
+              if (replacerId != null) ...[
+                const SizedBox(height: 12),
+                Builder(
+                  builder: (context) {
+                    final user = allUsers.firstWhere(
+                      (u) => u.id == replacerId,
+                      orElse: User.empty,
+                    );
+                    final busy = _unavailablePeriodsFor(replacerId!);
+                    final cardColor = busy.isEmpty ? Colors.green[50] : null;
+                    final textColor = _adaptiveTextColor(
+                      context,
+                      backgroundColor: cardColor,
+                    );
+                    return Card(
+                      color: cardColor,
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
                             Text(
-                              "Aucune indisponibilité détectée.",
-                              style: TextStyle(color: textColor),
-                            )
-                          else
-                            ...busy.map((g) {
-                              final s = g['start']!;
-                              final e = g['end']!;
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 4,
-                                ),
-                                child: Row(
-                                  children: [
-                                    const Icon(
-                                      Icons.block,
-                                      size: 16,
-                                      color: Colors.orange,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Text(
-                                        "${DateFormat('dd/MM/yyyy HH:mm').format(s)} — ${DateFormat('dd/MM/yyyy HH:mm').format(e)}",
-                                        style: TextStyle(color: textColor),
+                              "Périodes où ${user.firstName} ${user.lastName} est indisponible :",
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: textColor,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            if (busy.isEmpty)
+                              Text(
+                                "Aucune indisponibilité détectée.",
+                                style: TextStyle(color: textColor),
+                              )
+                            else
+                              ...busy.map((g) {
+                                final s = g['start']!;
+                                final e = g['end']!;
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 4,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.block,
+                                        size: 16,
+                                        color: Colors.orange,
                                       ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            }).toList(),
-                        ],
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          "${DateFormat('dd/MM/yyyy HH:mm').format(s)} — ${DateFormat('dd/MM/yyyy HH:mm').format(e)}",
+                                          style: TextStyle(color: textColor),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }).toList(),
+                          ],
+                        ),
                       ),
-                    ),
-                  );
-                },
-              ),
-            ],
+                    );
+                  },
+                ),
+              ],
 
-            // --- Skills impact due to the replacement ---
-            if ((widget.currentUser == null) && (replacedId != null)) ...[
-              const SizedBox(height: 12),
-              Builder(
-                builder: (context) {
-                  final replacedUser = allUsers.firstWhere(
-                    (u) => u.id == replacedId,
-                    orElse: User.empty,
-                  );
-                  final replacerUser = replacerId != null
-                      ? allUsers.firstWhere(
-                          (u) => u.id == replacerId,
-                          orElse: User.empty,
-                        )
-                      : User.empty();
-                  final replacedSkills = Set<String>.from(replacedUser.skills);
-                  final replacerSkills = Set<String>.from(replacerUser.skills);
-                  final gained =
-                      replacerSkills.difference(replacedSkills).toList()
-                        ..sort();
-                  final lost =
-                      replacedSkills.difference(replacerSkills).toList()
-                        ..sort();
-                  return Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            "Impact sur les compétences :",
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(height: 8),
-                          if (gained.isEmpty && lost.isEmpty)
-                            const Text(
-                              "Aucun impact sur les compétences pour la période sélectionnée.",
-                            ),
-                          if (gained.isNotEmpty) ...[
-                            const Text(
-                              "Compétences gagnées :",
-                              style: TextStyle(
-                                color: Colors.green,
-                                fontWeight: FontWeight.w600,
+              // --- Skills impact due to the replacement ---
+              // Afficher le delta de compétences seulement en mode manuel
+              if (canSelectReplaced && (replacedId != null)) ...[
+                const SizedBox(height: 12),
+                Builder(
+                  builder: (context) {
+                    final replacedUser = allUsers.firstWhere(
+                      (u) => u.id == replacedId,
+                      orElse: User.empty,
+                    );
+                    final replacerUser = replacerId != null
+                        ? allUsers.firstWhere(
+                            (u) => u.id == replacerId,
+                            orElse: User.empty,
+                          )
+                        : User.empty();
+                    final replacedSkills = Set<String>.from(
+                      replacedUser.skills,
+                    );
+                    final replacerSkills = Set<String>.from(
+                      replacerUser.skills,
+                    );
+                    final gained =
+                        replacerSkills.difference(replacedSkills).toList()
+                          ..sort();
+                    final lost =
+                        replacedSkills.difference(replacerSkills).toList()
+                          ..sort();
+                    return Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              "Impact sur les compétences :",
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
                               ),
                             ),
-                            const SizedBox(height: 6),
-                            ...gained.map(
-                              (s) => Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 2.0,
-                                ),
-                                child: Row(
-                                  children: [
-                                    const Icon(
-                                      Icons.add_circle,
-                                      size: 16,
-                                      color: Colors.green,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Expanded(child: Text(s)),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                          if (lost.isNotEmpty) ...[
                             const SizedBox(height: 8),
-                            const Text(
-                              "Compétences perdues :",
-                              style: TextStyle(
-                                color: Colors.red,
-                                fontWeight: FontWeight.w600,
+                            if (gained.isEmpty && lost.isEmpty)
+                              const Text(
+                                "Aucun impact sur les compétences pour la période sélectionnée.",
                               ),
-                            ),
-                            const SizedBox(height: 6),
-                            ...lost.map(
-                              (s) => Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 2.0,
-                                ),
-                                child: Row(
-                                  children: [
-                                    const Icon(
-                                      Icons.remove_circle,
-                                      size: 16,
-                                      color: Colors.red,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Expanded(child: Text(s)),
-                                  ],
+                            if (gained.isNotEmpty) ...[
+                              const Text(
+                                "Compétences gagnées :",
+                                style: TextStyle(
+                                  color: Colors.green,
+                                  fontWeight: FontWeight.w600,
                                 ),
                               ),
-                            ),
-                          ],
-                          if (replacerId == null && lost.isNotEmpty) ...[
-                            const SizedBox(height: 8),
-                            const Text(
-                              "Remarque : aucun remplaçant sélectionné — ces compétences seraient perdues si elles ne sont pas  uvertes.",
-                              style: TextStyle(
-                                color: Colors.black54,
-                                fontStyle: FontStyle.italic,
+                              const SizedBox(height: 6),
+                              ...gained.map(
+                                (s) => Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 2.0,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.add_circle,
+                                        size: 16,
+                                        color: Colors.green,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(child: Text(s)),
+                                    ],
+                                  ),
+                                ),
                               ),
-                            ),
+                            ],
+                            if (lost.isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              const Text(
+                                "Compétences perdues :",
+                                style: TextStyle(
+                                  color: Colors.red,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              ...lost.map(
+                                (s) => Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 2.0,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.remove_circle,
+                                        size: 16,
+                                        color: Colors.red,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(child: Text(s)),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                            if (replacerId == null && lost.isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              const Text(
+                                "Remarque : aucun remplaçant sélectionné — ces compétences seraient perdues si elles ne sont pas  uvertes.",
+                                style: TextStyle(
+                                  color: Colors.black54,
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                            ],
                           ],
-                        ],
+                        ),
                       ),
-                    ),
-                  );
-                },
-              ),
-            ],
+                    );
+                  },
+                ),
+              ],
+            ], // Fin du bloc if (widget.isManualMode)
           ],
         ),
       ),

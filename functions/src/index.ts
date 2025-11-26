@@ -188,6 +188,30 @@ export const sendReplacementNotifications = onDocumentCreated(
         );
         break;
 
+      case "manual_replacement_proposal":
+        notification = {
+          title: "🔄 Proposition de remplacement",
+          body:
+              `${trigger.proposerName} propose que vous ` +
+              `remplaciez ${trigger.replacedName} du ` +
+              `${formatDate(trigger.startTime.toDate())} au ` +
+              `${formatDate(trigger.endTime.toDate())}`,
+        };
+        data = {
+          type: "manual_replacement_proposal",
+          proposalId: trigger.proposalId,
+          proposerId: trigger.proposerId,
+          proposerName: trigger.proposerName,
+          replacedId: trigger.replacedId,
+          replacedName: trigger.replacedName,
+          planningId: trigger.planningId,
+        };
+        console.log(
+          "  📨 Manual replacement proposal notification: " +
+            `${trigger.proposerName} → ${trigger.replacedName}`,
+        );
+        break;
+
       default:
         console.error("❌ Unknown notification type:", type);
         await snapshot.ref.update({
@@ -212,13 +236,24 @@ export const sendReplacementNotifications = onDocumentCreated(
             sound: "default",
             clickAction: "FLUTTER_NOTIFICATION_CLICK",
           },
+          ttl: 86400, // 24 heures (en secondes)
+          collapseKey: `replacement_${type}`,
         },
         apns: {
+          headers: {
+            "apns-priority": "10", // Priorité immédiate
+            "apns-expiration": String(Math.floor(Date.now() / 1000) + 86400),
+          },
           payload: {
             aps: {
-              sound: "default",
-              badge: 1,
-              contentAvailable: true,
+              "alert": {
+                title: notification.title,
+                body: notification.body,
+              },
+              "sound": "default",
+              "badge": 1,
+              "mutable-content": 1,
+              "content-available": 1,
             },
           },
         },
@@ -238,14 +273,47 @@ export const sendReplacementNotifications = onDocumentCreated(
           `❌ Failed to send ${response.failureCount} ` +
           "notification(s)",
         );
+
+        // Nettoyer les tokens invalides
+        const batch = db.batch();
+        let invalidTokensCount = 0;
+
         response.responses.forEach((resp, idx) => {
           if (!resp.success) {
             console.error(
               `  Error for token ${idx}:`,
               resp.error,
             );
+
+            // Si le token est invalide/non enregistré,
+            // le supprimer de Firestore
+            const errorCode = resp.error?.code;
+            if (
+              errorCode === "messaging/invalid-registration-token" ||
+              errorCode === "messaging/registration-token-not-registered"
+            ) {
+              const userId = targetUserIds[idx];
+
+              console.log(
+                `  🧹 Cleaning invalid token for user ${userId}`,
+              );
+
+              // Supprimer le token du document utilisateur
+              batch.update(
+                db.collection("users").doc(userId),
+                {fcmToken: null},
+              );
+              invalidTokensCount++;
+            }
           }
         });
+
+        if (invalidTokensCount > 0) {
+          await batch.commit();
+          console.log(
+            `  🧹 Cleaned ${invalidTokensCount} invalid token(s)`,
+          );
+        }
       }
 
       // Marquer comme traité
@@ -604,6 +672,226 @@ function checkIfFullyCovered(
 
   return false;
 }
+
+/**
+ * Cloud Function pour envoyer une notification de test
+ * Permet aux admins de tester la réception de notifications push
+ */
+export const sendTestNotification = onDocumentCreated(
+  "testNotifications/{testId}",
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) {
+      console.log("No data associated with the event");
+      return;
+    }
+
+    const test = snapshot.data();
+
+    try {
+      const targetUserId = test.targetUserId as string;
+      const adminId = test.adminId as string;
+
+      console.log(
+        `🧪 Sending test notification to user ${targetUserId} ` +
+        `(requested by ${adminId})`,
+      );
+
+      // Récupérer le token FCM de l'utilisateur cible
+      const db = getFirestore();
+      const userDoc = await db.collection("users").doc(targetUserId).get();
+
+      if (!userDoc.exists) {
+        console.error(`❌ User ${targetUserId} not found`);
+        await snapshot.ref.update({
+          processed: true,
+          processedAt: Timestamp.now(),
+          error: "User not found",
+        });
+        return;
+      }
+
+      const fcmToken = userDoc.data()?.fcmToken;
+      if (!fcmToken) {
+        console.error(`❌ No FCM token for user ${targetUserId}`);
+        await snapshot.ref.update({
+          processed: true,
+          processedAt: Timestamp.now(),
+          error: "No FCM token found",
+        });
+        return;
+      }
+
+      // Récupérer les infos de l'admin
+      const adminDoc = await db.collection("users").doc(adminId).get();
+      const adminName = adminDoc.exists ?
+        `${adminDoc.data()?.firstName} ${adminDoc.data()?.lastName}` :
+        "Admin";
+
+      // Construire le message de test
+      const notification = {
+        title: "🧪 Notification de test",
+        body:
+          `Test envoyé par ${adminName}. ` +
+          "Si vous voyez ce message, les notifications fonctionnent !",
+      };
+
+      const data = {
+        type: "test_notification",
+        adminId: adminId,
+        timestamp: new Date().toISOString(),
+      };
+
+      // Envoyer la notification
+      const messaging = getMessaging();
+      const message = {
+        notification,
+        data,
+        token: fcmToken,
+        android: {
+          priority: "high" as const,
+          notification: {
+            channelId: "nexshift_replacement_channel",
+            priority: "high" as const,
+            sound: "default",
+            clickAction: "FLUTTER_NOTIFICATION_CLICK",
+          },
+          ttl: 86400,
+        },
+        apns: {
+          headers: {
+            "apns-priority": "10",
+            "apns-expiration": String(Math.floor(Date.now() / 1000) + 86400),
+          },
+          payload: {
+            aps: {
+              "alert": {
+                title: notification.title,
+                body: notification.body,
+              },
+              "sound": "default",
+              "badge": 1,
+              "mutable-content": 1,
+              "content-available": 1,
+            },
+          },
+        },
+      };
+
+      console.log("  🚀 Sending test notification...");
+      const response = await messaging.send(message);
+
+      console.log(`✅ Test notification sent successfully: ${response}`);
+
+      // Marquer comme traité
+      await snapshot.ref.update({
+        processed: true,
+        processedAt: Timestamp.now(),
+        success: true,
+        messageId: response,
+      });
+    } catch (error) {
+      console.error("💥 Error sending test notification:", error);
+
+      // Gérer les tokens invalides
+      const errorCode = (error as {code?: string})?.code;
+      if (
+        errorCode === "messaging/invalid-registration-token" ||
+        errorCode === "messaging/registration-token-not-registered"
+      ) {
+        console.log(`  🧹 Cleaning invalid token for user ${test.targetUserId}`);
+        const db = getFirestore();
+        await db.collection("users").doc(test.targetUserId).update({
+          fcmToken: null,
+        });
+      }
+
+      // Marquer comme échoué
+      await snapshot.ref.update({
+        processed: true,
+        processedAt: Timestamp.now(),
+        error: String(error),
+      });
+
+      throw error;
+    }
+  },
+);
+
+/**
+ * Cloud Function pour traiter immédiatement les vagues vides
+ * S'exécute lorsqu'une vague est vide et qu'il faut passer à la suivante
+ */
+export const processEmptyWave = onDocumentCreated(
+  "waveSkipTriggers/{triggerId}",
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) {
+      console.log("No data associated with the event");
+      return;
+    }
+
+    const trigger = snapshot.data();
+
+    // Vérifier si déjà traité
+    if (trigger.processed) {
+      console.log("Trigger already processed:", event.params.triggerId);
+      return;
+    }
+
+    try {
+      const requestId = trigger.requestId as string;
+      const skippedWave = trigger.skippedWave as number;
+
+      console.log(
+        `🌊 Processing empty wave skip for request ${requestId} ` +
+        `(skipped wave: ${skippedWave})`,
+      );
+
+      const db = getFirestore();
+
+      // Récupérer la demande
+      const requestDoc = await db
+        .collection("replacementRequests")
+        .doc(requestId)
+        .get();
+
+      if (!requestDoc.exists) {
+        console.error(`  ❌ Request not found: ${requestId}`);
+        await snapshot.ref.update({
+          processed: true,
+          processedAt: Timestamp.now(),
+          error: "Request not found",
+        });
+        return;
+      }
+
+      const request = requestDoc.data() as ReplacementRequestData;
+
+      // Envoyer immédiatement la vague suivante
+      await sendNextWave(requestId, request);
+
+      // Marquer comme traité
+      await snapshot.ref.update({
+        processed: true,
+        processedAt: Timestamp.now(),
+      });
+
+      console.log(
+        `  ✅ Empty wave processed, next wave sent for request ${requestId}`,
+      );
+    } catch (error) {
+      console.error("💥 Error processing empty wave:", error);
+
+      // Marquer comme échoué
+      await snapshot.ref.update({
+        processed: true,
+        processedAt: Timestamp.now(),
+        error: String(error),
+      });
+    }
+  },
+);
 
 /**
  * Cloud Function pour traiter les vagues de notifications progressives
@@ -1128,3 +1416,189 @@ async function sendNextWave(
     );
   }
 }
+
+/**
+ * Cloud Function pour gérer l'acceptation d'une proposition
+ * de remplacement manuel
+ * Écoute les mises à jour dans manualReplacementProposals
+ * où le statut passe à "accepted"
+ */
+export const handleManualReplacementAcceptance = onDocumentCreated(
+  "manualReplacementProposals/{proposalId}",
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) {
+      console.log("No data associated with the event");
+      return;
+    }
+
+    const proposalId = event.params.proposalId;
+
+    // Attendre que le statut soit "accepted"
+    // Cette fonction sera réexécutée par un trigger client
+    // Pour l'instant, on ne fait rien au moment de la création
+    console.log(
+      `📝 Manual replacement proposal created: ${proposalId}`,
+    );
+  },
+);
+
+/**
+ * Cloud Function pour créer le subshift et envoyer les notifications
+ * quand une proposition de remplacement manuel est acceptée
+ */
+export const onManualReplacementAccepted = onDocumentCreated(
+  "manualReplacementAcceptances/{acceptanceId}",
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) {
+      console.log("No data associated with the event");
+      return;
+    }
+
+    const acceptance = snapshot.data();
+    const proposalId = acceptance.proposalId as string;
+
+    console.log(
+      "✅ Processing manual replacement acceptance for proposal: " +
+      `${proposalId}`,
+    );
+
+    try {
+      const db = getFirestore();
+
+      // Récupérer la proposition
+      const proposalDoc = await db
+        .collection("manualReplacementProposals")
+        .doc(proposalId)
+        .get();
+
+      if (!proposalDoc.exists) {
+        console.error(
+          `❌ Proposal not found: ${proposalId}`,
+        );
+        return;
+      }
+
+      const proposal = proposalDoc.data();
+      if (!proposal) {
+        console.error(
+          `❌ Proposal data is empty: ${proposalId}`,
+        );
+        return;
+      }
+
+      // Mettre à jour le statut de la proposition
+      await proposalDoc.ref.update({
+        status: "accepted",
+        acceptedAt: Timestamp.now(),
+      });
+
+      // Créer le subshift
+      const subshiftId = db.collection("subshifts").doc().id;
+      await db.collection("subshifts").doc(subshiftId).set({
+        id: subshiftId,
+        replacedId: proposal.replacedId,
+        replacerId: proposal.replacerId,
+        start: proposal.startTime,
+        end: proposal.endTime,
+        planningId: proposal.planningId,
+      });
+
+      console.log(
+        `  ✓ Subshift created: ${subshiftId}`,
+      );
+
+      // Récupérer le planning pour trouver les chefs d'équipe
+      const planningDoc = await db
+        .collection("plannings")
+        .doc(proposal.planningId as string)
+        .get();
+
+      let chiefIds: string[] = [];
+
+      if (planningDoc.exists) {
+        const planningData = planningDoc.data();
+        const planningTeam = planningData?.team as string | undefined;
+        const planningStation =
+          planningData?.station as string | undefined;
+
+        if (planningTeam && planningStation) {
+          // Chercher les chefs de garde de cette équipe
+          const usersSnapshot = await db
+            .collection("users")
+            .where("station", "==", planningStation)
+            .where("team", "==", planningTeam)
+            .get();
+
+          usersSnapshot.docs.forEach((doc) => {
+            const userData = doc.data();
+            if (
+              userData.status === "chief" ||
+              userData.status === "leader"
+            ) {
+              chiefIds.push(doc.id);
+            }
+          });
+
+          console.log(
+            `  ✓ Found ${chiefIds.length} chief(s) for team ` +
+            `${planningTeam}`,
+          );
+        }
+      }
+
+      // Envoyer notification au remplacé
+      await db.collection("notificationTriggers").add({
+        type: "replacement_found",
+        requestId: proposalId,
+        targetUserIds: [proposal.replacedId],
+        replacerName: proposal.replacerName,
+        startTime: proposal.startTime,
+        endTime: proposal.endTime,
+        createdAt: Timestamp.now(),
+        processed: false,
+      });
+
+      console.log(
+        "  ✓ Notification sent to replaced agent: " +
+        `${proposal.replacedName}`,
+      );
+
+      // Envoyer notifications aux chefs d'équipe
+      if (chiefIds.length > 0) {
+        // Exclure le remplacé s'il est chef
+        chiefIds = chiefIds.filter(
+          (id) => id !== proposal.replacedId,
+        );
+
+        if (chiefIds.length > 0) {
+          await db.collection("notificationTriggers").add({
+            type: "replacement_assigned",
+            requestId: proposalId,
+            targetUserIds: chiefIds,
+            replacedName: proposal.replacedName,
+            replacerName: proposal.replacerName,
+            startTime: proposal.startTime,
+            endTime: proposal.endTime,
+            createdAt: Timestamp.now(),
+            processed: false,
+          });
+
+          console.log(
+            `  ✓ Notifications sent to ${chiefIds.length} chief(s)`,
+          );
+        }
+      }
+
+      console.log(
+        "✅ Manual replacement acceptance processed successfully",
+      );
+    } catch (error) {
+      console.error(
+        "❌ Error processing manual replacement acceptance:",
+        error,
+      );
+    }
+  },
+);

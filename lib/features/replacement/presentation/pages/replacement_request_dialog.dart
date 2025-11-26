@@ -262,7 +262,35 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
   }
 
   Future<void> _declineRequest() async {
-    Navigator.of(context).pop(false);
+    if (_request == null) return;
+
+    try {
+      setState(() => _isResponding = true);
+
+      // Enregistrer le refus dans Firestore
+      final docRef = await FirebaseFirestore.instance
+          .collection('replacementRequestDeclines')
+          .add({
+        'requestId': _request!.id,
+        'userId': widget.currentUserId,
+        'declinedAt': Timestamp.now(),
+      });
+
+      debugPrint(
+        '✅ Decline recorded for request ${_request!.id} by user ${widget.currentUserId} (docId: ${docRef.id})',
+      );
+
+      if (mounted) {
+        Navigator.of(context).pop(false);
+      }
+    } catch (e) {
+      debugPrint('❌ Error recording decline: $e');
+      debugPrint('  Stack trace: ${StackTrace.current}');
+      // Même en cas d'erreur, on ferme le dialog
+      if (mounted) {
+        Navigator.of(context).pop(false);
+      }
+    }
   }
 
   String _formatDateTime(DateTime dt) {

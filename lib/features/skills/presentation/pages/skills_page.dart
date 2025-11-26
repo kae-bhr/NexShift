@@ -10,6 +10,7 @@ import 'package:nexshift_app/core/presentation/widgets/error_widget.dart'
     as custom;
 import 'package:nexshift_app/core/presentation/widgets/skeleton_loader.dart';
 import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
+import 'package:nexshift_app/features/settings/presentation/pages/similar_agents_page.dart';
 
 class SkillsPage extends StatefulWidget {
   final String? userId;
@@ -153,6 +154,22 @@ class _SkillsPageState extends State<SkillsPage> {
           ),
           bottomColor: KColors.appNameColor,
           actions: [
+            IconButton(
+              icon: Icon(
+                Icons.people_alt_outlined,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              tooltip: 'Voir les agents similaires',
+              onPressed: () {
+                HapticFeedback.mediumImpact();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const SimilarAgentsPage(),
+                  ),
+                );
+              },
+            ),
             if (_canEditSkills())
               IconButton(
                 icon: Icon(

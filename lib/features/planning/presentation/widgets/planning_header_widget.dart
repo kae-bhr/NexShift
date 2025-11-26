@@ -96,12 +96,21 @@ class _PlanningHeaderState extends State<PlanningHeader> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(
-                        Icons.person,
-                        color: !stationView
-                            ? Theme.of(context).colorScheme.primary
-                            : Colors.grey,
-                        size: 32,
+                      InkWell(
+                        onTap: () {
+                          stationViewNotifier.value = false;
+                        },
+                        borderRadius: BorderRadius.circular(24),
+                        child: Padding(
+                          padding: const EdgeInsets.all(8.0),
+                          child: Icon(
+                            Icons.person,
+                            color: !stationView
+                                ? Theme.of(context).colorScheme.primary
+                                : Colors.grey,
+                            size: 32,
+                          ),
+                        ),
                       ),
                       const SizedBox(width: 12),
                       Switch(
@@ -112,12 +121,21 @@ class _PlanningHeaderState extends State<PlanningHeader> {
                         },
                       ),
                       const SizedBox(width: 12),
-                      Icon(
-                        Icons.fire_truck,
-                        color: stationView
-                            ? Theme.of(context).colorScheme.primary
-                            : Colors.grey,
-                        size: 32,
+                      InkWell(
+                        onTap: () {
+                          stationViewNotifier.value = true;
+                        },
+                        borderRadius: BorderRadius.circular(24),
+                        child: Padding(
+                          padding: const EdgeInsets.all(8.0),
+                          child: Icon(
+                            Icons.fire_truck,
+                            color: stationView
+                                ? Theme.of(context).colorScheme.primary
+                                : Colors.grey,
+                            size: 32,
+                          ),
+                        ),
                       ),
                     ],
                   ),

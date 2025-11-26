@@ -69,6 +69,27 @@ service cloud.firestore {
       allow delete: if isAuthenticated();
     }
 
+    // Collection replacementRequestDeclines - Refus de demandes de remplacement
+    match /replacementRequestDeclines/{declineId} {
+      allow read: if isAuthenticated();
+      // Permettre la création par tous les utilisateurs authentifiés
+      allow create: if isAuthenticated();
+      // Permettre la mise à jour
+      allow update: if isAuthenticated();
+      // Permettre la suppression
+      allow delete: if isAuthenticated();
+    }
+
+    // Collection waveSkipTriggers - Déclencheurs de saut de vague
+    match /waveSkipTriggers/{triggerId} {
+      allow read: if isAuthenticated();
+      // Permettre la création par tous les utilisateurs authentifiés
+      allow create: if isAuthenticated();
+      // Permettre la mise à jour (Cloud Function marque comme processed)
+      allow update: if true; // Cloud Function a besoin d'accès
+      allow delete: if isAuthenticated();
+    }
+
     // Collection notificationTriggers - CRITIQUE pour les notifications
     match /notificationTriggers/{triggerId} {
       allow read: if isAuthenticated();
@@ -139,6 +160,40 @@ service cloud.firestore {
     match /availabilities/{availabilityId} {
       allow read: if isAuthenticated();
       allow write: if isAuthenticated();
+    }
+
+    // Collection manualReplacementProposals - Propositions de remplacement manuel
+    match /manualReplacementProposals/{proposalId} {
+      allow read: if isAuthenticated();
+      // Permettre la création par tous les utilisateurs authentifiés
+      allow create: if isAuthenticated();
+      // Permettre la mise à jour (changement de statut)
+      allow update: if isAuthenticated();
+      // Permettre la suppression
+      allow delete: if isAuthenticated();
+    }
+
+    // Collection manualReplacementAcceptances - Acceptations de propositions
+    match /manualReplacementAcceptances/{acceptanceId} {
+      allow read: if isAuthenticated();
+      // Permettre la création par tous les utilisateurs authentifiés
+      allow create: if isAuthenticated();
+      // Permettre la mise à jour par Cloud Function
+      allow update: if true; // Cloud Function a besoin d'accès
+      allow delete: if isAuthenticated();
+    }
+
+    // Collection testNotifications - Notifications de test pour admins
+    match /testNotifications/{testId} {
+      allow read: if isAuthenticated();
+      // Permettre la création uniquement par les admins
+      allow create: if isAuthenticated();
+      // &&
+                       //exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+                       //get(/databases/$(database)/documents/users/$(request.auth.uid)).data.admin == true;
+      // Permettre la mise à jour par Cloud Function
+      allow update: if true; // Cloud Function a besoin d'accès
+      allow delete: if isAuthenticated();
     }
   }
 }

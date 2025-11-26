@@ -55,7 +55,10 @@ void main() async {
       await LogService().log('Firebase initialized', level: LogLevel.info);
     } else {
       debugPrint('Firebase already initialized by native plugin');
-      await LogService().log('Firebase already initialized', level: LogLevel.info);
+      await LogService().log(
+        'Firebase already initialized',
+        level: LogLevel.info,
+      );
     }
   } catch (e) {
     // Sur iOS, Firebase peut être initialisé par le plugin natif avant Dart
@@ -63,10 +66,16 @@ void main() async {
     final errorStr = e.toString();
     if (errorStr.contains('duplicate-app')) {
       debugPrint('Firebase already initialized by iOS plugin - OK');
-      await LogService().log('Firebase ready (native init)', level: LogLevel.info);
+      await LogService().log(
+        'Firebase ready (native init)',
+        level: LogLevel.info,
+      );
     } else {
       debugPrint('Error initializing Firebase: $e');
-      await LogService().log('Firebase initialization error: $e', level: LogLevel.error);
+      await LogService().log(
+        'Firebase initialization error: $e',
+        level: LogLevel.error,
+      );
     }
   }
 
@@ -83,10 +92,16 @@ void main() async {
     };
 
     debugPrint('Push notifications initialized successfully');
-    await LogService().log('Push notifications initialized', level: LogLevel.info);
+    await LogService().log(
+      'Push notifications initialized',
+      level: LogLevel.info,
+    );
   } catch (e) {
     debugPrint('Error initializing push notifications: $e');
-    await LogService().log('Push notifications error: $e', level: LogLevel.error);
+    await LogService().log(
+      'Push notifications error: $e',
+      level: LogLevel.error,
+    );
   }
 
   try {
@@ -94,7 +109,10 @@ void main() async {
   } catch (e) {
     // En cas d'erreur (ex: path_provider non prêt sur simulateur)
     debugPrint('Error initializing GetStorage: $e');
-    await LogService().log('GetStorage initialization error: $e', level: LogLevel.error);
+    await LogService().log(
+      'GetStorage initialization error: $e',
+      level: LogLevel.error,
+    );
   }
 
   runApp(const NexShift());
@@ -134,6 +152,7 @@ void _handleNotificationTap(Map<String, dynamic> data) {
       );
       break;
 
+    case 'manual_replacement_proposal':
     case 'replacement_found':
     case 'replacement_assigned':
     case 'replacement_completed':
@@ -219,7 +238,9 @@ class _NexShiftState extends State<NexShift> {
 
             // Sauvegarder le token FCM pour l'utilisateur
             try {
-              DebugLogger().log('📱 Attempting to save FCM token for user: ${user.id}');
+              DebugLogger().log(
+                '📱 Attempting to save FCM token for user: ${user.id}',
+              );
               await _pushNotificationService.saveUserToken(user.id);
               debugPrint('FCM token saved for user: ${user.id}');
             } catch (e) {
@@ -271,10 +292,7 @@ class _NexShiftState extends State<NexShift> {
 
           // Localisation en français
           locale: const Locale('fr', 'FR'),
-          supportedLocales: const [
-            Locale('fr', 'FR'),
-            Locale('en', 'US'),
-          ],
+          supportedLocales: const [Locale('fr', 'FR'), Locale('en', 'US')],
           localizationsDelegates: const [
             GlobalMaterialLocalizations.delegate,
             GlobalWidgetsLocalizations.delegate,
@@ -287,8 +305,8 @@ class _NexShiftState extends State<NexShift> {
           home: !_isOnline
               ? const OfflinePage()
               : isUserAuthentified == true
-                  ? const WidgetTree()
-                  : const WelcomePage(),
+              ? const WidgetTree()
+              : const WelcomePage(),
         );
       },
     );

@@ -14,6 +14,8 @@ import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 import 'package:nexshift_app/core/data/datasources/notifiers.dart';
 import 'package:nexshift_app/core/repositories/team_repository.dart';
 import 'package:nexshift_app/core/utils/subshift_normalizer.dart';
+import 'package:nexshift_app/features/replacement/presentation/pages/replacement_page.dart';
+import 'package:nexshift_app/core/utils/constants.dart';
 
 class PlanningPage extends StatefulWidget {
   const PlanningPage({super.key});
@@ -31,6 +33,12 @@ class _PlanningPageState extends State<PlanningPage> {
   Map<String, Color> _teamColorById = {};
   Color? _userTeamColor;
 
+  // Variables pour l'infobulle de long press
+  OverlayEntry? _tooltipOverlay;
+  DateTime? _selectedTime;
+  Offset? _tooltipPosition;
+  double? _containerTopY; // Position Y du haut du container de planning
+
   @override
   void initState() {
     super.initState();
@@ -43,6 +51,7 @@ class _PlanningPageState extends State<PlanningPage> {
 
   @override
   void dispose() {
+    _removeTooltip();
     stationViewNotifier.removeListener(_onStationViewChanged);
     teamDataChangedNotifier.removeListener(_onTeamDataChanged);
     super.dispose();
@@ -56,6 +65,344 @@ class _PlanningPageState extends State<PlanningPage> {
   void _onTeamDataChanged() {
     // Reload team colors when teams are modified
     _loadUserAndPlanning();
+  }
+
+  // Méthodes de gestion de l'infobulle
+  void _removeTooltip() {
+    _tooltipOverlay?.remove();
+    _tooltipOverlay = null;
+    _selectedTime = null;
+    _tooltipPosition = null;
+    _containerTopY = null;
+  }
+
+  void _showTooltip(DateTime at, Offset globalPosition) {
+    _removeTooltip();
+    _selectedTime = at;
+    _tooltipPosition = globalPosition;
+
+    // Calculer la position Y du haut du container (globalPosition.dy est la position du touch)
+    // On va fixer l'infobulle 40px au-dessus de la barre de planning
+    _containerTopY = globalPosition.dy;
+
+    _tooltipOverlay = OverlayEntry(
+      builder: (context) => _TooltipWidget(
+        positionX: _tooltipPosition!.dx,
+        containerTopY: _containerTopY!,
+        selectedTime: _selectedTime!,
+      ),
+    );
+
+    Overlay.of(context).insert(_tooltipOverlay!);
+  }
+
+  void _updateTooltip(DateTime at, Offset globalPosition) {
+    if (_tooltipOverlay == null || _containerTopY == null) return;
+
+    // Supprimer l'ancien overlay et en créer un nouveau avec les nouvelles valeurs
+    _tooltipOverlay!.remove();
+    _selectedTime = at;
+    _tooltipPosition = globalPosition;
+
+    _tooltipOverlay = OverlayEntry(
+      builder: (context) => _TooltipWidget(
+        positionX: _tooltipPosition!.dx,
+        containerTopY: _containerTopY!,
+        selectedTime: _selectedTime!,
+      ),
+    );
+
+    Overlay.of(context).insert(_tooltipOverlay!);
+  }
+
+  Future<void> _showShiftDetails(DateTime at, Planning? planning) async {
+    _removeTooltip();
+
+    if (planning == null) {
+      // Aucun planning sur ce créneau
+      showModalBottomSheet(
+        context: context,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (context) => Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.info_outline, color: Colors.grey[600]),
+                  const SizedBox(width: 12),
+                  Text(
+                    'Aucune astreinte',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Aucune astreinte sur ce créneau horaire',
+                style: Theme.of(context).textTheme.bodyLarge,
+              ),
+              const SizedBox(height: 24),
+              // Bouton "Afficher la vue opérationnelle"
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => PlanningTeamDetailsPage(at: at),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.visibility),
+                  label: const Text('Afficher la vue opérationnelle'),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Fermer'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+      return;
+    }
+
+    // Chercher le subshift correspondant à l'heure sélectionnée
+    Subshift? relevantSubshift;
+    try {
+      relevantSubshift = _subshifts.firstWhere(
+        (s) =>
+            s.planningId == planning.id &&
+            s.start.isBefore(at) &&
+            s.end.isAfter(at),
+      );
+    } catch (_) {
+      // Pas de subshift trouvé, utiliser les dates du planning
+      relevantSubshift = null;
+    }
+
+    String title;
+    String startFormatted;
+    String endFormatted;
+
+    if (relevantSubshift != null) {
+      final teamName = planning.team;
+      startFormatted = DateFormat('dd/MM HH:mm').format(relevantSubshift.start);
+      endFormatted = DateFormat('dd/MM HH:mm').format(relevantSubshift.end);
+      title = 'Équipe $teamName';
+    } else {
+      // Utiliser les dates du planning
+      final teamName = planning.team;
+      startFormatted = DateFormat('dd/MM HH:mm').format(planning.startTime);
+      endFormatted = DateFormat('dd/MM HH:mm').format(planning.endTime);
+      title = 'Équipe $teamName';
+    }
+
+    // Vérifier si l'utilisateur est en astreinte ou remplaçant
+    final user = _currentUser;
+    if (user == null) return;
+
+    // Trouver tous les subshifts pour ce planning
+    final planningSubshifts = _subshifts
+        .where((s) => s.planningId == planning.id)
+        .toList();
+
+    // Vérifier si l'utilisateur est agent sur ce planning
+    final isOnGuard = planning.agentsId.contains(user.id);
+
+    // Vérifier si l'utilisateur est remplaçant sur un subshift
+    final replacerSubshift = planningSubshifts
+        .where((s) => s.replacerId == user.id)
+        .firstOrNull;
+
+    // Vérifier si l'utilisateur est entièrement remplacé
+    bool isReplacedFully = false;
+    if (isOnGuard) {
+      final userReplacements = planningSubshifts
+          .where((s) => s.replacedId == user.id)
+          .toList();
+
+      if (userReplacements.isNotEmpty) {
+        // Vérifier si toute la période du planning est couverte
+        userReplacements.sort((a, b) => a.start.compareTo(b.start));
+
+        final firstReplStart = userReplacements.first.start;
+        final lastReplEnd = userReplacements.last.end;
+
+        if (!firstReplStart.isAfter(planning.startTime) &&
+            !lastReplEnd.isBefore(planning.endTime)) {
+          // Vérifier qu'il n'y a pas de trous
+          bool hasGaps = false;
+          for (int i = 0; i < userReplacements.length - 1; i++) {
+            if (userReplacements[i].end.isBefore(userReplacements[i + 1].start)) {
+              hasGaps = true;
+              break;
+            }
+          }
+          isReplacedFully = !hasGaps;
+        }
+      }
+    }
+
+    // Afficher un BottomSheet avec les actions
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: (_teamColorById[planning.team] ?? Colors.grey)
+                        .withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.groups,
+                    color: _teamColorById[planning.team] ?? Colors.grey[600],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.access_time, color: Colors.grey[700], size: 20),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      '$startFormatted → $endFormatted',
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                            fontWeight: FontWeight.w500,
+                          ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Bouton "Afficher la vue opérationnelle"
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => PlanningTeamDetailsPage(at: at),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.visibility),
+                label: const Text('Afficher la vue opérationnelle'),
+              ),
+            ),
+
+            // Bouton "Je souhaite m'absenter" - affiché si l'utilisateur est en astreinte ou remplaçant et pas entièrement remplacé
+            if ((isOnGuard && !isReplacedFully) || replacerSubshift != null) ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => ReplacementPage(
+                          planning: planning,
+                          currentUser: user,
+                          parentSubshift: replacerSubshift,
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.event_busy),
+                  label: const Text("Je souhaite m'absenter"),
+                ),
+              ),
+            ],
+
+            // Bouton "Effectuer un remplacement manuel" - affiché pour admin, leader, chef d'équipe, ou si agent en astreinte/remplaçant
+            if (user.admin ||
+                user.status == KConstants.statusLeader ||
+                (user.status == KConstants.statusChief && user.team == planning.team) ||
+                ((isOnGuard && !isReplacedFully) || replacerSubshift != null)) ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => ReplacementPage(
+                          planning: planning,
+                          currentUser: user,
+                          isManualMode: true,
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.swap_horiz),
+                  label: const Text('Effectuer un remplacement manuel'),
+                ),
+              ),
+            ],
+
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Fermer'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _loadUserAndPlanning() async {
@@ -527,42 +874,105 @@ class _PlanningPageState extends State<PlanningPage> {
                             ),
                             SizedBox(
                               height: 35,
-                              child: Stack(
-                                children: [
-                                  GestureDetector(
-                                    behavior: HitTestBehavior.opaque,
-                                    onTapDown: (details) {
-                                      final leftMargin = 16.0;
-                                      final totalWidth =
-                                          MediaQuery.of(context).size.width -
-                                          (leftMargin * 2);
-                                      final dx =
-                                          details.localPosition.dx - leftMargin;
-                                      final clamped = dx.clamp(0.0, totalWidth);
-                                      final ratio = (totalWidth > 0)
-                                          ? (clamped / totalWidth)
-                                          : 0.0;
-                                      final hourDouble = ratio * 24.0;
-                                      final hour = hourDouble.floor();
-                                      final minute = ((hourDouble - hour) * 60)
-                                          .round();
-                                      final at = DateTime(
-                                        currentDay.year,
-                                        currentDay.month,
-                                        currentDay.day,
-                                        hour,
-                                        minute,
-                                      );
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.translucent,
+                                onTapUp: (details) {
+                                  // Tap sur zone vide - calculer l'heure et ouvrir la vue opérationnelle
+                                  final leftMargin = 16.0;
+                                  final totalWidth = MediaQuery.of(context).size.width - (leftMargin * 2);
+                                  final dx = details.localPosition.dx - leftMargin;
+                                  final clamped = dx.clamp(0.0, totalWidth);
+                                  final ratio = (totalWidth > 0) ? (clamped / totalWidth) : 0.0;
+                                  final hourDouble = ratio * 24.0;
+                                  final hour = hourDouble.floor();
+                                  final minute = ((hourDouble - hour) * 60).round();
+                                  final at = DateTime(
+                                    currentDay.year,
+                                    currentDay.month,
+                                    currentDay.day,
+                                    hour,
+                                    minute,
+                                  );
 
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) =>
-                                              PlanningTeamDetailsPage(at: at),
-                                        ),
-                                      );
-                                    },
-                                    child: Container(
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => PlanningTeamDetailsPage(at: at),
+                                    ),
+                                  );
+                                },
+                                onLongPressStart: (details) {
+                                  final leftMargin = 16.0;
+                                  final totalWidth = MediaQuery.of(context).size.width - (leftMargin * 2);
+                                  final dx = details.localPosition.dx - leftMargin;
+                                  final clamped = dx.clamp(0.0, totalWidth);
+                                  final ratio = (totalWidth > 0) ? (clamped / totalWidth) : 0.0;
+                                  final hourDouble = ratio * 24.0;
+                                  final hour = hourDouble.floor();
+                                  final minute = ((hourDouble - hour) * 60).round();
+                                  final at = DateTime(
+                                    currentDay.year,
+                                    currentDay.month,
+                                    currentDay.day,
+                                    hour,
+                                    minute,
+                                  );
+
+                                  _showTooltip(at, details.globalPosition);
+                                },
+                                onLongPressMoveUpdate: (details) {
+                                  final leftMargin = 16.0;
+                                  final totalWidth = MediaQuery.of(context).size.width - (leftMargin * 2);
+                                  final dx = details.localPosition.dx - leftMargin;
+                                  final clamped = dx.clamp(0.0, totalWidth);
+                                  final ratio = (totalWidth > 0) ? (clamped / totalWidth) : 0.0;
+                                  final hourDouble = ratio * 24.0;
+                                  final hour = hourDouble.floor();
+                                  final minute = ((hourDouble - hour) * 60).round();
+                                  final at = DateTime(
+                                    currentDay.year,
+                                    currentDay.month,
+                                    currentDay.day,
+                                    hour,
+                                    minute,
+                                  );
+
+                                  _updateTooltip(at, details.globalPosition);
+                                },
+                                onLongPressEnd: (details) {
+                                  final leftMargin = 16.0;
+                                  final totalWidth = MediaQuery.of(context).size.width - (leftMargin * 2);
+                                  final dx = details.localPosition.dx - leftMargin;
+                                  final clamped = dx.clamp(0.0, totalWidth);
+                                  final ratio = (totalWidth > 0) ? (clamped / totalWidth) : 0.0;
+                                  final hourDouble = ratio * 24.0;
+                                  final hour = hourDouble.floor();
+                                  final minute = ((hourDouble - hour) * 60).round();
+                                  final at = DateTime(
+                                    currentDay.year,
+                                    currentDay.month,
+                                    currentDay.day,
+                                    hour,
+                                    minute,
+                                  );
+
+                                  // Trouver le planning correspondant au moment du relâchement
+                                  Planning? planning;
+                                  for (final bar in dailyBars) {
+                                    final barStart = bar['start'] as DateTime;
+                                    final barEnd = bar['end'] as DateTime;
+                                    if (at.isAfter(barStart) && at.isBefore(barEnd)) {
+                                      planning = bar['planning'] as Planning?;
+                                      break;
+                                    }
+                                  }
+
+                                  _showShiftDetails(at, planning);
+                                },
+                                child: Stack(
+                                  children: [
+                                    // Container d'arrière-plan
+                                    Container(
                                       margin: const EdgeInsets.symmetric(
                                         horizontal: 16,
                                       ),
@@ -572,40 +982,41 @@ class _PlanningPageState extends State<PlanningPage> {
                                         ),
                                         borderRadius: BorderRadius.circular(8),
                                       ),
-                                      height: 35,
                                     ),
-                                  ),
 
-                                  for (final bar in dailyBars)
-                                    PlanningBar(
-                                      start: bar['start'],
-                                      end: bar['end'],
-                                      color:
-                                          (bar['color'] as Color?) ??
-                                          _barColorForType(
+                                    // Barres de planning
+                                    for (final bar in dailyBars)
+                                      PlanningBar(
+                                        start: bar['start'],
+                                        end: bar['end'],
+                                        color:
+                                            (bar['color'] as Color?) ??
+                                            _barColorForType(
+                                              context,
+                                              bar['type'] as String?,
+                                            ),
+                                        isSubtle:
+                                            true, // enable colored borders for all bars
+                                        showLeftBorder:
+                                            bar['isRealStart'] ?? true,
+                                        showRightBorder: bar['isRealEnd'] ?? true,
+                                        isAvailability:
+                                            bar['type'] == 'availability',
+                                        onTap: (at) {
+                                          Navigator.push(
                                             context,
-                                            bar['type'] as String?,
-                                          ),
-                                      isSubtle:
-                                          true, // enable colored borders for all bars
-                                      showLeftBorder:
-                                          bar['isRealStart'] ?? true,
-                                      showRightBorder: bar['isRealEnd'] ?? true,
-                                      isAvailability:
-                                          bar['type'] == 'availability',
-                                      onTap: (at) {
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (_) =>
-                                                PlanningTeamDetailsPage(at: at),
-                                          ),
-                                        );
-                                      },
-                                    ),
+                                            MaterialPageRoute(
+                                              builder: (_) =>
+                                                  PlanningTeamDetailsPage(at: at),
+                                            ),
+                                          );
+                                        },
+                                        // Les long press sont gérés par le GestureDetector parent
+                                      ),
 
-                                  // legend removed from Stack to avoid being clipped; rendered below the timeline
-                                ],
+                                    // legend removed from Stack to avoid being clipped; rendered below the timeline
+                                  ],
+                                ),
                               ),
                             ),
                             // legend only on Sunday (last day) with 0h/6h/12h/18h/24h spaced evenly
@@ -668,4 +1079,59 @@ Color _getShade400(Color color) {
   }
   // Sinon, éclaircir la couleur en mélangeant avec du blanc
   return Color.lerp(color, Colors.white, 0.4) ?? color;
+}
+
+/// Widget d'infobulle flottante affichant l'heure sélectionnée
+class _TooltipWidget extends StatelessWidget {
+  final double positionX;
+  final double containerTopY;
+  final DateTime selectedTime;
+
+  const _TooltipWidget({
+    required this.positionX,
+    required this.containerTopY,
+    required this.selectedTime,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final timeFormatted = DateFormat('HH:mm').format(selectedTime);
+
+    // Décaler l'infobulle horizontalement pour la centrer sur le curseur
+    // et la fixer verticalement 45px au-dessus du container de planning
+    final offsetX = -30.0; // Centrer approximativement
+    final offsetY = -45.0; // Au-dessus du container
+
+    return Positioned(
+      left: positionX + offsetX,
+      top: containerTopY + offsetY,
+      child: IgnorePointer(
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.black87,
+              borderRadius: BorderRadius.circular(8),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black26,
+                  blurRadius: 4,
+                  offset: Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Text(
+              timeFormatted,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }

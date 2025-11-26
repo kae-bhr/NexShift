@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:nexshift_app/core/services/replacement_notification_service.dart';
 import 'package:nexshift_app/core/services/wave_calculation_service.dart';
 import 'package:nexshift_app/core/repositories/user_repository.dart';
@@ -7,6 +8,65 @@ import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/features/replacement/presentation/pages/replacement_request_dialog.dart';
 import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
+
+/// Classe pour représenter une proposition de remplacement manuel
+class ManualReplacementProposal {
+  final String id;
+  final String proposerId;
+  final String proposerName;
+  final String replacedId;
+  final String replacedName;
+  final String replacerId;
+  final String replacerName;
+  final String planningId;
+  final DateTime startTime;
+  final DateTime endTime;
+  final String status;
+  final DateTime? createdAt;
+
+  ManualReplacementProposal({
+    required this.id,
+    required this.proposerId,
+    required this.proposerName,
+    required this.replacedId,
+    required this.replacedName,
+    required this.replacerId,
+    required this.replacerName,
+    required this.planningId,
+    required this.startTime,
+    required this.endTime,
+    required this.status,
+    this.createdAt,
+  });
+
+  factory ManualReplacementProposal.fromJson(Map<String, dynamic> json) {
+    try {
+      return ManualReplacementProposal(
+        id: json['id'] as String? ?? '',
+        proposerId: json['proposerId'] as String? ?? '',
+        proposerName: json['proposerName'] as String? ?? '',
+        replacedId: json['replacedId'] as String? ?? '',
+        replacedName: json['replacedName'] as String? ?? '',
+        replacerId: json['replacerId'] as String? ?? '',
+        replacerName: json['replacerName'] as String? ?? '',
+        planningId: json['planningId'] as String? ?? '',
+        startTime: json['startTime'] is Timestamp
+            ? (json['startTime'] as Timestamp).toDate()
+            : DateTime.now(),
+        endTime: json['endTime'] is Timestamp
+            ? (json['endTime'] as Timestamp).toDate()
+            : DateTime.now(),
+        status: json['status'] as String? ?? 'pending',
+        createdAt: json['createdAt'] is Timestamp
+            ? (json['createdAt'] as Timestamp).toDate()
+            : null,
+      );
+    } catch (e) {
+      debugPrint('Error parsing ManualReplacementProposal: $e');
+      rethrow;
+    }
+  }
+}
 
 /// Page listant toutes les demandes de remplacement en cours
 /// Accessible depuis le Drawer
@@ -189,7 +249,6 @@ class _ReplacementRequestsListPageState
                     final allRequests = snapshot.docs
                         .map((doc) => ReplacementRequest.fromJson(doc.data()))
                         .where((request) {
-                          // Filtrer par mois sélectionné
                           return request.startTime.isAfter(
                                 startOfMonth.subtract(const Duration(days: 1)),
                               ) &&
@@ -197,36 +256,31 @@ class _ReplacementRequestsListPageState
                         })
                         .toList();
 
-                    // Filtrer les demandes selon les droits de l'utilisateur
                     final visibleRequests = <ReplacementRequest>[];
-
                     for (final request in allRequests) {
-                      // Acceptées : visibles par tous
                       if (request.status == ReplacementRequestStatus.accepted) {
                         visibleRequests.add(request);
                         continue;
                       }
-
-                      // En attente : vérifier les droits
                       final canView = await _canViewRequest(request);
                       if (canView) {
                         visibleRequests.add(request);
                       }
                     }
 
-                    // Trier par date de début (ordre chronologique)
                     visibleRequests.sort(
                       (a, b) => a.startTime.compareTo(b.startTime),
                     );
 
                     return visibleRequests;
                   }),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
+              builder: (context, requestsSnapshot) {
+                if (requestsSnapshot.connectionState ==
+                    ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
                 }
 
-                if (snapshot.hasError) {
+                if (requestsSnapshot.hasError) {
                   return Center(
                     child: Padding(
                       padding: const EdgeInsets.all(16.0),
@@ -240,7 +294,7 @@ class _ReplacementRequestsListPageState
                           ),
                           const SizedBox(height: 16),
                           Text(
-                            'Erreur: ${snapshot.error}',
+                            'Erreur: ${requestsSnapshot.error}',
                             textAlign: TextAlign.center,
                             style: TextStyle(color: Colors.red.shade700),
                           ),
@@ -250,45 +304,111 @@ class _ReplacementRequestsListPageState
                   );
                 }
 
-                final requests = snapshot.data ?? [];
+                final requests = requestsSnapshot.data ?? [];
 
-                if (requests.isEmpty) {
-                  return Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.check_circle_outline,
-                            size: 64,
-                            color: Colors.green.shade300,
-                          ),
-                          const SizedBox(height: 16),
-                          const Text(
-                            'Aucune demande de remplacement en cours',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          const Text(
-                            'Les demandes en attente apparaîtront ici',
-                            style: TextStyle(color: Colors.grey),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }
+                // Ajouter un second StreamBuilder pour les propositions manuelles
+                return StreamBuilder<List<ManualReplacementProposal>>(
+                  stream: FirebaseFirestore.instance
+                      .collection('manualReplacementProposals')
+                      .where('status', isEqualTo: 'pending')
+                      .snapshots()
+                      .asyncMap((snapshot) async {
+                        final startOfMonth = DateTime(
+                          _selectedDate.year,
+                          _selectedDate.month,
+                          1,
+                        );
+                        final endOfMonth = DateTime(
+                          _selectedDate.year,
+                          _selectedDate.month + 1,
+                          1,
+                        );
 
-                return ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: requests.length,
-                  itemBuilder: (context, index) {
-                    final request = requests[index];
-                    return _buildRequestCard(request);
+                        final allProposals = snapshot.docs
+                            .map(
+                              (doc) => ManualReplacementProposal.fromJson(
+                                doc.data(),
+                              ),
+                            )
+                            .where((proposal) {
+                              return proposal.startTime.isAfter(
+                                    startOfMonth.subtract(
+                                      const Duration(days: 1),
+                                    ),
+                                  ) &&
+                                  proposal.startTime.isBefore(endOfMonth);
+                            })
+                            .toList();
+
+                        final visibleProposals = <ManualReplacementProposal>[];
+                        for (final proposal in allProposals) {
+                          // Le remplaçant ET le remplacé peuvent voir la proposition
+                          if (proposal.replacerId == _currentUserId ||
+                              proposal.replacedId == _currentUserId) {
+                            visibleProposals.add(proposal);
+                          }
+                        }
+
+                        visibleProposals.sort(
+                          (a, b) => a.startTime.compareTo(b.startTime),
+                        );
+
+                        return visibleProposals;
+                      }),
+                  builder: (context, proposalsSnapshot) {
+                    if (proposalsSnapshot.connectionState ==
+                        ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+
+                    final proposals = proposalsSnapshot.data ?? [];
+
+                    if (requests.isEmpty && proposals.isEmpty) {
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.check_circle_outline,
+                                size: 64,
+                                color: Colors.green.shade300,
+                              ),
+                              const SizedBox(height: 16),
+                              const Text(
+                                'Aucune demande de remplacement en cours',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              const Text(
+                                'Les demandes en attente apparaîtront ici',
+                                style: TextStyle(color: Colors.grey),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
+
+                    return ListView.builder(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: requests.length + proposals.length,
+                      itemBuilder: (context, index) {
+                        if (index < requests.length) {
+                          // Afficher une demande classique
+                          final request = requests[index];
+                          return _buildRequestCard(request);
+                        } else {
+                          // Afficher une proposition manuelle
+                          final proposal = proposals[index - requests.length];
+                          return _buildManualProposalCard(proposal);
+                        }
+                      },
+                    );
                   },
                 );
               },
@@ -353,11 +473,13 @@ class _ReplacementRequestsListPageState
             _getRequesterName(request.requesterId),
             UserStorageHelper.loadUser().then((user) => user),
             _canAcceptRequest(request),
+            _hasUserDeclined(request.id),
           ]).then(
             (results) => {
               'requesterName': results[0] as String,
               'currentUser': results[1],
               'canAccept': results[2] as bool,
+              'hasDeclined': results[3] as bool,
             },
           ),
       builder: (context, snapshot) {
@@ -365,6 +487,7 @@ class _ReplacementRequestsListPageState
             snapshot.data?['requesterName'] as String? ?? 'Chargement...';
         final currentUser = snapshot.data?['currentUser'] as User?;
         final canAccept = snapshot.data?['canAccept'] as bool? ?? false;
+        final hasDeclined = snapshot.data?['hasDeclined'] as bool? ?? false;
         final canDelete =
             currentUser != null &&
             (currentUser.admin || currentUser.status == 'leader');
@@ -417,44 +540,51 @@ class _ReplacementRequestsListPageState
                                     vertical: 4,
                                   ),
                                   decoration: BoxDecoration(
-                                    color:
-                                        request.status ==
-                                            ReplacementRequestStatus.accepted
-                                        ? Colors.green.shade100
-                                        : Colors.orange.shade100,
+                                    color: hasDeclined
+                                        ? Colors.red.shade100
+                                        : (request.status ==
+                                                ReplacementRequestStatus.accepted
+                                            ? Colors.green.shade100
+                                            : Colors.orange.shade100),
                                     borderRadius: BorderRadius.circular(12),
                                   ),
                                   child: Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       Icon(
-                                        request.status ==
-                                                ReplacementRequestStatus
-                                                    .accepted
-                                            ? Icons.check_circle
-                                            : Icons.access_time,
+                                        hasDeclined
+                                            ? Icons.cancel
+                                            : (request.status ==
+                                                    ReplacementRequestStatus
+                                                        .accepted
+                                                ? Icons.check_circle
+                                                : Icons.access_time),
                                         size: 14,
-                                        color:
-                                            request.status ==
-                                                ReplacementRequestStatus
-                                                    .accepted
-                                            ? Colors.green.shade700
-                                            : Colors.orange.shade700,
+                                        color: hasDeclined
+                                            ? Colors.red.shade700
+                                            : (request.status ==
+                                                    ReplacementRequestStatus
+                                                        .accepted
+                                                ? Colors.green.shade700
+                                                : Colors.orange.shade700),
                                       ),
                                       const SizedBox(width: 4),
                                       Text(
-                                        request.status ==
-                                                ReplacementRequestStatus
-                                                    .accepted
-                                            ? 'Accepté'
-                                            : 'En attente',
+                                        hasDeclined
+                                            ? 'Refusé'
+                                            : (request.status ==
+                                                    ReplacementRequestStatus
+                                                        .accepted
+                                                ? 'Accepté'
+                                                : 'En attente'),
                                         style: TextStyle(
-                                          color:
-                                              request.status ==
-                                                  ReplacementRequestStatus
-                                                      .accepted
-                                              ? Colors.green.shade700
-                                              : Colors.orange.shade700,
+                                          color: hasDeclined
+                                              ? Colors.red.shade700
+                                              : (request.status ==
+                                                      ReplacementRequestStatus
+                                                          .accepted
+                                                  ? Colors.green.shade700
+                                                  : Colors.orange.shade700),
                                           fontSize: 12,
                                           fontWeight: FontWeight.w600,
                                         ),
@@ -716,6 +846,39 @@ class _ReplacementRequestsListPageState
                     ),
                   ],
 
+                  // Mention si l'utilisateur a déjà refusé
+                  if (hasDeclined) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.red.shade200),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.info_outline,
+                            size: 16,
+                            color: Colors.red.shade700,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Vous avez déjà décliné cette demande',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.red.shade700,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+
                   const SizedBox(height: 12),
                   // Bouton d'action
                   SizedBox(
@@ -735,20 +898,24 @@ class _ReplacementRequestsListPageState
                             ),
                           )
                         : FilledButton.icon(
-                            onPressed: canAccept
+                            onPressed: (canAccept && !hasDeclined)
                                 ? () => _handleRequestTap(request)
-                                : null,
+                                : (hasDeclined
+                                    ? () => _handleRequestTap(request)
+                                    : null),
                             icon: Icon(
-                              canAccept ? Icons.check : Icons.visibility,
+                              (canAccept && !hasDeclined)
+                                  ? Icons.check
+                                  : Icons.visibility,
                               size: 18,
                             ),
                             label: Text(
-                              canAccept
+                              (canAccept && !hasDeclined)
                                   ? 'Je suis disponible !'
                                   : 'Voir la demande',
                             ),
                             style: FilledButton.styleFrom(
-                              backgroundColor: canAccept
+                              backgroundColor: (canAccept && !hasDeclined)
                                   ? Colors.green
                                   : Colors.grey,
                               disabledBackgroundColor: Colors.grey.shade300,
@@ -764,12 +931,283 @@ class _ReplacementRequestsListPageState
     );
   }
 
+  Widget _buildManualProposalCard(ManualReplacementProposal proposal) {
+    // Déterminer si l'utilisateur est le remplacé
+    final bool isReplaced = proposal.replacedId == _currentUserId;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 2,
+      child: InkWell(
+        onTap: () => _handleManualProposalTap(proposal),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // En-tête avec badge "Proposition manuelle"
+              Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: isReplaced ? Colors.green : Colors.purple,
+                    radius: 20,
+                    child: Icon(
+                      isReplaced ? Icons.person_search : Icons.person_add,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          proposal.proposerName,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isReplaced
+                                ? Colors.green.shade100
+                                : Colors.purple.shade100,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                isReplaced ? Icons.check_circle : Icons.touch_app,
+                                size: 14,
+                                color: isReplaced
+                                    ? Colors.green.shade700
+                                    : Colors.purple.shade700,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                isReplaced
+                                    ? 'Remplacement proposé'
+                                    : 'Proposition manuelle',
+                                style: TextStyle(
+                                  color: isReplaced
+                                      ? Colors.green.shade700
+                                      : Colors.purple.shade700,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+
+              // Informations sur le remplacement
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: isReplaced
+                      ? Colors.green.shade50
+                      : Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: isReplaced
+                        ? Colors.green.shade200
+                        : Colors.blue.shade200,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.swap_horiz,
+                          size: 16,
+                          color: isReplaced
+                              ? Colors.green.shade700
+                              : Colors.blue.shade700,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          isReplaced
+                              ? '${proposal.replacerName} vous remplacera'
+                              : 'Remplacer ${proposal.replacedName}',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: isReplaced
+                                ? Colors.green.shade900
+                                : Colors.blue.shade900,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              // Période
+              Row(
+                children: [
+                  Icon(
+                    Icons.calendar_today,
+                    size: 16,
+                    color: Colors.blue.shade700,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Du ${_formatDateTime(proposal.startTime)}',
+                          style: const TextStyle(fontSize: 14),
+                        ),
+                        Text(
+                          'Au ${_formatDateTime(proposal.endTime)}',
+                          style: const TextStyle(fontSize: 14),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 12),
+
+              // Boutons d'action
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: () => _acceptManualProposal(proposal),
+                      icon: const Icon(Icons.check, size: 18),
+                      label: const Text('Accepter'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.green,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _declineManualProposal(proposal),
+                      icon: const Icon(Icons.close, size: 18),
+                      label: const Text('Refuser'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.red,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<String> _getRequesterName(String userId) async {
     try {
       final user = await _userRepository.getById(userId);
       return user != null ? '${user.firstName} ${user.lastName}' : 'Inconnu';
     } catch (e) {
       return 'Inconnu';
+    }
+  }
+
+  /// Gère le tap sur une proposition manuelle (actuellement ne fait rien)
+  void _handleManualProposalTap(ManualReplacementProposal proposal) {
+    // Optionnel : afficher un dialog avec plus de détails
+  }
+
+  /// Accepte une proposition de remplacement manuel
+  Future<void> _acceptManualProposal(ManualReplacementProposal proposal) async {
+    try {
+      // Créer un document dans manualReplacementAcceptances
+      await FirebaseFirestore.instance
+          .collection('manualReplacementAcceptances')
+          .add({
+            'proposalId': proposal.id,
+            'replacerId': proposal.replacerId,
+            'acceptedAt': FieldValue.serverTimestamp(),
+          });
+
+      // Mettre à jour le statut de la proposition
+      await FirebaseFirestore.instance
+          .collection('manualReplacementProposals')
+          .doc(proposal.id)
+          .update({'status': 'accepted'});
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Proposition acceptée'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error accepting manual proposal: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  /// Refuse une proposition de remplacement manuel
+  Future<void> _declineManualProposal(
+    ManualReplacementProposal proposal,
+  ) async {
+    try {
+      // Mettre à jour le statut de la proposition
+      await FirebaseFirestore.instance
+          .collection('manualReplacementProposals')
+          .doc(proposal.id)
+          .update({'status': 'declined'});
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Proposition refusée'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error declining manual proposal: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -831,6 +1269,25 @@ class _ReplacementRequestsListPageState
       return notifiedUserIds.contains(_currentUserId);
     } catch (e) {
       debugPrint('Error checking accept permission: $e');
+      return false;
+    }
+  }
+
+  /// Vérifie si l'utilisateur courant a refusé cette demande
+  Future<bool> _hasUserDeclined(String requestId) async {
+    if (_currentUserId == null) return false;
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('replacementRequestDeclines')
+          .where('requestId', isEqualTo: requestId)
+          .where('userId', isEqualTo: _currentUserId)
+          .limit(1)
+          .get();
+
+      return snapshot.docs.isNotEmpty;
+    } catch (e) {
+      debugPrint('Error checking decline status: $e');
       return false;
     }
   }
@@ -1076,6 +1533,32 @@ class _WaveDetailsDialog extends StatefulWidget {
 
 class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
   final Set<int> _expandedWaves = {};
+  Set<String> _declinedUserIds = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDeclines();
+  }
+
+  Future<void> _loadDeclines() async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('replacementRequestDeclines')
+          .where('requestId', isEqualTo: widget.request.id)
+          .get();
+
+      if (mounted) {
+        setState(() {
+          _declinedUserIds = snapshot.docs
+              .map((doc) => doc.data()['userId'] as String)
+              .toSet();
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading declines: $e');
+    }
+  }
 
   String _getWaveLabel(int wave) {
     switch (wave) {
@@ -1264,16 +1747,39 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
                         final isNotified = widget.notifiedUserIds.contains(
                           user.id,
                         );
+                        final hasDeclined = _declinedUserIds.contains(user.id);
+
+                        // Déterminer le statut
+                        String statusLabel;
+                        Color statusColor;
+                        Color statusBgColor;
+                        IconData statusIcon;
+
+                        if (hasDeclined) {
+                          statusLabel = 'Refusé';
+                          statusColor = Colors.red.shade700;
+                          statusBgColor = Colors.red.shade100;
+                          statusIcon = Icons.cancel;
+                        } else if (isNotified) {
+                          statusLabel = 'En attente';
+                          statusColor = Colors.orange.shade700;
+                          statusBgColor = Colors.orange.shade100;
+                          statusIcon = Icons.schedule;
+                        } else {
+                          statusLabel = 'Non notifié';
+                          statusColor = Colors.grey.shade600;
+                          statusBgColor = Colors.grey.shade100;
+                          statusIcon = Icons.person;
+                        }
+
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 4),
                           child: Row(
                             children: [
                               Icon(
-                                isNotified ? Icons.check_circle : Icons.person,
+                                statusIcon,
                                 size: 16,
-                                color: isNotified
-                                    ? Colors.green
-                                    : Colors.grey.shade600,
+                                color: statusColor,
                               ),
                               const SizedBox(width: 8),
                               Expanded(
@@ -1281,34 +1787,38 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
                                   '${user.firstName} ${user.lastName}',
                                   style: TextStyle(
                                     fontSize: 14,
-                                    color: isNotified
-                                        ? Colors.black
-                                        : Colors.grey.shade700,
-                                    fontWeight: isNotified
+                                    color: hasDeclined
+                                        ? Colors.grey.shade600
+                                        : (isNotified
+                                            ? Colors.black
+                                            : Colors.grey.shade700),
+                                    fontWeight: isNotified || hasDeclined
                                         ? FontWeight.w600
                                         : FontWeight.normal,
+                                    decoration: hasDeclined
+                                        ? TextDecoration.lineThrough
+                                        : null,
                                   ),
                                 ),
                               ),
-                              if (isNotified)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 6,
-                                    vertical: 2,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.green.shade100,
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Text(
-                                    'Notifié',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: Colors.green.shade700,
-                                      fontWeight: FontWeight.w600,
-                                    ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: statusBgColor,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  statusLabel,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: statusColor,
+                                    fontWeight: FontWeight.w600,
                                   ),
                                 ),
+                              ),
                             ],
                           ),
                         );

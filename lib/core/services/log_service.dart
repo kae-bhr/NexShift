@@ -14,7 +14,7 @@ class LogService {
   File? _currentLogFile;
   File? _previousLogFile;
   final List<String> _memoryBuffer = [];
-  static const int _maxBufferSize = 100;
+  DebugPrintCallback? _originalDebugPrint;
 
   /// Initialise le service de logs
   Future<void> initialize() async {
@@ -34,6 +34,10 @@ class LogService {
       final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
       _currentLogFile = File('${logsDir.path}/session_current_$timestamp.log');
       await _currentLogFile!.create();
+
+      // Intercepter tous les debugPrint
+      _originalDebugPrint = debugPrint;
+      debugPrint = _customDebugPrint;
 
       debugPrint('📝 Log service initialized: ${_currentLogFile!.path}');
 
@@ -61,24 +65,60 @@ class LogService {
 
       if (logFiles.isNotEmpty) {
         // Le plus récent devient le log précédent
-        _previousLogFile = logFiles.first;
-        debugPrint('📜 Previous log file: ${_previousLogFile!.path}');
+        final mostRecent = logFiles.first;
 
-        // Supprimer tous les fichiers sauf le plus récent
+        // Vérifier si le fichier est déjà renommé en "previous"
+        if (mostRecent.path.contains('session_previous_')) {
+          // Si déjà en "previous", le garder tel quel
+          _previousLogFile = mostRecent;
+          debugPrint('📜 Found previous log file: ${_previousLogFile!.path}');
+        } else if (mostRecent.path.contains('session_current_')) {
+          // Si c'est un "current", le renommer en "previous"
+          final newPath = mostRecent.path.replaceAll(
+            RegExp(r'session_current_'),
+            'session_previous_',
+          );
+          _previousLogFile = await mostRecent.rename(newPath);
+          debugPrint('📜 Renamed to previous log: ${_previousLogFile!.path}');
+        }
+
+        // Supprimer tous les autres fichiers (index 1 et plus)
         for (var i = 1; i < logFiles.length; i++) {
           await logFiles[i].delete();
           debugPrint('🗑️ Deleted old log file: ${logFiles[i].path}');
         }
-
-        // Renommer le fichier précédent
-        final newPath = _previousLogFile!.path.replaceAll(
-          RegExp(r'session_current_'),
-          'session_previous_',
-        );
-        _previousLogFile = await _previousLogFile!.rename(newPath);
       }
     } catch (e) {
       debugPrint('❌ Error rotating logs: $e');
+    }
+  }
+
+  /// Gestionnaire personnalisé pour capturer tous les debugPrint
+  void _customDebugPrint(String? message, {int? wrapWidth}) {
+    // Appeler le debugPrint original pour l'affichage console
+    _originalDebugPrint?.call(message, wrapWidth: wrapWidth);
+
+    // Capturer dans les logs (sans await car debugPrint est synchrone)
+    if (message != null && message.isNotEmpty) {
+      _logToFile(message);
+    }
+  }
+
+  /// Enregistre un message dans le fichier (version synchrone pour debugPrint)
+  void _logToFile(String message) {
+    try {
+      final timestamp = DateFormat('yyyy-MM-dd HH:mm:ss.SSS').format(DateTime.now());
+      final logLine = '$timestamp [DEBUG] $message';
+
+      // Ajouter au buffer en mémoire
+      _memoryBuffer.add(logLine);
+
+      // Flush plus agressif : tous les 20 messages au lieu de 100
+      if (_memoryBuffer.length >= 20) {
+        _flushBuffer();
+      }
+    } catch (e) {
+      _originalDebugPrint?.call('❌ Error logging to file: $e');
     }
   }
 
@@ -96,29 +136,18 @@ class LogService {
 
       // Ajouter au buffer en mémoire
       _memoryBuffer.add(logLine);
-      if (_memoryBuffer.length > _maxBufferSize) {
+
+      // Flush plus agressif
+      if (_memoryBuffer.length >= 20) {
         await _flushBuffer();
       }
 
-      // Afficher dans la console en debug
+      // Afficher dans la console en debug (sans emoji pour éviter double capture)
       if (kDebugMode) {
-        switch (level) {
-          case LogLevel.error:
-            debugPrint('❌ $logLine');
-            break;
-          case LogLevel.warning:
-            debugPrint('⚠️ $logLine');
-            break;
-          case LogLevel.info:
-            debugPrint('ℹ️ $logLine');
-            break;
-          case LogLevel.debug:
-            debugPrint('🐛 $logLine');
-            break;
-        }
+        _originalDebugPrint?.call('[$levelStr]$tagStr $message');
       }
     } catch (e) {
-      debugPrint('❌ Error logging message: $e');
+      _originalDebugPrint?.call('❌ Error logging message: $e');
     }
   }
 
@@ -143,8 +172,13 @@ class LogService {
     try {
       await log('=== SESSION ENDED ===', level: LogLevel.info);
       await _flushBuffer();
+
+      // Restaurer le debugPrint original
+      if (_originalDebugPrint != null) {
+        debugPrint = _originalDebugPrint!;
+      }
     } catch (e) {
-      debugPrint('❌ Error closing log service: $e');
+      _originalDebugPrint?.call('❌ Error closing log service: $e');
     }
   }
 

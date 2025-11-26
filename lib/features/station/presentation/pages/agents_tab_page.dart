@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/data/models/team_model.dart';
 import 'package:nexshift_app/core/repositories/user_repository.dart';
@@ -8,6 +9,7 @@ import 'package:nexshift_app/core/services/firebase_auth_service.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 import 'package:nexshift_app/features/skills/presentation/pages/skills_page.dart';
+import 'package:nexshift_app/features/settings/presentation/pages/similar_agents_page.dart';
 
 /// Agents tab page - manages station personnel with drag & drop team assignment
 /// EXACT copy from StationPage with all functionalities
@@ -709,6 +711,16 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                     ),
                   ),
                   const PopupMenuItem(
+                    value: 'similarities',
+                    child: Row(
+                      children: [
+                        Icon(Icons.people_alt, size: 18),
+                        SizedBox(width: 8),
+                        Text('Similarités'),
+                      ],
+                    ),
+                  ),
+                  const PopupMenuItem(
                     value: 'role',
                     child: Row(
                       children: [
@@ -718,6 +730,21 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                       ],
                     ),
                   ),
+                  // Option de test de notification (uniquement pour les admins)
+                  if (widget.currentUser?.admin == true)
+                    const PopupMenuItem(
+                      value: 'test_notification',
+                      child: Row(
+                        children: [
+                          Icon(Icons.notifications_active, size: 18, color: Colors.blue),
+                          SizedBox(width: 8),
+                          Text(
+                            'Tester notification',
+                            style: TextStyle(color: Colors.blue),
+                          ),
+                        ],
+                      ),
+                    ),
                   PopupMenuItem(
                     value: 'delete',
                     child: Row(
@@ -873,8 +900,19 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
           widget.onDataChanged();
         }
         break;
+      case 'similarities':
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => SimilarAgentsPage(targetUser: user),
+          ),
+        );
+        break;
       case 'role':
         _showChangeRoleDialog(user);
+        break;
+      case 'test_notification':
+        _sendTestNotification(user);
         break;
       case 'delete':
         _showDeleteAgentDialog(user);
@@ -1730,5 +1768,109 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
         ),
       ),
     );
+  }
+
+  /// Envoie une notification de test à un agent spécifique
+  /// Accessible uniquement aux admins
+  Future<void> _sendTestNotification(User targetUser) async {
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    final currentUser = widget.currentUser;
+
+    if (currentUser == null) {
+      scaffoldMessenger.showSnackBar(
+        const SnackBar(
+          content: Text('Erreur: Utilisateur non connecté'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    // Vérifier que l'utilisateur est admin
+    if (!currentUser.admin) {
+      scaffoldMessenger.showSnackBar(
+        const SnackBar(
+          content: Text('Seuls les administrateurs peuvent envoyer des notifications de test'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    // Afficher un dialog de confirmation
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Notification de test'),
+        content: Text(
+          'Envoyer une notification de test à ${targetUser.firstName} ${targetUser.lastName} ?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Envoyer'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      // Afficher un indicateur de chargement
+      scaffoldMessenger.showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+              ),
+              SizedBox(width: 12),
+              Text('Envoi de la notification de test...'),
+            ],
+          ),
+          duration: Duration(seconds: 3),
+        ),
+      );
+
+      // Créer un document dans la collection testNotifications
+      // La Cloud Function sendTestNotification sera déclenchée automatiquement
+      await FirebaseFirestore.instance.collection('testNotifications').add({
+        'targetUserId': targetUser.id,
+        'adminId': currentUser.id,
+        'createdAt': FieldValue.serverTimestamp(),
+        'processed': false,
+      });
+
+      debugPrint('✅ Test notification trigger created for user ${targetUser.id}');
+
+      // Afficher un message de succès
+      scaffoldMessenger.clearSnackBars();
+      scaffoldMessenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            '✅ Notification de test envoyée à ${targetUser.firstName} ${targetUser.lastName}',
+          ),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } catch (e) {
+      debugPrint('❌ Error sending test notification: $e');
+      scaffoldMessenger.clearSnackBars();
+      scaffoldMessenger.showSnackBar(
+        SnackBar(
+          content: Text('❌ Erreur lors de l\'envoi: $e'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    }
   }
 }

@@ -360,7 +360,7 @@ class _VehicleDetailDialogState extends State<_VehicleDetailDialog> {
         final index = entry.key;
         final range = entry.value;
         final isExpanded = _expandedTimeRanges[index] ?? false;
-        final formatter = DateFormat('HH:mm');
+        final formatter = DateFormat('dd/MM HH:mm');
         final startStr = formatter.format(range.start);
         final endStr = formatter.format(range.end);
         final color = _statusToColor(range.status);

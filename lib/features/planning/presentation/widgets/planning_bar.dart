@@ -5,6 +5,12 @@ class PlanningBar extends StatelessWidget {
   final DateTime end;
   // optional callback called when the bar is tapped; provides a DateTime (midpoint)
   final void Function(DateTime at)? onTap;
+  // optional callback for long press start with position
+  final void Function(DateTime at, Offset globalPosition)? onLongPressStart;
+  // optional callback for drag during long press
+  final void Function(DateTime at, Offset globalPosition)? onLongPressMove;
+  // optional callback for long press end
+  final void Function(DateTime at, Offset globalPosition)? onLongPressEnd;
   final Color? color;
   final bool isSubtle; // if true, use grey background with colored borders
   final bool showLeftBorder; // show colored border on left (real start)
@@ -16,6 +22,9 @@ class PlanningBar extends StatelessWidget {
     required this.start,
     required this.end,
     this.onTap,
+    this.onLongPressStart,
+    this.onLongPressMove,
+    this.onLongPressEnd,
     this.color,
     this.isSubtle = false,
     this.showLeftBorder = true,
@@ -61,7 +70,7 @@ class PlanningBar extends StatelessWidget {
       width: barWidth,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTapDown: onTap != null
+        onTapUp: onTap != null
             ? (details) {
                 // localPosition.dx is relative to the left edge of the bar (0..barWidth)
                 double dx = details.localPosition.dx;
@@ -72,6 +81,42 @@ class PlanningBar extends StatelessWidget {
                 final secondsOffset = (duration.inSeconds * proportion).round();
                 final at = start.add(Duration(seconds: secondsOffset));
                 onTap!(at);
+              }
+            : null,
+        onLongPressStart: onLongPressStart != null
+            ? (details) {
+                double dx = details.localPosition.dx;
+                if (dx.isNaN) dx = 0.0;
+                dx = dx.clamp(0.0, barWidth);
+
+                final proportion = (barWidth > 0) ? (dx / barWidth) : 0.0;
+                final secondsOffset = (duration.inSeconds * proportion).round();
+                final at = start.add(Duration(seconds: secondsOffset));
+                onLongPressStart!(at, details.globalPosition);
+              }
+            : null,
+        onLongPressMoveUpdate: onLongPressMove != null
+            ? (details) {
+                double dx = details.localPosition.dx;
+                if (dx.isNaN) dx = 0.0;
+                dx = dx.clamp(0.0, barWidth);
+
+                final proportion = (barWidth > 0) ? (dx / barWidth) : 0.0;
+                final secondsOffset = (duration.inSeconds * proportion).round();
+                final at = start.add(Duration(seconds: secondsOffset));
+                onLongPressMove!(at, details.globalPosition);
+              }
+            : null,
+        onLongPressEnd: onLongPressEnd != null
+            ? (details) {
+                double dx = details.localPosition.dx;
+                if (dx.isNaN) dx = 0.0;
+                dx = dx.clamp(0.0, barWidth);
+
+                final proportion = (barWidth > 0) ? (dx / barWidth) : 0.0;
+                final secondsOffset = (duration.inSeconds * proportion).round();
+                final at = start.add(Duration(seconds: secondsOffset));
+                onLongPressEnd!(at, details.globalPosition);
               }
             : null,
         child: ClipRRect(

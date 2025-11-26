@@ -1,4 +1,6 @@
 import 'package:uuid/uuid.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 
 class Subshift {
   final String id;
@@ -43,12 +45,34 @@ class Subshift {
     'planningId': planningId,
   };
 
-  factory Subshift.fromJson(Map<String, dynamic> json) => Subshift(
-    id: json['id'],
-    replacedId: json['replacedId'],
-    replacerId: json['replacerId'],
-    start: DateTime.parse(json['start']),
-    end: DateTime.parse(json['end']),
-    planningId: json['planningId'],
-  );
+  factory Subshift.fromJson(Map<String, dynamic> json) {
+    try {
+      return Subshift(
+        id: json['id'] as String? ?? '',
+        replacedId: json['replacedId'] as String? ?? '',
+        replacerId: json['replacerId'] as String? ?? '',
+        start: _parseDateTime(json['start']),
+        end: _parseDateTime(json['end']),
+        planningId: json['planningId'] as String? ?? '',
+      );
+    } catch (e) {
+      debugPrint('Error parsing Subshift: $e');
+      debugPrint('JSON data: $json');
+      rethrow;
+    }
+  }
+
+  /// Parse DateTime depuis String (ISO8601) ou Timestamp (Firestore)
+  static DateTime _parseDateTime(dynamic value) {
+    if (value == null) {
+      return DateTime.now();
+    } else if (value is Timestamp) {
+      return value.toDate();
+    } else if (value is String) {
+      return DateTime.parse(value);
+    } else {
+      debugPrint('Unknown date format: ${value.runtimeType}');
+      return DateTime.now();
+    }
+  }
 }
