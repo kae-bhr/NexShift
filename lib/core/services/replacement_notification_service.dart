@@ -572,41 +572,54 @@ class ReplacementNotificationService {
       debugPrint('✅ Accepting replacement request: $requestId');
       debugPrint('  Replacer: $replacerId');
 
-      // Récupérer la demande
-      final requestDoc = await firestore
-          .collection('replacementRequests')
-          .doc(requestId)
-          .get();
+      // Variables pour stocker les données de la requête
+      late ReplacementRequest request;
+      late DateTime actualStartTime;
+      late DateTime actualEndTime;
 
-      if (!requestDoc.exists) {
-        throw Exception('Replacement request not found: $requestId');
-      }
+      // TRANSACTION ATOMIQUE pour éviter les race conditions
+      await firestore.runTransaction((transaction) async {
+        final requestRef = firestore
+            .collection('replacementRequests')
+            .doc(requestId);
 
-      final request = ReplacementRequest.fromJson(requestDoc.data()!);
+        final requestDoc = await transaction.get(requestRef);
 
-      if (request.status != ReplacementRequestStatus.pending) {
-        throw Exception('Request is not pending: ${request.status}');
-      }
+        if (!requestDoc.exists) {
+          throw Exception('Replacement request not found: $requestId');
+        }
 
-      // Utiliser les heures acceptées ou les heures de la demande par défaut (remplacement total)
-      final actualStartTime = acceptedStartTime ?? request.startTime;
-      final actualEndTime = acceptedEndTime ?? request.endTime;
+        request = ReplacementRequest.fromJson(requestDoc.data()!);
 
-      // Vérifier que la plage acceptée est dans la plage demandée
-      if (actualStartTime.isBefore(request.startTime) ||
-          actualEndTime.isAfter(request.endTime) ||
-          actualStartTime.isAfter(actualEndTime)) {
-        throw Exception('Invalid time range for replacement');
-      }
+        // Vérification atomique du statut
+        if (request.status != ReplacementRequestStatus.pending) {
+          throw Exception(
+            'Cette demande a déjà été acceptée par quelqu\'un d\'autre',
+          );
+        }
 
-      // Mettre à jour le statut de la demande
-      await firestore.collection('replacementRequests').doc(requestId).update({
-        'status': ReplacementRequestStatus.accepted.toString().split('.').last,
-        'replacerId': replacerId,
-        'acceptedAt': FieldValue.serverTimestamp(),
-        'acceptedStartTime': Timestamp.fromDate(actualStartTime),
-        'acceptedEndTime': Timestamp.fromDate(actualEndTime),
+        // Utiliser les heures acceptées ou les heures de la demande par défaut (remplacement total)
+        actualStartTime = acceptedStartTime ?? request.startTime;
+        actualEndTime = acceptedEndTime ?? request.endTime;
+
+        // Vérifier que la plage acceptée est dans la plage demandée
+        if (actualStartTime.isBefore(request.startTime) ||
+            actualEndTime.isAfter(request.endTime) ||
+            actualStartTime.isAfter(actualEndTime)) {
+          throw Exception('Invalid time range for replacement');
+        }
+
+        // Mise à jour atomique du statut
+        transaction.update(requestRef, {
+          'status': ReplacementRequestStatus.accepted.toString().split('.').last,
+          'replacerId': replacerId,
+          'acceptedAt': FieldValue.serverTimestamp(),
+          'acceptedStartTime': Timestamp.fromDate(actualStartTime),
+          'acceptedEndTime': Timestamp.fromDate(actualEndTime),
+        });
       });
+
+      debugPrint('  Transaction completed - request status updated atomically');
 
       // Si c'est une demande de disponibilité, créer une availability
       if (request.requestType == RequestType.availability) {

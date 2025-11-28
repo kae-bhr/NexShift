@@ -167,6 +167,70 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
     setState(() => _isResponding = true);
 
     try {
+      // Re-vérifier que la demande est toujours pending (protection contre race condition)
+      final freshRequestDoc = await _notificationService.firestore
+          .collection('replacementRequests')
+          .doc(widget.requestId)
+          .get();
+
+      if (!freshRequestDoc.exists) {
+        setState(() {
+          _error = 'Cette demande n\'existe plus';
+          _isResponding = false;
+        });
+        return;
+      }
+
+      final freshStatus = freshRequestDoc.data()?['status'] as String?;
+      if (freshStatus != 'pending') {
+        setState(() {
+          _error = 'Cette demande a déjà été acceptée par quelqu\'un d\'autre';
+          _isResponding = false;
+        });
+        return;
+      }
+
+      // Re-vérifier la disponibilité de l'utilisateur (peut avoir changé depuis l'ouverture du dialog)
+      final actualStartTime = _selectedStartTime ?? _request!.startTime;
+      final actualEndTime = _selectedEndTime ?? _request!.endTime;
+
+      // Vérifier les conflits avec les plannings
+      final allPlannings = await _planningRepository.getAll();
+      final isOnDuty = allPlannings.any((planning) {
+        if (!planning.agentsId.contains(widget.currentUserId)) return false;
+        final overlapStart = planning.startTime.isBefore(actualEndTime);
+        final overlapEnd = planning.endTime.isAfter(actualStartTime);
+        return overlapStart && overlapEnd;
+      });
+
+      if (isOnDuty) {
+        setState(() {
+          _error = 'Vous êtes en astreinte durant cette période.';
+          _isResponding = false;
+        });
+        return;
+      }
+
+      // Vérifier les conflits avec les subshifts existants
+      final existingSubshifts = await _subshiftRepository.getAll();
+      final hasConflict = existingSubshifts.any((subshift) {
+        final isInvolved =
+            subshift.replacerId == widget.currentUserId ||
+            subshift.replacedId == widget.currentUserId;
+        if (!isInvolved) return false;
+        final overlapStart = subshift.start.isBefore(actualEndTime);
+        final overlapEnd = subshift.end.isAfter(actualStartTime);
+        return overlapStart && overlapEnd;
+      });
+
+      if (hasConflict) {
+        setState(() {
+          _error = 'Vous avez déjà un remplacement programmé durant cette période.';
+          _isResponding = false;
+        });
+        return;
+      }
+
       // Pour les demandes de disponibilité, on marque simplement comme accepté
       if (_request!.requestType == RequestType.availability) {
         await _notificationService.acceptReplacementRequest(
