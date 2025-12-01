@@ -1,0 +1,187 @@
+workflows:
+  # Workflow de test automatique
+  test-workflow:
+    name: Tests automatiques
+    max_build_duration: 60
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+
+    scripts:
+      - name: Installer les dépendances
+        script: |
+          flutter pub get
+
+      - name: Analyser le code
+        script: |
+          flutter analyze
+
+      - name: Exécuter tous les tests
+        script: |
+          # Exécuter tous les tests sauf ceux qui nécessitent l'émulateur Firebase
+          flutter test --exclude-tags=emulator --coverage
+
+      - name: Vérifier la couverture de code
+        script: |
+          # Installer lcov si nécessaire (pour générer les rapports de couverture)
+          if ! command -v lcov &> /dev/null; then
+            echo "Installation de lcov..."
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+              brew install lcov
+            else
+              sudo apt-get update && sudo apt-get install -y lcov
+            fi
+          fi
+
+          # Générer le rapport de couverture
+          genhtml coverage/lcov.info -o coverage/html
+
+          # Calculer le pourcentage de couverture
+          COVERAGE=$(lcov --summary coverage/lcov.info | grep "lines" | awk '{print $2}' | sed 's/%//')
+          echo "Couverture actuelle: $COVERAGE%"
+
+          # Vérifier si la couverture atteint le seuil (80%)
+          THRESHOLD=80
+          if (( $(echo "$COVERAGE < $THRESHOLD" | bc -l) )); then
+            echo "⚠️  AVERTISSEMENT: La couverture de code ($COVERAGE%) est inférieure au seuil requis ($THRESHOLD%)"
+            # Note: On n'échoue pas le build, juste un avertissement
+          else
+            echo "✅ Couverture de code OK: $COVERAGE% >= $THRESHOLD%"
+          fi
+
+      - name: Résumé des tests
+        script: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📊 RÉSUMÉ DES TESTS"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "Tests exécutés avec succès ✅"
+          echo ""
+          echo "Fichiers de test:"
+          echo "  • test/integration/replacement/partial_replacement_test.dart"
+          echo "  • test/integration/replacement/conflict_test.dart"
+          echo "  • test/integration/replacement/validation_test.dart"
+          echo "  • test/integration/replacement/race_condition_test.dart"
+          echo ""
+          echo "Note: Les tests de l'émulateur Firebase nécessitent"
+          echo "      une exécution locale avec Firebase Emulator"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    artifacts:
+      - coverage/**/*
+
+    triggering:
+      events:
+        - push
+        - pull_request
+      branch_patterns:
+        - pattern: '*'
+          include: true
+          source: true
+
+  # Workflow de build Android
+  android-workflow:
+    name: Build Android
+    max_build_duration: 120
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+
+    scripts:
+      - name: Installer les dépendances
+        script: |
+          flutter pub get
+
+      - name: Exécuter les tests
+        script: |
+          flutter test --exclude-tags=emulator
+
+      - name: Build Android APK
+        script: |
+          flutter build apk --release
+
+      - name: Build Android App Bundle
+        script: |
+          flutter build appbundle --release
+
+    artifacts:
+      - build/app/outputs/**/*.apk
+      - build/app/outputs/**/*.aab
+      - flutter_drive.log
+
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: 'master'
+          include: true
+          source: true
+        - pattern: 'main'
+          include: true
+          source: true
+
+  # Workflow de build iOS
+  ios-workflow:
+    name: Build iOS
+    max_build_duration: 120
+    instance_type: mac_mini_m1
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+
+    scripts:
+      - name: Installer les dépendances
+        script: |
+          flutter pub get
+          cd ios && pod install
+
+      - name: Exécuter les tests
+        script: |
+          flutter test --exclude-tags=emulator
+
+      - name: Build iOS
+        script: |
+          flutter build ios --release --no-codesign
+
+    artifacts:
+      - build/ios/iphoneos/**/*.app
+      - flutter_drive.log
+
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: 'master'
+          include: true
+          source: true
+        - pattern: 'main'
+          include: true
+          source: true
+
+  # Workflow de développement rapide (tests uniquement)
+  dev-tests:
+    name: Tests rapides (dev)
+    max_build_duration: 30
+    environment:
+      flutter: stable
+
+    scripts:
+      - name: Installer les dépendances
+        script: |
+          flutter pub get
+
+      - name: Tests unitaires seulement
+        script: |
+          # Exécuter uniquement les tests d'intégration de remplacement
+          flutter test test/integration/replacement/ --exclude-tags=emulator
+
+    triggering:
+      events:
+        - pull_request
+      branch_patterns:
+        - pattern: '*'
+          include: true
+          source: true

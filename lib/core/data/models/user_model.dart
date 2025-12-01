@@ -19,6 +19,29 @@ class User {
     required this.skills,
   });
 
+  /// Permet de dupliquer l'objet avec des champs modifiés
+  User copyWith({
+    String? id,
+    String? lastName,
+    String? firstName,
+    String? station,
+    String? status,
+    bool? admin,
+    String? team,
+    List<String>? skills,
+  }) {
+    return User(
+      id: id ?? this.id,
+      lastName: lastName ?? this.lastName,
+      firstName: firstName ?? this.firstName,
+      station: station ?? this.station,
+      status: status ?? this.status,
+      admin: admin ?? this.admin,
+      team: team ?? this.team,
+      skills: skills ?? this.skills,
+    );
+  }
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'lastName': lastName,

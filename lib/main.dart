@@ -5,6 +5,8 @@ import 'package:get_storage/get_storage.dart';
 import 'package:firebase_core/firebase_core.dart';
 
 import 'package:nexshift_app/config/theme.dart';
+import 'package:nexshift_app/config/environment.dart';
+import 'package:nexshift_app/config/environment_banner.dart';
 import 'package:nexshift_app/core/data/datasources/notifiers.dart';
 import 'package:nexshift_app/core/presentation/widgets/value_listenable_builder_widget.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
@@ -31,6 +33,7 @@ void main() async {
   // Initialize DebugLogger FIRST to capture all logs
   DebugLogger();
   debugPrint('🚀 Application starting...');
+  debugPrint('🌍 Environment: ${Environment.name}');
 
   // Initialize Log Service
   try {
@@ -302,11 +305,16 @@ class _NexShiftState extends State<NexShift> {
           theme: KTheme.lightTheme,
           darkTheme: KTheme.darkTheme,
           themeMode: isDarkMode == true ? ThemeMode.dark : ThemeMode.light,
+          builder: (context, child) {
+            return EnvironmentBanner(
+              child: child ?? const SizedBox.shrink(),
+            );
+          },
           home: !_isOnline
               ? const OfflinePage()
               : isUserAuthentified == true
-              ? const WidgetTree()
-              : const WelcomePage(),
+                  ? const WidgetTree()
+                  : const WelcomePage(),
         );
       },
     );

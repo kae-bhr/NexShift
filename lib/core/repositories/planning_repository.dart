@@ -1,15 +1,37 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:nexshift_app/core/data/models/planning_model.dart';
 import 'package:nexshift_app/core/services/firestore_service.dart';
 
 class PlanningRepository {
   static const _collectionName = 'plannings';
-  final FirestoreService _firestore = FirestoreService();
+  final FirestoreService _firestoreService;
+  final FirebaseFirestore? _directFirestore;
+
+  /// Constructeur par défaut (production)
+  PlanningRepository({FirestoreService? firestoreService})
+      : _firestoreService = firestoreService ?? FirestoreService(),
+        _directFirestore = null;
+
+  /// Constructeur pour les tests avec Firestore direct
+  PlanningRepository.forTest(FirebaseFirestore firestore)
+      : _directFirestore = firestore,
+        _firestoreService = FirestoreService();
 
   /// Récupère tous les plannings
   Future<List<Planning>> getAll() async {
     try {
-      final data = await _firestore.getAll(_collectionName);
+      // Mode test
+      if (_directFirestore != null) {
+        final snapshot = await _directFirestore.collection(_collectionName).get();
+        return snapshot.docs.map((doc) {
+          final data = doc.data();
+          data['id'] = doc.id;
+          return Planning.fromJson(data);
+        }).toList();
+      }
+      // Mode production
+      final data = await _firestoreService.getAll(_collectionName);
       return data.map((e) => Planning.fromJson(e)).toList();
     } catch (e) {
       debugPrint('Firestore error in getAll: $e');
@@ -20,7 +42,7 @@ class PlanningRepository {
   /// Récupère tous les plannings dans une période
   Future<List<Planning>> getAllInRange(DateTime start, DateTime end) async {
     try {
-      final data = await _firestore.getInDateRange(
+      final data = await _firestoreService.getInDateRange(
         _collectionName,
         'startTime',
         'endTime',
@@ -83,7 +105,16 @@ class PlanningRepository {
   /// Récupère un planning par ID
   Future<Planning?> getById(String id) async {
     try {
-      final data = await _firestore.getById(_collectionName, id);
+      // Mode test
+      if (_directFirestore != null) {
+        final doc = await _directFirestore.collection(_collectionName).doc(id).get();
+        if (!doc.exists) return null;
+        final data = doc.data()!;
+        data['id'] = doc.id;
+        return Planning.fromJson(data);
+      }
+      // Mode production
+      final data = await _firestoreService.getById(_collectionName, id);
       if (data != null) {
         return Planning.fromJson(data);
       }
@@ -97,7 +128,13 @@ class PlanningRepository {
   /// Sauvegarde un planning
   Future<void> save(Planning planning) async {
     try {
-      await _firestore.upsert(_collectionName, planning.id, planning.toJson());
+      // Mode test
+      if (_directFirestore != null) {
+        await _directFirestore.collection(_collectionName).doc(planning.id).set(planning.toJson());
+        return;
+      }
+      // Mode production
+      await _firestoreService.upsert(_collectionName, planning.id, planning.toJson());
     } catch (e) {
       debugPrint('Firestore error during save: $e');
       rethrow;
@@ -117,7 +154,7 @@ class PlanningRepository {
             },
           )
           .toList();
-      await _firestore.batchWrite(operations);
+      await _firestoreService.batchWrite(operations);
     } catch (e) {
       debugPrint('Firestore error during saveAll: $e');
       rethrow;
@@ -127,7 +164,13 @@ class PlanningRepository {
   /// Supprime un planning
   Future<void> delete(String id) async {
     try {
-      await _firestore.delete(_collectionName, id);
+      // Mode test
+      if (_directFirestore != null) {
+        await _directFirestore.collection(_collectionName).doc(id).delete();
+        return;
+      }
+      // Mode production
+      await _firestoreService.delete(_collectionName, id);
     } catch (e) {
       debugPrint('Firestore error during delete: $e');
       rethrow;
@@ -143,6 +186,14 @@ class PlanningRepository {
           .toList();
 
       if (toDelete.isNotEmpty) {
+        // Mode test: supprimer individuellement
+        if (_directFirestore != null) {
+          for (final planning in toDelete) {
+            await _directFirestore.collection(_collectionName).doc(planning.id).delete();
+          }
+          return;
+        }
+        // Mode production: utiliser batchWrite
         final operations = toDelete
             .map(
               (planning) => {
@@ -152,7 +203,7 @@ class PlanningRepository {
               },
             )
             .toList();
-        await _firestore.batchWrite(operations);
+        await _firestoreService.batchWrite(operations);
       }
     } catch (e) {
       debugPrint('Firestore error during deleteFuturePlannings: $e');
@@ -173,6 +224,14 @@ class PlanningRepository {
       }).toList();
 
       if (toDelete.isNotEmpty) {
+        // Mode test: supprimer individuellement
+        if (_directFirestore != null) {
+          for (final planning in toDelete) {
+            await _directFirestore.collection(_collectionName).doc(planning.id).delete();
+          }
+          return;
+        }
+        // Mode production: utiliser batchWrite
         final operations = toDelete
             .map(
               (planning) => {
@@ -182,7 +241,7 @@ class PlanningRepository {
               },
             )
             .toList();
-        await _firestore.batchWrite(operations);
+        await _firestoreService.batchWrite(operations);
       }
     } catch (e) {
       debugPrint('Firestore error during deletePlanningsInRange: $e');
@@ -195,6 +254,14 @@ class PlanningRepository {
     try {
       final all = await getAll();
       if (all.isNotEmpty) {
+        // Mode test: supprimer individuellement
+        if (_directFirestore != null) {
+          for (final planning in all) {
+            await _directFirestore.collection(_collectionName).doc(planning.id).delete();
+          }
+          return;
+        }
+        // Mode production: utiliser batchWrite
         final operations = all
             .map(
               (p) => {
@@ -204,7 +271,7 @@ class PlanningRepository {
               },
             )
             .toList();
-        await _firestore.batchWrite(operations);
+        await _firestoreService.batchWrite(operations);
       }
     } catch (e) {
       debugPrint('Firestore error during clear: $e');

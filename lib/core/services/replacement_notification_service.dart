@@ -3,7 +3,9 @@ import 'package:flutter/foundation.dart';
 import 'package:nexshift_app/core/repositories/user_repository.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/data/models/availability_model.dart';
+import 'package:nexshift_app/core/data/models/subshift_model.dart';
 import 'package:nexshift_app/core/repositories/availability_repository.dart';
+import 'package:nexshift_app/core/repositories/subshift_repositories.dart';
 
 /// Type de notification de remplacement
 enum ReplacementNotificationType {
@@ -147,10 +149,30 @@ enum ReplacementRequestStatus {
 /// Gère la logique métier et les appels à la Cloud Function
 class ReplacementNotificationService {
   // Exposer firestore pour permettre l'accès depuis le dialog
-  final FirebaseFirestore firestore = FirebaseFirestore.instance;
-  final UserRepository _userRepository = UserRepository();
-  final AvailabilityRepository _availabilityRepository =
-      AvailabilityRepository();
+  final FirebaseFirestore firestore;
+  final UserRepository _userRepository;
+  final AvailabilityRepository _availabilityRepository;
+  final SubshiftRepository _subshiftRepository;
+
+  /// Constructeur avec injection de dépendances (pour les tests)
+  ReplacementNotificationService({
+    FirebaseFirestore? firestore,
+    UserRepository? userRepository,
+    AvailabilityRepository? availabilityRepository,
+    SubshiftRepository? subshiftRepository,
+  })  : firestore = firestore ?? FirebaseFirestore.instance,
+        _userRepository = userRepository ??
+            (firestore != null
+              ? UserRepository.forTest(firestore)
+              : UserRepository()),
+        _availabilityRepository = availabilityRepository ??
+            (firestore != null
+              ? AvailabilityRepository.forTest(firestore)
+              : AvailabilityRepository()),
+        _subshiftRepository = subshiftRepository ??
+            (firestore != null
+              ? SubshiftRepository.forTest(firestore)
+              : SubshiftRepository());
 
   /// Crée une demande de remplacement et envoie les notifications
   /// Retourne l'ID de la demande créée
@@ -635,8 +657,18 @@ class ReplacementNotificationService {
       }
 
       // Créer le subshift (pour les demandes de remplacement)
-      // NOTE: Cette partie sera gérée par SubshiftRepository
-      // qui créera automatiquement le subshift
+      if (request.requestType == RequestType.replacement) {
+        debugPrint('📋 Creating subshift for replacement');
+        final subshift = Subshift.create(
+          replacedId: request.requesterId,
+          replacerId: replacerId,
+          start: actualStartTime,
+          end: actualEndTime,
+          planningId: request.planningId,
+        );
+        await _subshiftRepository.save(subshift);
+        debugPrint('✅ Subshift created: ${subshift.id}');
+      }
 
       // Vérifier si c'est un remplacement partiel
       final isPartialReplacement =

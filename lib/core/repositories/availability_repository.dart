@@ -1,15 +1,38 @@
 import 'package:flutter/foundation.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:nexshift_app/core/data/models/availability_model.dart';
 import 'package:nexshift_app/core/services/firestore_service.dart';
 
 class AvailabilityRepository {
   static const _collectionName = 'availabilities';
-  final FirestoreService _firestore = FirestoreService();
+  final FirestoreService _firestoreService;
+  final FirebaseFirestore? _directFirestore;
+
+  /// Constructeur par défaut (production)
+  AvailabilityRepository({FirestoreService? firestoreService})
+      : _firestoreService = firestoreService ?? FirestoreService(),
+        _directFirestore = null;
+
+  /// Constructeur pour les tests avec Firestore direct
+  AvailabilityRepository.forTest(FirebaseFirestore firestore)
+      : _directFirestore = firestore,
+        _firestoreService = FirestoreService();
 
   /// Récupère toutes les disponibilités
   Future<List<Availability>> getAll() async {
     try {
-      final data = await _firestore.getAll(_collectionName);
+      // Mode test
+      if (_directFirestore != null) {
+        final snapshot = await _directFirestore.collection(_collectionName).get();
+        return snapshot.docs.map((doc) {
+          final data = doc.data();
+          data['id'] = doc.id;
+          return Availability.fromJson(data);
+        }).toList();
+      }
+
+      // Mode production
+      final data = await _firestoreService.getAll(_collectionName);
       return data.map((e) => Availability.fromJson(e)).toList();
     } catch (e) {
       debugPrint('Firestore error in getAll: $e');
@@ -20,7 +43,7 @@ class AvailabilityRepository {
   /// Récupère une disponibilité par ID
   Future<Availability?> getById(String id) async {
     try {
-      final data = await _firestore.getById(_collectionName, id);
+      final data = await _firestoreService.getById(_collectionName, id);
       if (data != null) {
         return Availability.fromJson(data);
       }
@@ -34,7 +57,7 @@ class AvailabilityRepository {
   /// Récupère les disponibilités d'un agent spécifique
   Future<List<Availability>> getByAgentId(String agentId) async {
     try {
-      final data = await _firestore.getWhere(_collectionName, 'agentId', agentId);
+      final data = await _firestoreService.getWhere(_collectionName, 'agentId', agentId);
       return data.map((e) => Availability.fromJson(e)).toList();
     } catch (e) {
       debugPrint('Firestore error in getByAgentId: $e');
@@ -45,7 +68,7 @@ class AvailabilityRepository {
   /// Récupère les disponibilités pour un planning spécifique
   Future<List<Availability>> getByPlanningId(String planningId) async {
     try {
-      final data = await _firestore.getWhere(_collectionName, 'planningId', planningId);
+      final data = await _firestoreService.getWhere(_collectionName, 'planningId', planningId);
       return data.map((e) => Availability.fromJson(e)).toList();
     } catch (e) {
       debugPrint('Firestore error in getByPlanningId: $e');
@@ -56,7 +79,7 @@ class AvailabilityRepository {
   /// Récupère les disponibilités dans une plage temporelle
   Future<List<Availability>> getInRange(DateTime start, DateTime end) async {
     try {
-      final data = await _firestore.getInDateRange(
+      final data = await _firestoreService.getInDateRange(
         _collectionName,
         'start',
         'end',
@@ -73,7 +96,14 @@ class AvailabilityRepository {
   /// Ajoute ou met à jour une disponibilité
   Future<void> upsert(Availability availability) async {
     try {
-      await _firestore.upsert(_collectionName, availability.id, availability.toJson());
+      // Mode test
+      if (_directFirestore != null) {
+        await _directFirestore.collection(_collectionName).doc(availability.id).set(availability.toJson());
+        return;
+      }
+
+      // Mode production
+      await _firestoreService.upsert(_collectionName, availability.id, availability.toJson());
     } catch (e) {
       debugPrint('Firestore error during upsert: $e');
       rethrow;
@@ -83,7 +113,7 @@ class AvailabilityRepository {
   /// Supprime une disponibilité par son ID
   Future<void> delete(String id) async {
     try {
-      await _firestore.delete(_collectionName, id);
+      await _firestoreService.delete(_collectionName, id);
     } catch (e) {
       debugPrint('Firestore error during delete: $e');
       rethrow;
@@ -128,7 +158,7 @@ class AvailabilityRepository {
           'collection': _collectionName,
           'id': a.id,
         }).toList();
-        await _firestore.batchWrite(operations);
+        await _firestoreService.batchWrite(operations);
       }
     } catch (e) {
       debugPrint('Firestore error during clear: $e');

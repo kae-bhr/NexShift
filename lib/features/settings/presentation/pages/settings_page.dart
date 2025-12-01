@@ -122,7 +122,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 leading: CircleAvatar(
                   backgroundColor: teamColor.withOpacity(0.2),
                   child: Text(
-                    '${user.firstName[0]}${user.lastName[0]}',
+                    _getUserInitials(user),
                     style: TextStyle(
                       color: teamColor,
                       fontWeight: FontWeight.bold,
@@ -130,7 +130,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   ),
                 ),
                 title: Text(
-                  '${user.firstName} ${user.lastName}',
+                  _getUserFullName(user),
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 subtitle: Column(
@@ -1067,5 +1067,39 @@ class _SettingsPageState extends State<SettingsPage> {
         );
       },
     );
+  }
+
+  /// Retourne les initiales de l'utilisateur de manière sûre
+  String _getUserInitials(dynamic user) {
+    final firstName = user.firstName ?? '';
+    final lastName = user.lastName ?? '';
+    final firstInitial = firstName.isNotEmpty ? firstName[0] : '';
+    final lastInitial = lastName.isNotEmpty ? lastName[0] : '';
+
+    if (firstInitial.isEmpty && lastInitial.isEmpty) {
+      return '?';
+    }
+
+    return '$firstInitial$lastInitial'.toUpperCase();
+  }
+
+  /// Retourne le nom complet de l'utilisateur ou son matricule si le nom est vide
+  String _getUserFullName(dynamic user) {
+    final firstName = user.firstName ?? '';
+    final lastName = user.lastName ?? '';
+
+    if (firstName.isEmpty && lastName.isEmpty) {
+      return 'Agent ${user.id}';
+    }
+
+    if (firstName.isEmpty) {
+      return lastName;
+    }
+
+    if (lastName.isEmpty) {
+      return firstName;
+    }
+
+    return '$firstName $lastName';
   }
 }

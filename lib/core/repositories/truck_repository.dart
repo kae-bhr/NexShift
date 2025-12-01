@@ -1,14 +1,36 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:nexshift_app/core/data/models/trucks_model.dart';
 import 'package:nexshift_app/core/services/firestore_service.dart';
 
 class TruckRepository {
   static const _collectionName = 'trucks';
-  final FirestoreService _firestore = FirestoreService();
+  final FirestoreService _firestoreService;
+  final FirebaseFirestore? _directFirestore;
+
+  /// Constructeur par défaut (production)
+  TruckRepository({FirestoreService? firestoreService})
+      : _firestoreService = firestoreService ?? FirestoreService(),
+        _directFirestore = null;
+
+  /// Constructeur pour les tests avec Firestore direct
+  TruckRepository.forTest(FirebaseFirestore firestore)
+      : _directFirestore = firestore,
+        _firestoreService = FirestoreService();
 
   Future<List<Truck>> getAll() async {
     try {
-      final data = await _firestore.getAll(_collectionName);
+      // Mode test
+      if (_directFirestore != null) {
+        final snapshot = await _directFirestore.collection(_collectionName).get();
+        return snapshot.docs.map((doc) {
+          final data = doc.data();
+          data['id'] = doc.id;
+          return Truck.fromJson(data);
+        }).toList();
+      }
+      // Mode production
+      final data = await _firestoreService.getAll(_collectionName);
       return data.map((e) => Truck.fromJson(e)).toList();
     } catch (e) {
       debugPrint('Firestore error in getAll: $e');
@@ -18,7 +40,16 @@ class TruckRepository {
 
   Future<Truck?> getById(int id) async {
     try {
-      final data = await _firestore.getById(_collectionName, id.toString());
+      // Mode test
+      if (_directFirestore != null) {
+        final doc = await _directFirestore.collection(_collectionName).doc(id.toString()).get();
+        if (!doc.exists) return null;
+        final data = doc.data()!;
+        data['id'] = doc.id;
+        return Truck.fromJson(data);
+      }
+      // Mode production
+      final data = await _firestoreService.getById(_collectionName, id.toString());
       if (data != null) {
         return Truck.fromJson(data);
       }
@@ -31,7 +62,20 @@ class TruckRepository {
 
   Future<List<Truck>> getByStation(String stationName) async {
     try {
-      final data = await _firestore.getWhere(_collectionName, 'station', stationName);
+      // Mode test
+      if (_directFirestore != null) {
+        final snapshot = await _directFirestore
+            .collection(_collectionName)
+            .where('station', isEqualTo: stationName)
+            .get();
+        return snapshot.docs.map((doc) {
+          final data = doc.data();
+          data['id'] = doc.id;
+          return Truck.fromJson(data);
+        }).toList();
+      }
+      // Mode production
+      final data = await _firestoreService.getWhere(_collectionName, 'station', stationName);
       return data.map((e) => Truck.fromJson(e)).toList();
     } catch (e) {
       debugPrint('Firestore error in getByStation: $e');
@@ -78,7 +122,13 @@ class TruckRepository {
 
   Future<void> save(Truck truck) async {
     try {
-      await _firestore.upsert(_collectionName, truck.id.toString(), truck.toJson());
+      // Mode test
+      if (_directFirestore != null) {
+        await _directFirestore.collection(_collectionName).doc(truck.id.toString()).set(truck.toJson());
+        return;
+      }
+      // Mode production
+      await _firestoreService.upsert(_collectionName, truck.id.toString(), truck.toJson());
     } catch (e) {
       debugPrint('Firestore error during save: $e');
       rethrow;
@@ -93,7 +143,7 @@ class TruckRepository {
         'id': truck.id.toString(),
         'data': truck.toJson(),
       }).toList();
-      await _firestore.batchWrite(operations);
+      await _firestoreService.batchWrite(operations);
     } catch (e) {
       debugPrint('Firestore error during saveAll: $e');
       rethrow;
@@ -102,7 +152,13 @@ class TruckRepository {
 
   Future<void> delete(int id) async {
     try {
-      await _firestore.delete(_collectionName, id.toString());
+      // Mode test
+      if (_directFirestore != null) {
+        await _directFirestore.collection(_collectionName).doc(id.toString()).delete();
+        return;
+      }
+      // Mode production
+      await _firestoreService.delete(_collectionName, id.toString());
     } catch (e) {
       debugPrint('Firestore error during delete: $e');
       rethrow;
@@ -112,12 +168,22 @@ class TruckRepository {
   Future<void> clear() async {
     try {
       final all = await getAll();
+      if (all.isEmpty) return;
+
+      // Mode test: supprimer individuellement
+      if (_directFirestore != null) {
+        for (final truck in all) {
+          await _directFirestore.collection(_collectionName).doc(truck.id.toString()).delete();
+        }
+        return;
+      }
+      // Mode production: utiliser batchWrite
       final operations = all.map((t) => {
         'type': 'delete',
         'collection': _collectionName,
         'id': t.id.toString(),
       }).toList();
-      await _firestore.batchWrite(operations);
+      await _firestoreService.batchWrite(operations);
     } catch (e) {
       debugPrint('Firestore error during clear: $e');
       rethrow;

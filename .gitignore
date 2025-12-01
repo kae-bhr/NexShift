@@ -62,7 +62,7 @@ ios/Runner.xcodeproj/project.xcworkspace/xcuserdata/
 # Firebase configuration files (contains API keys)
 /android/app/google-services.json
 /ios/Runner/GoogleService-Info.plist
-/lib/firebase_options.dart
+/lib/firebase_options*
 
 # Environment files
 .env

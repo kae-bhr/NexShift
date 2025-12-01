@@ -11,6 +11,46 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Lire l'environnement depuis .env-firebase ou utiliser prod par défaut
+val envFile = rootProject.file(".env-firebase")
+val dartEnv = if (envFile.exists()) {
+    envFile.readText().trim()
+} else {
+    "prod"
+}
+
+// Sélection du fichier google-services.json selon l'environnement
+task("selectGoogleServices") {
+    doFirst {
+        val googleServicesFile = when (dartEnv.lowercase()) {
+            "dev", "development" -> "google-services-dev.json"
+            else -> "google-services-prod.json"
+        }
+
+        val sourceFile = file(googleServicesFile)
+        val targetFile = file("google-services.json")
+
+        if (sourceFile.exists()) {
+            sourceFile.copyTo(targetFile, overwrite = true)
+            println("✅ Firebase: Using $googleServicesFile for environment: $dartEnv")
+        } else {
+            println("⚠️ Firebase Warning: $googleServicesFile not found")
+            if (targetFile.exists()) {
+                println("   Using existing google-services.json")
+            } else {
+                throw GradleException("❌ No google-services.json file found!")
+            }
+        }
+    }
+}
+
+// Exécuter la sélection avant le processus de build
+tasks.whenTaskAdded {
+    if (name == "processDebugGoogleServices" || name == "processReleaseGoogleServices") {
+        dependsOn("selectGoogleServices")
+    }
+}
+
 // Load keystore properties for signing
 val keystorePropertiesFile = rootProject.file("key.properties")
 val keystoreProperties = Properties()

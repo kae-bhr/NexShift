@@ -1,9 +1,12 @@
 import 'package:nexshift_app/core/data/models/user_model.dart';
+import 'package:nexshift_app/core/data/models/trucks_model.dart';
+import 'package:nexshift_app/core/services/skill_criticality_service.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
 
 /// Service pour calculer les vagues de notifications
 /// en fonction des compétences et pondérations
 class WaveCalculationService {
+  final SkillCriticalityService _criticalityService = SkillCriticalityService();
   /// Calcule la vague d'un utilisateur pour une demande de remplacement
   ///
   /// Logique des vagues :
@@ -81,8 +84,14 @@ class WaveCalculationService {
   /// Calcule la similarité pondérée entre deux ensembles de compétences
   ///
   /// Retourne un score entre 0.0 et 1.0
-  /// - 1.0 = compétences identiques
+  /// - 1.0 = match parfait (candidat a exactement les compétences du demandeur)
   /// - 0.0 = aucune compétence en commun
+  ///
+  /// Avec le nouveau système de points (0-100) :
+  /// - Les compétences rares et critiques ont des poids élevés
+  /// - La similarité reflète la capacité de remplacement opérationnel
+  /// - Pénalité de surqualification pour préserver les agents très qualifiés
+  ///   pour des remplacements futurs plus critiques
   double _calculateSkillSimilarity(
     User requester,
     User candidate,
@@ -96,29 +105,96 @@ class WaveCalculationService {
     // Calculer le poids total des compétences du demandeur
     double totalRequiredWeight = 0.0;
     for (final skill in requesterSkills) {
-      totalRequiredWeight += (skillRarityWeights[skill] ?? 1).toDouble();
+      totalRequiredWeight += (skillRarityWeights[skill] ?? 0).toDouble();
+    }
+
+    // Si le demandeur n'a que des compétences non requises (poids 0),
+    // retourner 100% si le candidat les a aussi, 0% sinon
+    if (totalRequiredWeight == 0) {
+      return candidateSkills.containsAll(requesterSkills) ? 1.0 : 0.0;
     }
 
     // Calculer le poids des compétences en commun
     double matchedWeight = 0.0;
     for (final skill in requesterSkills) {
       if (candidateSkills.contains(skill)) {
-        matchedWeight += (skillRarityWeights[skill] ?? 1).toDouble();
+        matchedWeight += (skillRarityWeights[skill] ?? 0).toDouble();
       }
     }
 
-    // Pénaliser si le candidat a beaucoup de compétences supplémentaires
-    final extraSkills = candidateSkills.difference(requesterSkills).length;
-    final penalty = extraSkills > 2 ? 0.1 * extraSkills : 0.0;
+    // Calculer le poids des compétences supplémentaires (surqualification)
+    double extraWeight = 0.0;
+    final extraSkills = candidateSkills.difference(requesterSkills);
+    for (final skill in extraSkills) {
+      extraWeight += (skillRarityWeights[skill] ?? 0).toDouble();
+    }
 
-    final similarity = matchedWeight / totalRequiredWeight;
-    return (similarity - penalty).clamp(0.0, 1.0);
+    // Calculer le poids total du candidat
+    double totalCandidateWeight = matchedWeight + extraWeight;
+
+    // Pénalité de surqualification basée sur le ratio de compétences supplémentaires
+    // Si le candidat a beaucoup de compétences rares supplémentaires,
+    // il devrait être réservé pour des remplacements plus critiques
+    double overqualificationPenalty = 0.0;
+    if (totalCandidateWeight > 0 && totalRequiredWeight > 0) {
+      // Ratio de surqualification : combien de points supplémentaires vs requis
+      final overqualificationRatio = extraWeight / totalRequiredWeight;
+
+      // Pénalité progressive :
+      // - Si candidat a 50% de points en plus : -5% de similarité
+      // - Si candidat a 100% de points en plus : -10% de similarité
+      // - Si candidat a 200% de points en plus : -20% de similarité
+      // - Plafonné à -30% maximum
+      overqualificationPenalty = (overqualificationRatio * 0.1).clamp(0.0, 0.3);
+    }
+
+    final baseSimilarity = matchedWeight / totalRequiredWeight;
+    final adjustedSimilarity = baseSimilarity - overqualificationPenalty;
+
+    return adjustedSimilarity.clamp(0.0, 1.0);
   }
 
-  /// Calcule les poids de rareté pour chaque compétence
+  /// Calcule les poids de rareté pour chaque compétence (version contextuelle)
   ///
-  /// Plus une compétence est rare dans l'équipe, plus son poids est élevé
-  /// Cela permet de prioriser les remplaçants qui ont les compétences rares
+  /// Cette version utilise le contexte opérationnel (véhicules et équipe) pour
+  /// calculer des poids plus précis basés sur la criticité réelle des compétences.
+  ///
+  /// IMPORTANT: Les compétences non requises pour les véhicules ont un poids de 0
+  Future<Map<String, int>> calculateSkillRarityWeightsWithContext({
+    required User requester,
+    required List<User> teamMembers,
+    required List<Truck> stationVehicles,
+    String? stationId,
+  }) async {
+    // Utiliser le nouveau service de criticité avec toutes les compétences
+    // (pas seulement celles du requester, pour permettre l'affichage des points
+    // de toutes les compétences dans l'UI)
+    final criticalityScores = await _criticalityService.calculateSkillCriticality(
+      requester: requester,
+      teamMembers: teamMembers,
+      stationVehicles: stationVehicles,
+      stationId: stationId,
+      allSkills: true,
+    );
+
+    // Convertir les scores en poids entiers (0-100) pour une meilleure granularité
+    final weights = <String, int>{};
+    for (final entry in criticalityScores.entries) {
+      final score = entry.value;
+      // Convertir le score combiné (0.0-1.0) en poids (0-100)
+      // Les compétences non requises auront score 0.0 donc poids 0
+      weights[entry.key] = (score.combinedScore * 100).round();
+    }
+
+    return weights;
+  }
+
+  /// Calcule les poids de rareté pour chaque compétence (version simple)
+  ///
+  /// DEPRECATED: Utiliser calculateSkillRarityWeightsWithContext pour de meilleurs résultats
+  ///
+  /// Cette version est conservée pour compatibilité avec le code existant
+  /// qui ne peut pas fournir le contexte des véhicules.
   ///
   /// IMPORTANT: Les compétences de niveau apprentice ont toujours un poids de 0
   Map<String, int> calculateSkillRarityWeights({
