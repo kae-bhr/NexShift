@@ -4,6 +4,7 @@ import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/data/models/trucks_model.dart';
 import 'package:nexshift_app/core/repositories/local_repositories.dart';
 import 'package:nexshift_app/core/repositories/subshift_repositories.dart';
+import 'package:nexshift_app/core/repositories/user_repository.dart';
 import 'package:nexshift_app/core/data/datasources/notifiers.dart';
 import 'package:nexshift_app/core/data/models/planning_model.dart';
 import 'package:nexshift_app/core/data/models/subshift_model.dart';
@@ -96,19 +97,21 @@ class _HomePageState extends State<HomePage> {
       // Charger les plannings de la semaine courante (on filtrera ensuite côté client)
       final weekEnd = _currentWeekStart.add(const Duration(days: 7));
 
-      final allPlannings = await repo.getAllPlanningsInRange(
+      final allPlannings = await repo.getPlanningsByStationInRange(
+        user.station,
         _currentWeekStart,
         weekEnd,
       );
 
-      final allUsers = await repo.getAllUsers();
+      final userRepo = UserRepository();
+      final allUsers = await userRepo.getByStation(user.station);
       final shifts = await SubshiftRepository().getAll();
       final availabilities = await repo.getAvailabilities();
 
       // Charger la couleur de l'équipe de l'utilisateur
       Color? teamColor;
       try {
-        final team = await TeamRepository().getById(user.team);
+        final team = await TeamRepository().getById(user.team, stationId: user.station);
         teamColor = team?.color;
       } catch (_) {
         teamColor = null;
@@ -148,7 +151,8 @@ class _HomePageState extends State<HomePage> {
       0,
     );
     final weekEnd = normalizedStart.add(const Duration(days: 7));
-    final plannings = await repo.getAllPlanningsInRange(
+    final plannings = await repo.getPlanningsByStationInRange(
+      _user.station,
       normalizedStart,
       weekEnd,
     );

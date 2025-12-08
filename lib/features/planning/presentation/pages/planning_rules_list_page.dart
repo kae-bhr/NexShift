@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:nexshift_app/core/data/models/shift_rule_model.dart';
+import 'package:nexshift_app/core/data/models/station_model.dart';
 import 'package:nexshift_app/core/repositories/shift_rule_repository.dart';
 import 'package:nexshift_app/core/repositories/shift_exception_repository.dart';
 import 'package:nexshift_app/core/services/planning_generation_service.dart';
@@ -26,6 +28,7 @@ class _PlanningRulesListPageState extends State<PlanningRulesListPage> {
   bool _isLoading = true;
   bool _isGenerating = false;
   User? _currentUser;
+  Station? _stationConfig;
   bool _isInitialized = false;
   bool _canManageRules = false; // Mettre en cache au lieu d'un getter
 
@@ -39,6 +42,9 @@ class _PlanningRulesListPageState extends State<PlanningRulesListPage> {
     final stopwatch = Stopwatch()..start();
     try {
       _currentUser = await UserStorageHelper.loadUser();
+      if (_currentUser != null) {
+        await _loadStationConfig();
+      }
       if (mounted) {
         await _loadRules();
         setState(() {
@@ -61,12 +67,34 @@ class _PlanningRulesListPageState extends State<PlanningRulesListPage> {
     }
   }
 
+  Future<void> _loadStationConfig() async {
+    if (_currentUser == null) return;
+
+    try {
+      final stationDoc = await FirebaseFirestore.instance
+          .collection('stations')
+          .doc(_currentUser!.station)
+          .get();
+
+      if (stationDoc.exists && mounted) {
+        setState(() {
+          _stationConfig = Station.fromJson({
+            'id': stationDoc.id,
+            ...stationDoc.data()!,
+          });
+        });
+      }
+    } catch (e) {
+      debugPrint('PlanningRulesListPage: Error loading station config: $e');
+    }
+  }
+
   Future<void> _loadRules() async {
-    if (!mounted) return;
+    if (!mounted || _currentUser == null) return;
     final stopwatch = Stopwatch()..start();
     setState(() => _isLoading = true);
     try {
-      final rules = await _repository.getAll();
+      final rules = await _repository.getByStation(_currentUser!.station);
       if (!mounted) return;
       setState(() {
         _rules = rules;
@@ -249,7 +277,7 @@ class _PlanningRulesListPageState extends State<PlanningRulesListPage> {
           const SizedBox(height: 24),
           FilledButton.icon(
             onPressed: () async {
-              await _repository.resetToDefaultRules();
+              await _repository.resetToDefaultRules(stationId: _currentUser!.station);
               _loadRules();
             },
             icon: const Icon(Icons.restore),
@@ -272,7 +300,7 @@ class _PlanningRulesListPageState extends State<PlanningRulesListPage> {
             value: rule.isActive,
             onChanged: _canManageRules
                 ? (value) async {
-                    await _repository.toggleActive(rule.id);
+                    await _repository.toggleActive(rule.id, stationId: _currentUser!.station);
                     _loadRules();
                   }
                 : null,
@@ -351,7 +379,7 @@ class _PlanningRulesListPageState extends State<PlanningRulesListPage> {
                     Icon(Icons.group, size: 14, color: Colors.grey[600]),
                     const SizedBox(width: 4),
                     Text(
-                      'Max ${rule.maxAgents} agents',
+                      'Max ${_stationConfig?.maxAgentsPerShift ?? 6} agents',
                       style: TextStyle(
                         color: Colors.grey[700],
                         fontWeight: FontWeight.w500,
@@ -440,7 +468,7 @@ class _PlanningRulesListPageState extends State<PlanningRulesListPage> {
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () async {
-              await _repository.delete(rule.id);
+              await _repository.delete(rule.id, stationId: _currentUser!.station);
               Navigator.pop(context);
               _loadRules();
               if (mounted) {
@@ -504,7 +532,7 @@ class _PlanningRulesListPageState extends State<PlanningRulesListPage> {
 
     try {
       // Charger les exceptions pour la période
-      final allExceptions = await _exceptionRepository.getAll();
+      final allExceptions = await _exceptionRepository.getAll(stationId: _currentUser?.station);
       debugPrint('📅 Total exceptions loaded: ${allExceptions.length}');
 
       final relevantExceptions = allExceptions.where((e) {
@@ -522,6 +550,7 @@ class _PlanningRulesListPageState extends State<PlanningRulesListPage> {
       final result = await _generationService.generatePlannings(
         fromDate: startDate,
         duration: duration,
+        station: _currentUser?.station,
         exceptions: relevantExceptions,
       );
 

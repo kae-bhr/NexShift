@@ -7,12 +7,18 @@ import 'package:nexshift_app/features/auth/presentation/pages/confirmation_page.
 import 'package:nexshift_app/features/auth/presentation/widgets/enter_app_widget.dart';
 import 'package:nexshift_app/features/auth/presentation/widgets/password_strength_field_widget.dart';
 import 'package:nexshift_app/features/auth/presentation/widgets/snake_bar_widget.dart';
+import 'package:nexshift_app/features/auth/presentation/widgets/station_selection_dialog.dart';
 import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key, required this.chgtPw});
+  const LoginPage({
+    super.key,
+    required this.chgtPw,
+    this.sdisId,
+  });
 
   final bool chgtPw;
+  final String? sdisId; // ID du SDIS pour l'architecture multi-SDIS
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -114,21 +120,49 @@ class _LoginPageState extends State<LoginPage> {
 
     final repo = LocalRepository();
     try {
-      // Login with Firebase Auth - returns User profile directly
-      final user = await repo.login(id, pw);
+      // Login with Firebase Auth - nouvelle version avec gestion multi-stations et multi-SDIS
+      final authResult = await repo.loginWithStations(id, pw, sdisId: widget.sdisId);
 
-      if (!widget.chgtPw) {
-        EnterApp.build(context, user.id);
-      } else {
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ConfirmationPage(id: user.id),
-          ),
-          (route) => false,
-        );
+      // Cas 1: Utilisateur avec une seule station
+      if (authResult.hasSingleStation && authResult.user != null) {
+        _navigateAfterLogin(authResult.user!.id);
+        return;
       }
-      return;
+
+      // Cas 2: Utilisateur avec plusieurs stations - afficher le menu de sélection
+      if (authResult.needsStationSelection && authResult.userStations != null) {
+        if (!mounted) return;
+
+        final selectedStation = await StationSelectionDialog.show(
+          context: context,
+          stations: authResult.userStations!.stations,
+        );
+
+        if (selectedStation != null) {
+          // Charger le profil utilisateur pour la station sélectionnée
+          final user = await repo.loadUserForStation(id, selectedStation);
+
+          if (!mounted) return;
+
+          if (user != null) {
+            _navigateAfterLogin(user.id);
+          } else {
+            SnakebarWidget.showSnackBar(
+              context,
+              'Erreur lors du chargement du profil pour cette station.',
+              colorScheme.error,
+            );
+          }
+        }
+        return;
+      }
+
+      // Cas imprévu
+      SnakebarWidget.showSnackBar(
+        context,
+        'Erreur lors de la connexion.',
+        colorScheme.error,
+      );
     } on UserProfileNotFoundException catch (e) {
       // L'authentification a réussi mais pas de profil dans Firestore
       // Afficher popup pour créer le profil
@@ -142,6 +176,21 @@ class _LoginPageState extends State<LoginPage> {
         colorScheme.error,
       );
       return;
+    }
+  }
+
+  /// Navigue vers la page appropriée après connexion
+  void _navigateAfterLogin(String userId) {
+    if (!widget.chgtPw) {
+      EnterApp.build(context, userId);
+    } else {
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ConfirmationPage(id: userId),
+        ),
+        (route) => false,
+      );
     }
   }
 

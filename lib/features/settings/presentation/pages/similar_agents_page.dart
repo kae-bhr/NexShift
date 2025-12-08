@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:nexshift_app/core/data/datasources/notifiers.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/repositories/local_repositories.dart';
+import 'package:nexshift_app/core/repositories/user_repository.dart';
 import 'package:nexshift_app/core/repositories/team_repository.dart';
 import 'package:nexshift_app/core/repositories/truck_repository.dart';
 import 'package:nexshift_app/core/services/wave_calculation_service.dart';
@@ -60,12 +60,12 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
       return;
     }
 
-    final repo = LocalRepository();
-    final allUsers = await repo.getAllUsers();
+    final userRepo = UserRepository();
+    final allUsers = await userRepo.getByStation(currentUser.station);
 
-    // Filtrer pour ne garder que les agents de la même station
+    // Filtrer pour exclure l'utilisateur courant
     final stationUsers = allUsers
-        .where((u) => u.station == currentUser.station && u.id != currentUser.id)
+        .where((u) => u.id != currentUser.id)
         .toList();
 
     // Charger les véhicules de la station pour le calcul contextuel
@@ -300,7 +300,7 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
   Widget _buildCurrentUserHeader() {
     return FutureBuilder(
       future: _currentUser!.team.isNotEmpty
-          ? TeamRepository().getById(_currentUser!.team)
+          ? TeamRepository().getById(_currentUser!.team, stationId: _currentUser!.station)
           : Future.value(null),
       builder: (context, snapshot) {
         final team = snapshot.data;
@@ -618,7 +618,7 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
 
     return FutureBuilder(
       future: agent.team.isNotEmpty
-          ? TeamRepository().getById(agent.team)
+          ? TeamRepository().getById(agent.team, stationId: agent.station)
           : Future.value(null),
       builder: (context, snapshot) {
         final team = snapshot.data;
@@ -762,7 +762,7 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
           builder: (context, scrollController) {
             return FutureBuilder(
               future: agent.team.isNotEmpty
-                  ? TeamRepository().getById(agent.team)
+                  ? TeamRepository().getById(agent.team, stationId: agent.station)
                   : Future.value(null),
               builder: (context, snapshot) {
                 final team = snapshot.data;

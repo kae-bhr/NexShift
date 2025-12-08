@@ -22,7 +22,7 @@ class KConstants {
   static const String userKey = 'userKey';
 
   // user
-  static const String station = 'Saint-Vaast-La-Hougue';
+  static const String station = 'Caserne';
   static const String statusAgent = 'agent';
   static const String statusChief = 'chief';
   static const String statusLeader = 'leader';
@@ -102,7 +102,7 @@ class KSkills {
       case SkillLevelColor.equipier:
         return KColors.appNameColor;
       case SkillLevelColor.teamLeader:
-        return Colors.orange;
+        return const Color.fromARGB(255, 255, 94, 0);
       case SkillLevelColor.chiefOfficer:
         return Colors.amber;
     }
@@ -168,6 +168,38 @@ class KSkills {
     'VPS',
     'COD',
   ];
+
+  /// Icons available for position selection
+  static const Map<String, IconData> positionIcons = {
+    'local_fire_department': Icons.local_fire_department, // INC
+    'healing_outlined': Icons.healing_outlined, // SUAP
+    'build': Icons.build, // PPBE
+    'album': Icons.album, // COD
+    'car_crash_sharp': Icons.car_crash_sharp, // VPS
+    'shield_moon': Icons.shield_moon, // Chef de centre
+    'verified_user': Icons.verified_user, // Chef de garde
+    'person': Icons.person, // Agent
+    'emergency': Icons.emergency, // Urgence
+    'stairs': Icons.stairs, // EPA
+    'forest': Icons.forest, // CCF
+    'route': Icons.route, // VSR
+  };
+
+  /// Display names for position icons
+  static const Map<String, String> positionIconNames = {
+    'local_fire_department': 'Incendie',
+    'healing_outlined': 'Secours',
+    'build': 'Technique',
+    'album': 'Conduite',
+    'car_crash_sharp': 'VPS',
+    'shield_moon': 'Chef de centre',
+    'verified_user': 'Chef de garde',
+    'person': 'Agent',
+    'emergency': 'Urgence',
+    'stairs': 'EPA',
+    'forest': 'Feux de forêt',
+    'route': 'Route',
+  };
 }
 
 class KTrucks {

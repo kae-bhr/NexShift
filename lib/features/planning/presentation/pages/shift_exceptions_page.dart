@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:nexshift_app/core/data/models/shift_exception_model.dart';
+import 'package:nexshift_app/core/data/models/station_model.dart';
+import 'package:nexshift_app/core/data/models/team_model.dart';
 import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
 import 'package:nexshift_app/core/repositories/shift_exception_repository.dart';
+import 'package:nexshift_app/core/repositories/team_repository.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class ShiftExceptionsPage extends StatefulWidget {
   const ShiftExceptionsPage({super.key});
@@ -18,6 +22,7 @@ class _ShiftExceptionsPageState extends State<ShiftExceptionsPage> {
   List<ShiftException> _exceptions = [];
   bool _isLoading = false;
   bool _canManage = false;
+  String? _currentUserStation;
 
   @override
   void initState() {
@@ -32,6 +37,7 @@ class _ShiftExceptionsPageState extends State<ShiftExceptionsPage> {
     if (mounted) {
       setState(() {
         _canManage = user != null && (user.admin || user.status == KConstants.statusLeader);
+        _currentUserStation = user?.station;
       });
     }
   }
@@ -40,7 +46,7 @@ class _ShiftExceptionsPageState extends State<ShiftExceptionsPage> {
     if (!mounted) return;
     setState(() => _isLoading = true);
     try {
-      final exceptions = await _repository.getByYear(_selectedYear);
+      final exceptions = await _repository.getByYear(_selectedYear, stationId: _currentUserStation);
       if (!mounted) return;
       setState(() {
         _exceptions = exceptions;
@@ -75,7 +81,7 @@ class _ShiftExceptionsPageState extends State<ShiftExceptionsPage> {
     );
 
     if (confirmed == true && mounted) {
-      await _repository.delete(exception.id);
+      await _repository.delete(exception.id, stationId: _currentUserStation);
       _loadExceptions();
       if (mounted) {
         ScaffoldMessenger.of(
@@ -108,7 +114,7 @@ class _ShiftExceptionsPageState extends State<ShiftExceptionsPage> {
     );
 
     if (confirmed == true && mounted) {
-      await _repository.deleteByYear(_selectedYear);
+      await _repository.deleteByYear(_selectedYear, stationId: _currentUserStation);
       _loadExceptions();
       if (mounted) {
         ScaffoldMessenger.of(
@@ -124,6 +130,7 @@ class _ShiftExceptionsPageState extends State<ShiftExceptionsPage> {
       builder: (context) => _ExceptionDialog(
         repository: _repository,
         initialYear: _selectedYear,
+        stationId: _currentUserStation,
         onSaved: _loadExceptions,
       ),
     );
@@ -136,6 +143,7 @@ class _ShiftExceptionsPageState extends State<ShiftExceptionsPage> {
         repository: _repository,
         initialYear: _selectedYear,
         exception: exception,
+        stationId: _currentUserStation,
         onSaved: _loadExceptions,
       ),
     );
@@ -323,12 +331,14 @@ class _ExceptionDialog extends StatefulWidget {
   final ShiftExceptionRepository repository;
   final int initialYear;
   final ShiftException? exception;
+  final String? stationId;
   final VoidCallback onSaved;
 
   const _ExceptionDialog({
     required this.repository,
     required this.initialYear,
     this.exception,
+    this.stationId,
     required this.onSaved,
   });
 
@@ -339,23 +349,29 @@ class _ExceptionDialog extends StatefulWidget {
 class _ExceptionDialogState extends State<_ExceptionDialog> {
   final _formKey = GlobalKey<FormState>();
   final _reasonController = TextEditingController();
-  final _maxAgentsController = TextEditingController();
+  final _teamRepository = TeamRepository();
 
   late DateTime _startDate;
   late TimeOfDay _startTime;
   late DateTime _endDate;
   late TimeOfDay _endTime;
   String? _teamId;
+  int _maxAgents = 6;
+  bool _isLoadingStation = true;
+  List<Team> _availableTeams = [];
+  bool _isLoadingTeams = true;
 
   bool get _isEditing => widget.exception != null;
 
   @override
   void initState() {
     super.initState();
+    _loadStationConfig();
+    _loadTeams();
     if (_isEditing) {
       final ex = widget.exception!;
       _reasonController.text = ex.reason;
-      _maxAgentsController.text = ex.maxAgents.toString();
+      _maxAgents = ex.maxAgents;
       _startDate = ex.startDateTime;
       _startTime = TimeOfDay.fromDateTime(ex.startDateTime);
       _endDate = ex.endDateTime;
@@ -366,15 +382,82 @@ class _ExceptionDialogState extends State<_ExceptionDialog> {
       _startTime = const TimeOfDay(hour: 19, minute: 0);
       _endDate = DateTime(widget.initialYear, 1, 2);
       _endTime = const TimeOfDay(hour: 6, minute: 0);
-      _teamId = 'A';
-      _maxAgentsController.text = '6';
+      _teamId = null; // Sera défini après le chargement des équipes
+    }
+  }
+
+  Future<void> _loadTeams() async {
+    try {
+      final user = await UserStorageHelper.loadUser();
+      if (user == null || !mounted) {
+        setState(() {
+          _availableTeams = [];
+          _isLoadingTeams = false;
+        });
+        return;
+      }
+
+      final stationTeams = await _teamRepository.getByStation(user.station);
+      stationTeams.sort((a, b) => a.order.compareTo(b.order));
+
+      if (mounted) {
+        setState(() {
+          _availableTeams = stationTeams;
+          _isLoadingTeams = false;
+
+          // Si on est en création et qu'il n'y a pas d'équipe sélectionnée,
+          // sélectionner la première équipe disponible
+          if (!_isEditing && _teamId == null && stationTeams.isNotEmpty) {
+            _teamId = stationTeams.first.id;
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading teams: $e');
+      if (mounted) {
+        setState(() {
+          _availableTeams = [];
+          _isLoadingTeams = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadStationConfig() async {
+    try {
+      final user = await UserStorageHelper.loadUser();
+      if (user == null || !mounted) return;
+
+      final stationDoc = await FirebaseFirestore.instance
+          .collection('stations')
+          .doc(user.station)
+          .get();
+
+      if (!mounted) return;
+
+      if (stationDoc.exists) {
+        final station = Station.fromJson({
+          'id': stationDoc.id,
+          ...stationDoc.data()!,
+        });
+        setState(() {
+          _maxAgents = station.maxAgentsPerShift;
+          _isLoadingStation = false;
+        });
+      } else {
+        setState(() => _isLoadingStation = false);
+      }
+    } catch (e) {
+      debugPrint('Error loading station config: $e');
+      if (mounted) {
+        setState(() => _isLoadingStation = false);
+      }
     }
   }
 
   @override
   void dispose() {
     _reasonController.dispose();
-    _maxAgentsController.dispose();
     super.dispose();
   }
 
@@ -460,8 +543,6 @@ class _ExceptionDialogState extends State<_ExceptionDialog> {
     }
 
     try {
-      final maxAgents = int.tryParse(_maxAgentsController.text) ?? 6;
-
       final exception = ShiftException(
         id: _isEditing
             ? widget.exception!.id
@@ -470,10 +551,10 @@ class _ExceptionDialogState extends State<_ExceptionDialog> {
         endDateTime: endDateTime,
         teamId: _teamId,
         reason: _reasonController.text,
-        maxAgents: maxAgents,
+        maxAgents: _maxAgents,
       );
 
-      await widget.repository.upsert(exception);
+      await widget.repository.upsert(exception, stationId: widget.stationId);
 
       if (mounted) {
         widget.onSaved();
@@ -574,45 +655,49 @@ class _ExceptionDialogState extends State<_ExceptionDialog> {
                 ],
               ),
               const SizedBox(height: 24),
-              DropdownButtonFormField<String?>(
-                value: _teamId,
-                decoration: const InputDecoration(
-                  labelText: 'Équipe de garde *',
-                  helperText: 'Sélectionner "Aucune" annule l\'astreinte',
+              if (_isLoadingTeams)
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(16.0),
+                    child: CircularProgressIndicator(),
+                  ),
+                )
+              else
+                DropdownButtonFormField<String?>(
+                  value: _teamId,
+                  decoration: const InputDecoration(
+                    labelText: 'Équipe de garde *',
+                    helperText: 'Sélectionner "Aucune" annule l\'astreinte',
+                  ),
+                  items: [
+                    const DropdownMenuItem(value: null, child: Text('Aucune')),
+                    ..._availableTeams.map(
+                      (team) => DropdownMenuItem(
+                        value: team.id,
+                        child: Text(team.name),
+                      ),
+                    ),
+                  ],
+                  onChanged: (value) => setState(() => _teamId = value),
                 ),
-                items: [
-                  const DropdownMenuItem(value: null, child: Text('Aucune')),
-                  ...['A', 'B', 'C', 'D'].map(
-                    (team) => DropdownMenuItem(
-                      value: team,
-                      child: Text('Équipe $team'),
+              const SizedBox(height: 16),
+              if (_isLoadingStation)
+                const Center(child: CircularProgressIndicator())
+              else
+                Card(
+                  child: ListTile(
+                    leading: const Icon(Icons.group),
+                    title: const Text('Nombre maximum d\'agents'),
+                    subtitle: const Text('Défini dans Administration'),
+                    trailing: Text(
+                      '$_maxAgents agents',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
-                ],
-                onChanged: (value) => setState(() => _teamId = value),
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _maxAgentsController,
-                decoration: const InputDecoration(
-                  labelText: 'Nombre maximum d\'agents',
-                  hintText: '6',
-                  prefixIcon: Icon(Icons.group),
-                  helperText:
-                      'Nombre maximum d\'agents autorisés pour cette période',
                 ),
-                keyboardType: TextInputType.number,
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Veuillez saisir un nombre';
-                  }
-                  final number = int.tryParse(value);
-                  if (number == null || number < 1) {
-                    return 'Le nombre doit être supérieur à 0';
-                  }
-                  return null;
-                },
-              ),
             ],
           ),
         ),

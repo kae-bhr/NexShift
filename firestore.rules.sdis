@@ -55,8 +55,8 @@ service cloud.firestore {
     // Collection racine: sdis_list
     // Liste des SDIS disponibles dans l'application
     match /sdis_list/{sdisId} {
-      // Lecture publique pour permettre la sélection du SDIS avant l'authentification
-      allow read: if true;
+      // Tout utilisateur authentifié peut lire la liste des SDIS
+      allow read: if isSignedIn();
       // Seuls les super-admins peuvent modifier (à implémenter plus tard)
       allow write: if false;
     }
@@ -76,11 +76,6 @@ service cloud.firestore {
       }
 
       // Sous-collection: stations
-      // Permet de lister les stations pour la recherche multi-stations
-      match /stations {
-        allow list: if belongsToSDIS(sdisId);
-      }
-
       match /stations/{stationId} {
         // Lecture du document station (config)
         allow read: if belongsToStation(sdisId, stationId);
@@ -208,13 +203,6 @@ service cloud.firestore {
           allow write: if belongsToStation(sdisId, stationId) &&
                           (isAdmin() || request.auth.token.status == 'leader');
         }
-
-        // Sous-collection: vehicle_rule_sets
-        match /vehicle_rule_sets/{ruleSetId} {
-          allow read: if belongsToStation(sdisId, stationId);
-          allow write: if belongsToStation(sdisId, stationId) &&
-                          (isAdmin() || request.auth.token.status == 'leader');
-        }
       }
     }
 
@@ -242,46 +230,9 @@ service cloud.firestore {
       }
     }
 
-    // LEGACY: Collection plannings (racine) - Migration en cours
-    // TEMPORAIRE: Accès permissif pendant la migration
-    match /plannings/{planningId} {
-      allow read, write: if isSignedIn();
-    }
-
-    // LEGACY: Collection users (racine) - Migration en cours
-    // TEMPORAIRE: Accès permissif pendant la migration
-    match /users/{userId} {
-      allow read, write: if isSignedIn();
-    }
-
-    // LEGACY: Collection teams (racine) - Migration en cours
-    // TEMPORAIRE: Accès permissif pendant la migration
-    match /teams/{teamId} {
-      allow read, write: if isSignedIn();
-    }
-
-    // LEGACY: Collection replacementRequests (racine) - Migration en cours
-    // TEMPORAIRE: Accès permissif pendant la migration
-    match /replacementRequests/{requestId} {
-      allow read, write: if isSignedIn();
-    }
-
-    // LEGACY: Collection replacementRequestDeclines (racine) - Migration en cours
-    // TEMPORAIRE: Accès permissif pendant la migration
-    match /replacementRequestDeclines/{declineId} {
-      allow read, write: if isSignedIn();
-    }
-
-    // LEGACY: Collection vehicle_rule_sets (racine) - Migration en cours
-    // TEMPORAIRE: Accès permissif pendant la migration
-    match /vehicle_rule_sets/{ruleSetId} {
-      allow read, write: if isSignedIn();
-    }
-
-    // LEGACY: Autres collections racines legacy
-    // TEMPORAIRE: Accès permissif pendant la migration
-    match /{legacyCollection}/{document=**} {
-      allow read, write: if isSignedIn();
+    // Bloquer tous les autres accès
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

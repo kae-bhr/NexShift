@@ -1,7 +1,10 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:nexshift_app/core/repositories/truck_repository.dart';
 import 'package:nexshift_app/core/repositories/team_repository.dart';
+import 'package:nexshift_app/core/repositories/user_repository.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/data/models/trucks_model.dart';
 import 'package:nexshift_app/core/data/models/planning_model.dart';
@@ -73,15 +76,8 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
   Future<void> _loadTeamDetails() async {
     setState(() => _isLoading = true);
     final repo = LocalRepository();
-    final users = await repo.getAllUsers();
-    final subshifts = await repo.getSubshifts();
-    final availabilities = await repo.getAvailabilities();
-    _allUsers = users;
-    // Résoudre les cascades de remplacements pour toujours pointer vers l'agent original
-    _subshifts = resolveReplacementCascades(subshifts);
-    _availabilities = availabilities;
 
-    // Get currently logged in user
+    // Get currently logged in user first
     _currentUser = await UserStorageHelper.loadUser();
     if (_currentUser == null) {
       // Si aucun utilisateur n'est connecté, on ne peut pas continuer
@@ -89,13 +85,22 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
       return;
     }
 
+    final users = await UserRepository().getByStation(_currentUser!.station);
+    final subshifts = await repo.getSubshifts();
+    final availabilities = await repo.getAvailabilities();
+    _allUsers = users;
+    // Résoudre les cascades de remplacements pour toujours pointer vers l'agent original
+    _subshifts = resolveReplacementCascades(subshifts);
+    _availabilities = availabilities;
+
     // Find planning (garde) active at _at. Use UTC comparators with start <= at < end
     final atUtc = _at.toUtc();
 
     // Charger tous les plannings depuis le repository (utiliser une plage large)
     final startRange = _at.subtract(const Duration(days: 365));
     final endRange = _at.add(const Duration(days: 365));
-    final allPlannings = await repo.getAllPlanningsInRange(
+    final allPlannings = await repo.getPlanningsByStationInRange(
+      _currentUser!.station,
       startRange,
       endRange,
     );
@@ -557,13 +562,12 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
 
     return Scaffold(
       appBar: CustomAppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(stationLabel, style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 2),
-            Text(teamLabel, style: Theme.of(context).textTheme.bodySmall),
-          ],
+        title: Text(
+          'Opérations',
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.primary,
+            fontSize: KTextStyle.regularTextStyle.fontSize,
+          ),
         ),
         bottomColor: KColors.appNameColor,
         actions: [
@@ -573,7 +577,7 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
               Icons.chevron_left,
               color: Theme.of(context).colorScheme.primary,
             ),
-            tooltip: 'Événement précédent',
+            tooltip: 'Évènement précédent',
           ),
           TextButton(
             onPressed: _pickAt,
@@ -611,205 +615,331 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
               Icons.chevron_right,
               color: Theme.of(context).colorScheme.primary,
             ),
-            tooltip: 'Événement suivant',
+            tooltip: 'Évènement suivant',
           ),
         ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (_currentPlanning == null) ...[
-                      Text(
-                        "Aucune astreinte trouvée pour cet horaire.",
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 8),
-                      // show duration since previous and until next planning if available
-                      if (_prevPlanning != null || _nextPlanning != null)
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (_prevPlanning != null) ...[
-                              Text(
-                                "Depuis la fin de la précédente astreinte : ${_formatDuration(Duration(milliseconds: _at.toUtc().difference(_prevPlanning!.endTime.toUtc()).inMilliseconds))}",
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                              const SizedBox(height: 4),
-                            ],
-                            if (_nextPlanning != null) ...[
-                              Text(
-                                "Jusqu'à la prochaine astreinte : ${_formatDuration(Duration(milliseconds: _nextPlanning!.startTime.toUtc().difference(_at.toUtc()).inMilliseconds))}",
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                              const SizedBox(height: 8),
-                            ],
-                          ],
-                        ),
-                    ],
-                    const Divider(),
-                    Text(
-                      "Agents en astreinte :",
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    if (_agents.isEmpty)
-                      Text(
-                        "Aucun agent en astreinte pour cet horaire.",
-                        style: TextStyle(color: Colors.grey[600], fontSize: 14),
-                      )
-                    else
-                      ..._agents.map((a) {
-                        final active = activeReplacementByReplaced[a.id];
-                        if (active != null) {
-                          final replacer = _findUserById(active.replacerId);
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 4.0),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    "${a.firstName} ${a.lastName}",
-                                    style: _replacedNameStyle(context),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Icon(
-                                  Icons.arrow_right_alt,
-                                  size: 20,
-                                  color: _isFullyReplacedForPlanning(a.id)
-                                      ? Colors.red
-                                      : Colors.orange,
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    replacer != null
-                                        ? "${replacer.firstName} ${replacer.lastName}"
-                                        : "Remplaçant inconnu",
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w600,
+          : Column(
+              children: [
+                // Scrollable content
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (_currentPlanning == null) ...[
+                            // show duration since previous and until next planning if available
+                            if (_prevPlanning != null || _nextPlanning != null)
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (_prevPlanning != null) ...[
+                                    Text(
+                                      "Depuis la fin de la précédente astreinte : ${_formatDuration(Duration(milliseconds: _at.toUtc().difference(_prevPlanning!.endTime.toUtc()).inMilliseconds))}",
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.bodySmall,
                                     ),
-                                  ),
+                                    const SizedBox(height: 4),
+                                  ],
+                                  if (_nextPlanning != null) ...[
+                                    Text(
+                                      "Jusqu'à la prochaine astreinte : ${_formatDuration(Duration(milliseconds: _nextPlanning!.startTime.toUtc().difference(_at.toUtc()).inMilliseconds))}",
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.bodySmall,
+                                    ),
+                                    const SizedBox(height: 8),
+                                  ],
+                                ],
+                              ),
+                          ],
+                          // Compact info card showing station and planning details
+                          Container(
+                            width: double.infinity,
+                            margin: const EdgeInsets.all(16),
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  KColors.appNameColor.withOpacity(0.1),
+                                  KColors.appNameColor.withOpacity(0.05),
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: KColors.appNameColor.withOpacity(0.3),
+                                width: 1,
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.location_on,
+                                      size: 20,
+                                      color: KColors.appNameColor,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      stationLabel,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.bold,
+                                            color: KColors.appNameColor,
+                                          ),
+                                    ),
+                                  ],
                                 ),
+                                if (_currentPlanning != null) ...[
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        Icons.groups,
+                                        size: 18,
+                                        color: Colors.grey[700],
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        teamLabel,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        Icons.access_time,
+                                        size: 18,
+                                        color: Colors.grey[700],
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          'Du ${_formatDate(_currentPlanning!.startTime)} ${_formatTime(_currentPlanning!.startTime)} au ${_formatDate(_currentPlanning!.endTime)} ${_formatTime(_currentPlanning!.endTime)}',
+                                          style: Theme.of(
+                                            context,
+                                          ).textTheme.bodySmall,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ] else ...[
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        Icons.info_outline,
+                                        size: 18,
+                                        color: Colors.grey[600],
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Aucune astreinte active',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium
+                                            ?.copyWith(
+                                              fontStyle: FontStyle.italic,
+                                              color: Colors.grey[600],
+                                            ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
                               ],
                             ),
-                          );
-                        } else {
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 4.0),
-                            child: Text("${a.firstName} ${a.lastName}"),
-                          );
-                        }
-                      }),
-                    const SizedBox(height: 16),
-                    const Divider(),
-                    Text(
-                      "Agents en disponibilité :",
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    if (_availableAgents.isEmpty)
-                      Text(
-                        "Aucun agent en disponibilité pour cet horaire.",
-                        style: TextStyle(color: Colors.grey[600], fontSize: 14),
-                      )
-                    else
-                      ..._availableAgents.map((a) {
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4.0),
-                          child: Row(
-                            children: [
-                              Text(
-                                "${a.firstName} ${a.lastName}",
-                                style: TextStyle(
-                                  fontStyle: FontStyle.italic,
-                                  color: Colors.blue[700],
-                                ),
+                          ),
+                          const Divider(),
+                          Text(
+                            "Agents en astreinte :",
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 8),
+                          if (_agents.isEmpty)
+                            Text(
+                              "Aucun agent en astreinte pour cet horaire.",
+                              style: TextStyle(
+                                color: Colors.grey[600],
+                                fontSize: 14,
                               ),
-                            ],
+                            )
+                          else
+                            ..._agents.map((a) {
+                              final active = activeReplacementByReplaced[a.id];
+                              if (active != null) {
+                                final replacer = _findUserById(
+                                  active.replacerId,
+                                );
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 4.0,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          "${a.firstName} ${a.lastName}",
+                                          style: _replacedNameStyle(context),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Icon(
+                                        Icons.arrow_right_alt,
+                                        size: 20,
+                                        color: _isFullyReplacedForPlanning(a.id)
+                                            ? Colors.red
+                                            : Colors.orange,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          replacer != null
+                                              ? "${replacer.firstName} ${replacer.lastName}"
+                                              : "Remplaçant inconnu",
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              } else {
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 4.0,
+                                  ),
+                                  child: Text("${a.firstName} ${a.lastName}"),
+                                );
+                              }
+                            }),
+                          const SizedBox(height: 16),
+                          const Divider(),
+                          Text(
+                            "Agents en disponibilité :",
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.bold),
                           ),
-                        );
-                      }),
-                    const SizedBox(height: 16),
-                    const Divider(),
-                    Text(
-                      "Véhicules :",
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
+                          const SizedBox(height: 8),
+                          if (_availableAgents.isEmpty)
+                            Text(
+                              "Aucun agent en disponibilité pour cet horaire.",
+                              style: TextStyle(
+                                color: Colors.grey[600],
+                                fontSize: 14,
+                              ),
+                            )
+                          else
+                            ..._availableAgents.map((a) {
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 4.0,
+                                ),
+                                child: Row(
+                                  children: [
+                                    Text(
+                                      "${a.firstName} ${a.lastName}",
+                                      style: TextStyle(
+                                        fontStyle: FontStyle.italic,
+                                        color: Colors.blue[700],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }),
+                          const SizedBox(height: 16),
+                          const Divider(),
+                          Text(
+                            "Véhicules :",
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 8),
+                          // show vehicles for chosen station; they will be red/flagged if crew insufficient
+                          // FPT vehicles show both 4H and 6H modes
+                          // Sort vehicles by type order (VSAV, VTU, FPT, VPS) and ID
+                          Wrap(
+                            spacing: 12,
+                            runSpacing: 12,
+                            children: () {
+                              // Sort all trucks once
+                              final sortedTrucks = _stationTrucks.toList()
+                                ..sort((a, b) {
+                                  final priorityA =
+                                      KTrucks.vehicleTypePriority[a.type] ??
+                                      999;
+                                  final priorityB =
+                                      KTrucks.vehicleTypePriority[b.type] ??
+                                      999;
+                                  if (priorityA != priorityB) {
+                                    return priorityA.compareTo(priorityB);
+                                  }
+                                  return a.id.compareTo(b.id);
+                                });
+
+                              final widgets = <Widget>[];
+
+                              // Add vehicles in sorted order
+                              for (final truck in sortedTrucks) {
+                                widgets.addAll(_buildVehicleWidgets(truck));
+                              }
+
+                              return widgets;
+                            }(),
+                          ),
+                          const SizedBox(height: 16),
+                          const Divider(),
+                          Text(
+                            "Compétences :",
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 8),
+                          // always show skills box (counts may be zero when no agents on duty)
+                          Wrap(
+                            spacing: 12,
+                            runSpacing: 12,
+                            children: KSkills.listSkills.map((skill) {
+                              final color = _getSkillColor(skill);
+                              final count = _skillsCount[skill] ?? 0;
+                              return GestureDetector(
+                                onTap: () => _showSkillDialog(context, skill),
+                                child: _buildSkillBox(
+                                  context,
+                                  skill,
+                                  count,
+                                  0,
+                                  color,
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    // show vehicles for chosen station; they will be red/flagged if crew insufficient
-                    // FPT vehicles show both 4H and 6H modes
-                    // Sort vehicles by type order (VSAV, VTU, FPT, VPS) and ID
-                    Wrap(
-                      spacing: 12,
-                      runSpacing: 12,
-                      children: () {
-                        // Sort all trucks once
-                        final sortedTrucks = _stationTrucks.toList()
-                          ..sort((a, b) {
-                            final priorityA =
-                                KTrucks.vehicleTypePriority[a.type] ?? 999;
-                            final priorityB =
-                                KTrucks.vehicleTypePriority[b.type] ?? 999;
-                            if (priorityA != priorityB) {
-                              return priorityA.compareTo(priorityB);
-                            }
-                            return a.id.compareTo(b.id);
-                          });
-
-                        final widgets = <Widget>[];
-
-                        // Add vehicles in sorted order
-                        for (final truck in sortedTrucks) {
-                          widgets.addAll(_buildVehicleWidgets(truck));
-                        }
-
-                        return widgets;
-                      }(),
-                    ),
-                    const SizedBox(height: 16),
-                    const Divider(),
-                    Text(
-                      "Compétences :",
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    // always show skills box (counts may be zero when no agents on duty)
-                    Wrap(
-                      spacing: 12,
-                      runSpacing: 12,
-                      children: KSkills.listSkills.map((skill) {
-                        final color = _getSkillColor(skill);
-                        final count = _skillsCount[skill] ?? 0;
-                        return GestureDetector(
-                          onTap: () => _showSkillDialog(context, skill),
-                          child: _buildSkillBox(
-                            context,
-                            skill,
-                            count,
-                            0,
-                            color,
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
+              ],
             ),
     );
   }

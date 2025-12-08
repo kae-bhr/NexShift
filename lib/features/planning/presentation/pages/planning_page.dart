@@ -417,7 +417,7 @@ class _PlanningPageState extends State<PlanningPage> {
       // Load teams to colorize bars by team in station view
       Color? userTeamColor;
       try {
-        final teams = await TeamRepository().getAll();
+        final teams = await TeamRepository().getByStation(user.station);
         _teamColorById = {for (final t in teams) t.id: t.color};
         // Récupérer la couleur de l'équipe de l'utilisateur
         final userTeam = teams.firstWhere(
@@ -435,8 +435,12 @@ class _PlanningPageState extends State<PlanningPage> {
       List<Planning> plannings;
       List<Availability> availabilities = [];
       if (isStationView) {
-        // Centre view: show all plannings that overlap the selected week
-        plannings = await repo.getAllPlanningsInRange(weekStart, weekEnd);
+        // Centre view: show plannings of current station that overlap the selected week
+        plannings = await repo.getPlanningsByStationInRange(
+          user.station,
+          weekStart,
+          weekEnd,
+        );
       } else {
         // Personal view: start with user's own plannings in the selected week
         plannings = await repo.getPlanningsForUserInRange(

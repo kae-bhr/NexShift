@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:nexshift_app/core/presentation/pages/about_page.dart';
-import 'package:nexshift_app/features/auth/presentation/pages/login_page.dart';
+import 'package:nexshift_app/features/auth/presentation/pages/sdis_selection_page.dart';
 import 'package:nexshift_app/core/presentation/widgets/hero_widget.dart';
 import 'package:nexshift_app/features/auth/presentation/pages/discover_page.dart';
 
@@ -38,7 +38,7 @@ class WelcomePage extends StatelessWidget {
                   context,
                   MaterialPageRoute(
                     builder: (context) {
-                      return LoginPage(chgtPw: false);
+                      return const SDISSelectionPage();
                     },
                   ),
                 );

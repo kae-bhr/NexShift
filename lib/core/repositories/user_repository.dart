@@ -2,11 +2,17 @@ import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/services/firestore_service.dart';
+import 'package:nexshift_app/core/config/environment_config.dart';
 
 class UserRepository {
   static const _collectionName = 'users';
   final FirestoreService _firestoreService;
   final FirebaseFirestore? _directFirestore;
+
+  /// Retourne le chemin de collection selon l'environnement
+  String _getCollectionPath(String? stationId) {
+    return EnvironmentConfig.getCollectionPath(_collectionName, stationId);
+  }
 
   /// Constructeur par défaut (production)
   UserRepository({FirestoreService? firestoreService})
@@ -40,12 +46,69 @@ class UserRepository {
     }
   }
 
-  /// Récupère un utilisateur par son ID
-  Future<User?> getById(String id) async {
+  /// Récupère les utilisateurs d'une station spécifique
+  Future<List<User>> getByStation(String stationId) async {
     try {
+      final collectionPath = _getCollectionPath(stationId);
+
       // Mode test : utiliser directement FirebaseFirestore
       if (_directFirestore != null) {
-        final doc = await _directFirestore!.collection(_collectionName).doc(id).get();
+        // En mode dev avec sous-collections
+        if (EnvironmentConfig.useStationSubcollections) {
+          final snapshot = await _directFirestore!.collection(collectionPath).get();
+          return snapshot.docs.map((doc) {
+            final data = doc.data();
+            data['id'] = doc.id;
+            return User.fromJson(data);
+          }).toList();
+        } else {
+          // Mode prod avec collections plates
+          final snapshot = await _directFirestore!
+              .collection(_collectionName)
+              .where('station', isEqualTo: stationId)
+              .get();
+          return snapshot.docs.map((doc) {
+            final data = doc.data();
+            data['id'] = doc.id;
+            return User.fromJson(data);
+          }).toList();
+        }
+      }
+
+      // Mode production : utiliser FirestoreService
+      // En mode dev (sous-collections), on récupère tous les users de la sous-collection
+      // En mode prod (collections plates), on filtre par station
+      if (EnvironmentConfig.useStationSubcollections) {
+        final data = await _firestoreService.getAll(collectionPath);
+        return data.map((e) => User.fromJson(e)).toList();
+      } else {
+        final data = await _firestoreService.getWhere(
+          collectionPath,
+          'station',
+          stationId,
+        );
+        return data.map((e) => User.fromJson(e)).toList();
+      }
+    } catch (e) {
+      debugPrint('Firestore error in getByStation: $e');
+      rethrow;
+    }
+  }
+
+  /// Récupère un utilisateur par son ID
+  /// En mode DEV sans stationId: cherche dans toutes les stations
+  Future<User?> getById(String id, {String? stationId}) async {
+    try {
+      // En mode dev SANS stationId: chercher dans toutes les stations
+      if (EnvironmentConfig.useStationSubcollections && stationId == null) {
+        return await _getUserByIdAcrossStations(id);
+      }
+
+      final collectionPath = _getCollectionPath(stationId);
+
+      // Mode test : utiliser directement FirebaseFirestore
+      if (_directFirestore != null) {
+        final doc = await _directFirestore!.collection(collectionPath).doc(id).get();
         if (!doc.exists) return null;
         final data = doc.data()!;
         data['id'] = doc.id;
@@ -53,7 +116,7 @@ class UserRepository {
       }
 
       // Mode production : utiliser FirestoreService
-      final data = await _firestoreService.getById(_collectionName, id);
+      final data = await _firestoreService.getById(collectionPath, id);
       if (data != null) {
         return User.fromJson(data);
       }
@@ -61,6 +124,40 @@ class UserRepository {
     } catch (e) {
       debugPrint('Firestore error in getById: $e');
       rethrow;
+    }
+  }
+
+  /// Cherche un utilisateur dans toutes les stations (DEV uniquement)
+  Future<User?> _getUserByIdAcrossStations(String userId) async {
+    try {
+      final firestore = _directFirestore ?? FirebaseFirestore.instance;
+
+      // Utiliser le chemin des stations depuis EnvironmentConfig (qui prend en compte le SDIS)
+      final stationsPath = EnvironmentConfig.stationsCollectionPath;
+
+      // Récupérer toutes les stations
+      final stationsSnapshot = await firestore.collection(stationsPath).get();
+
+      // Chercher l'utilisateur dans chaque station
+      for (final stationDoc in stationsSnapshot.docs) {
+        final userDoc = await firestore
+            .collection(stationsPath)
+            .doc(stationDoc.id)
+            .collection('users')
+            .doc(userId)
+            .get();
+
+        if (userDoc.exists) {
+          final data = userDoc.data()!;
+          data['id'] = userDoc.id;
+          return User.fromJson(data);
+        }
+      }
+
+      return null; // Utilisateur non trouvé
+    } catch (e) {
+      debugPrint('Error searching user across stations: $e');
+      return null;
     }
   }
 
@@ -100,15 +197,17 @@ class UserRepository {
       debugPrint('🔄 [UserRepository] Upserting user ${user.id}');
       debugPrint('   Data: firstName=${user.firstName}, lastName=${user.lastName}, team=${user.team}, status=${user.status}, station=${user.station}');
 
+      final collectionPath = _getCollectionPath(user.station);
+
       // Mode test : utiliser directement FirebaseFirestore
       if (_directFirestore != null) {
-        await _directFirestore.collection(_collectionName).doc(user.id).set(user.toJson());
+        await _directFirestore.collection(collectionPath).doc(user.id).set(user.toJson());
         debugPrint('✅ [UserRepository] User ${user.id} upserted successfully');
         return;
       }
 
       // Mode production : utiliser FirestoreService
-      await _firestoreService.upsert(_collectionName, user.id, user.toJson());
+      await _firestoreService.upsert(collectionPath, user.id, user.toJson());
       debugPrint('✅ [UserRepository] User ${user.id} upserted successfully');
     } catch (e) {
       debugPrint('❌ [UserRepository] Firestore error during upsert: $e');

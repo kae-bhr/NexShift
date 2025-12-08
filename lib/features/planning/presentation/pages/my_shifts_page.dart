@@ -7,6 +7,7 @@ import 'package:nexshift_app/core/data/models/team_model.dart';
 import 'package:nexshift_app/core/repositories/local_repositories.dart';
 import 'package:nexshift_app/core/repositories/planning_repository.dart';
 import 'package:nexshift_app/core/repositories/team_repository.dart';
+import 'package:nexshift_app/core/repositories/user_repository.dart';
 import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
@@ -50,10 +51,14 @@ class _MyShiftsPageState extends State<MyShiftsPage> {
     final repo = LocalRepository();
     final teamRepo = TeamRepository();
 
-    // Charger les plannings de l'année sélectionnée
+    // Charger les plannings de l'année sélectionnée pour la station de l'utilisateur
     final yearStart = DateTime(_selectedYear, 1, 1);
     final yearEnd = DateTime(_selectedYear, 12, 31, 23, 59, 59);
-    final allPlannings = await repo.getAllPlanningsInRange(yearStart, yearEnd);
+    final allPlannings = await repo.getPlanningsByStationInRange(
+      _currentUser!.station,
+      yearStart,
+      yearEnd,
+    );
 
     // Debug: Afficher le nombre de plannings chargés
     debugPrint(
@@ -63,11 +68,12 @@ class _MyShiftsPageState extends State<MyShiftsPage> {
     // Trier les plannings par date
     allPlannings.sort((a, b) => a.startTime.compareTo(b.startTime));
 
-    // Charger les équipes
-    final teams = await teamRepo.getAll();
+    // Charger les équipes de la station
+    final teams = await teamRepo.getByStation(_currentUser!.station);
 
-    // Charger tous les utilisateurs
-    final users = await repo.getAllUsers();
+    // Charger les utilisateurs de la station
+    final userRepo = UserRepository();
+    final users = await userRepo.getByStation(_currentUser!.station);
 
     setState(() {
       _upcomingPlannings = allPlannings;
@@ -501,6 +507,7 @@ class _MyShiftsPageState extends State<MyShiftsPage> {
         planning: planning,
         team: team,
         allUsers: _allUsers,
+        allTeams: _teams,
       ),
     );
 
@@ -517,11 +524,13 @@ class _EditPlanningDialog extends StatefulWidget {
   final Planning planning;
   final Team team;
   final List<User> allUsers;
+  final List<Team> allTeams;
 
   const _EditPlanningDialog({
     required this.planning,
     required this.team,
     required this.allUsers,
+    required this.allTeams,
   });
 
   @override
@@ -756,7 +765,15 @@ class _EditPlanningDialogState extends State<_EditPlanningDialog> {
                           Text(
                             isFromTeam
                                 ? widget.team.name
-                                : 'Équipe ${user.team}',
+                                : widget.allTeams.firstWhere(
+                                    (t) => t.id == user.team,
+                                    orElse: () => Team(
+                                      id: user.team,
+                                      name: 'Équipe ${user.team}',
+                                      stationId: '',
+                                      color: Colors.grey,
+                                    ),
+                                  ).name,
                             style: TextStyle(
                               color: isFromTeam
                                   ? widget.team.color

@@ -1,7 +1,10 @@
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:flutter/foundation.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
+import 'package:nexshift_app/core/data/models/user_stations_model.dart';
 import 'package:nexshift_app/core/repositories/user_repository.dart';
+import 'package:nexshift_app/core/repositories/user_stations_repository.dart';
+import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 
 /// Exception lancée quand l'utilisateur existe dans Firebase Auth
 /// mais n'a pas de profil dans Firestore
@@ -14,12 +17,33 @@ class UserProfileNotFoundException implements Exception {
   String toString() => 'User profile not found in Firestore for matricule: $matricule';
 }
 
+/// Résultat de l'authentification avec informations de stations
+/// Utilisé quand un utilisateur appartient à plusieurs stations
+class AuthenticationResult {
+  final User? user;
+  final UserStations? userStations;
+
+  AuthenticationResult({
+    this.user,
+    this.userStations,
+  });
+
+  /// L'utilisateur doit-il sélectionner une station ?
+  bool get needsStationSelection =>
+      userStations != null && userStations!.stations.length >= 2;
+
+  /// L'utilisateur n'a qu'une seule station
+  bool get hasSingleStation =>
+      userStations != null && userStations!.stations.length == 1;
+}
+
 /// Service d'authentification Firebase
 /// Gère l'authentification des utilisateurs avec Firebase Auth
 /// et synchronise avec les données utilisateur dans Firestore
 class FirebaseAuthService {
   final firebase_auth.FirebaseAuth _auth = firebase_auth.FirebaseAuth.instance;
   final UserRepository _userRepository = UserRepository();
+  final UserStationsRepository _userStationsRepository = UserStationsRepository();
 
   /// Récupère l'utilisateur Firebase actuellement connecté
   firebase_auth.User? get currentFirebaseUser => _auth.currentUser;
@@ -33,15 +57,119 @@ class FirebaseAuthService {
   /// Récupère l'ID de l'utilisateur actuellement connecté
   String? get currentUserId => _auth.currentUser?.uid;
 
+  /// Connexion avec email et mot de passe (nouvelle version avec gestion multi-stations et multi-SDIS)
+  /// Retourne AuthenticationResult avec les informations de stations
+  /// Si sdisId est fourni, utilise l'architecture multi-SDIS: {sdisId}_{matricule}@nexshift.app
+  /// Sinon, utilise l'architecture legacy: {matricule}@nexshift.app
+  Future<AuthenticationResult> signInWithStations({
+    required String matricule,
+    required String password,
+    String? sdisId,
+  }) async {
+    try {
+      // Convertir le matricule en email Firebase (avec ou sans SDIS)
+      final email = _matriculeToEmail(matricule, sdisId: sdisId);
+
+      debugPrint('Attempting Firebase sign in for matricule: $matricule (SDIS: ${sdisId ?? 'none'})');
+
+      // Authentification Firebase
+      final credential = await _auth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+
+      if (credential.user == null) {
+        throw Exception('Authentication failed: no user returned');
+      }
+
+      debugPrint('Firebase sign in successful: ${credential.user!.uid}');
+
+      // Définir le contexte SDIS global AVANT de charger les données
+      // pour que tous les repositories utilisent les bons chemins
+      if (sdisId != null) {
+        SDISContext().setCurrentSDISId(sdisId);
+      }
+
+      // Récupérer les stations de l'utilisateur
+      final userStations = await _userStationsRepository.getUserStations(
+        matricule,
+        sdisId: sdisId,
+      );
+
+      if (userStations == null || userStations.stations.isEmpty) {
+        // L'utilisateur n'a pas de stations configurées
+        throw UserProfileNotFoundException(matricule);
+      }
+
+      debugPrint('User stations loaded: ${userStations.stations}');
+
+      // Si l'utilisateur a plusieurs stations, on retourne null pour le user
+      // Le caller devra demander à l'utilisateur de choisir sa station
+      if (userStations.stations.length >= 2) {
+        debugPrint('User has multiple stations, station selection required');
+        return AuthenticationResult(
+          user: null,
+          userStations: userStations,
+        );
+      }
+
+      // L'utilisateur n'a qu'une seule station, charger son profil
+      final stationId = userStations.stations.first;
+      final user = await _userRepository.getById(matricule, stationId: stationId);
+
+      if (user == null) {
+        throw UserProfileNotFoundException(matricule);
+      }
+
+      // Fusionner les données personnelles depuis user_stations
+      final mergedUser = _mergeUserWithPersonalData(user, userStations);
+
+      debugPrint('User profile loaded: ${mergedUser.firstName} ${mergedUser.lastName} (${mergedUser.station})');
+
+      return AuthenticationResult(
+        user: mergedUser,
+        userStations: userStations,
+      );
+    } on firebase_auth.FirebaseAuthException catch (e) {
+      debugPrint('Firebase Auth error: ${e.code} - ${e.message}');
+
+      switch (e.code) {
+        case 'user-not-found':
+          throw Exception('Aucun compte ne correspond à ce matricule');
+        case 'wrong-password':
+          throw Exception('Mot de passe incorrect');
+        case 'invalid-email':
+          throw Exception('Format de matricule invalide');
+        case 'user-disabled':
+          throw Exception('Ce compte a été désactivé');
+        case 'too-many-requests':
+          throw Exception(
+            'Trop de tentatives de connexion. Veuillez réessayer plus tard',
+          );
+        case 'network-request-failed':
+          throw Exception(
+            'Erreur réseau. Vérifiez votre connexion internet',
+          );
+        default:
+          throw Exception('Erreur d\'authentification: ${e.message}');
+      }
+    } catch (e) {
+      debugPrint('Sign in error: $e');
+      rethrow;
+    }
+  }
+
   /// Connexion avec email et mot de passe
   /// email = matricule@nexshift.app (généré automatiquement)
+  /// @deprecated Utilisez signInWithStations() pour gérer les utilisateurs multi-stations
   Future<User> signInWithEmailAndPassword({
     required String matricule,
     required String password,
+    String? sdisId,
   }) async {
     try {
       // Convertir le matricule en email Firebase
-      final email = _matriculeToEmail(matricule);
+      final email = _matriculeToEmail(matricule, sdisId: sdisId);
 
       debugPrint('Attempting Firebase sign in for matricule: $matricule');
 
@@ -103,9 +231,10 @@ class FirebaseAuthService {
   Future<firebase_auth.UserCredential> createUser({
     required String matricule,
     required String password,
+    String? sdisId,
   }) async {
     try {
-      final email = _matriculeToEmail(matricule);
+      final email = _matriculeToEmail(matricule, sdisId: sdisId);
 
       debugPrint('Creating Firebase user for matricule: $matricule');
 
@@ -133,6 +262,42 @@ class FirebaseAuthService {
     } catch (e) {
       debugPrint('User creation error: $e');
       throw Exception('Erreur lors de la création de l\'utilisateur: $e');
+    }
+  }
+
+  /// Crée un nouvel utilisateur Firebase Auth sans déconnecter l'utilisateur actuel
+  /// Utilisé par les administrateurs pour créer de nouveaux agents
+  Future<void> createUserAsAdmin({
+    required String adminMatricule,
+    required String adminPassword,
+    required String newUserMatricule,
+    required String newUserPassword,
+    String? sdisId,
+  }) async {
+    try {
+      debugPrint('Admin creating user: $newUserMatricule');
+
+      // Créer le nouvel utilisateur (cela va automatiquement le connecter)
+      await createUser(
+        matricule: newUserMatricule,
+        password: newUserPassword,
+        sdisId: sdisId,
+      );
+
+      debugPrint('New user created, reconnecting as admin...');
+
+      // Se déconnecter et reconnecter en tant qu'admin
+      await signOut();
+      await signInWithEmailAndPassword(
+        matricule: adminMatricule,
+        password: adminPassword,
+        sdisId: sdisId,
+      );
+
+      debugPrint('Admin session restored');
+    } catch (e) {
+      debugPrint('Error in createUserAsAdmin: $e');
+      rethrow;
     }
   }
 
@@ -286,14 +451,66 @@ class FirebaseAuthService {
   }
 
   /// Convertit un matricule en email Firebase
-  /// Format: matricule@nexshift.app
-  String _matriculeToEmail(String matricule) {
+  /// Format avec SDIS: {sdisId}_{matricule}@nexshift.app
+  /// Format legacy: {matricule}@nexshift.app
+  String _matriculeToEmail(String matricule, {String? sdisId}) {
+    if (sdisId != null && sdisId.isNotEmpty) {
+      return '${sdisId}_${matricule.toLowerCase()}@nexshift.app';
+    }
     return '${matricule.toLowerCase()}@nexshift.app';
   }
 
   /// Extrait le matricule depuis un email Firebase
   String _emailToMatricule(String email) {
     return email.split('@')[0];
+  }
+
+  /// Fusionne les données d'un utilisateur (depuis la station) avec les données personnelles (depuis user_stations)
+  /// Les données personnelles (firstName, lastName, fcmToken) viennent de user_stations
+  /// Les données spécifiques à la station (team, status, skills) viennent du profil station
+  User _mergeUserWithPersonalData(User stationUser, UserStations userStations) {
+    return User(
+      id: stationUser.id,
+      firstName: userStations.firstName,  // Depuis user_stations
+      lastName: userStations.lastName,    // Depuis user_stations
+      station: stationUser.station,       // Depuis la station
+      status: stationUser.status,         // Depuis la station
+      team: stationUser.team,             // Depuis la station
+      skills: stationUser.skills,         // Depuis la station
+      admin: stationUser.admin,           // Depuis la station
+    );
+  }
+
+  /// Charge le profil utilisateur pour une station spécifique
+  /// Utilisé après que l'utilisateur a sélectionné une station dans le menu
+  Future<User?> loadUserProfileForStation(String matricule, String stationId) async {
+    try {
+      debugPrint('Loading user profile for station: $stationId');
+
+      final user = await _userRepository.getById(matricule, stationId: stationId);
+
+      if (user == null) {
+        debugPrint('User profile not found for station: $stationId');
+        return null;
+      }
+
+      // Récupérer les données personnelles depuis user_stations
+      final userStations = await _userStationsRepository.getUserStations(matricule);
+
+      if (userStations == null) {
+        debugPrint('User stations not found, using station data as-is');
+        return user;
+      }
+
+      // Fusionner avec les données personnelles
+      final mergedUser = _mergeUserWithPersonalData(user, userStations);
+
+      debugPrint('User profile loaded: ${mergedUser.firstName} ${mergedUser.lastName} (${mergedUser.station})');
+      return mergedUser;
+    } catch (e) {
+      debugPrint('Error loading user profile for station: $e');
+      return null;
+    }
   }
 
   /// Récupère le profil utilisateur complet de l'utilisateur connecté
@@ -318,33 +535,65 @@ class FirebaseAuthService {
   }
 
   /// Crée un profil utilisateur dans Firestore pour un utilisateur Firebase Auth existant
+  /// Crée d'abord l'entrée dans user_stations avec les données personnelles
+  /// Puis crée le profil dans la station si une station est fournie
   Future<User> createUserProfile({
     required String matricule,
     required String firstName,
     required String lastName,
     String? station, // Station optionnelle (héritée de l'utilisateur créateur)
+    String? sdisId,  // SDIS optionnel (pour architecture multi-SDIS)
   }) async {
     try {
       debugPrint('Creating user profile for matricule: $matricule');
 
-      // Créer un nouvel utilisateur avec les données minimales
-      final newUser = User(
+      // 1. Créer l'entrée dans user_stations avec les données personnelles
+      final stations = station != null && station.isNotEmpty ? [station] : <String>[];
+
+      final userStations = UserStations(
+        userId: matricule,
+        stations: stations,
+        firstName: firstName,
+        lastName: lastName,
+        fcmToken: null, // Sera mis à jour par PushNotificationService au premier lancement
+      );
+
+      await _userStationsRepository.createOrUpdateUserStations(userStations, sdisId: sdisId);
+
+      debugPrint('User stations created with personal data');
+
+      // 2. Si une station est fournie, créer le profil dans la station
+      if (station != null && station.isNotEmpty) {
+        final newUser = User(
+          id: matricule,
+          firstName: firstName, // Sera surchargé par user_stations lors du login
+          lastName: lastName,   // Sera surchargé par user_stations lors du login
+          station: station,
+          status: 'agent',
+          team: '',
+          skills: const [],
+          admin: false,
+        );
+
+        await _userRepository.upsert(newUser);
+        debugPrint('User profile created in station: $station');
+
+        return newUser;
+      }
+
+      // 3. Si pas de station, retourner un User temporaire
+      debugPrint('User profile created without station assignment');
+
+      return User(
         id: matricule,
         firstName: firstName,
         lastName: lastName,
-        station: station ?? '', // Hériter de la station si fournie, sinon vide
-        status: 'agent', // Statut par défaut
-        team: '', // Pas d'équipe par défaut
-        skills: const [], // Pas de compétences par défaut
+        station: '',
+        status: 'agent',
+        team: '',
+        skills: const [],
         admin: false,
       );
-
-      // Sauvegarder dans Firestore
-      await _userRepository.upsert(newUser);
-
-      debugPrint('User profile created successfully');
-
-      return newUser;
     } catch (e) {
       debugPrint('Error creating user profile: $e');
       throw Exception('Erreur lors de la création du profil utilisateur: $e');

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/repositories/local_repositories.dart';
+import 'package:nexshift_app/core/data/models/position_model.dart';
 import 'package:nexshift_app/core/repositories/team_repository.dart';
+import 'package:nexshift_app/core/repositories/position_repository.dart';
+import 'package:nexshift_app/core/repositories/user_repository.dart';
 import 'package:nexshift_app/core/data/datasources/notifiers.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:nexshift_app/core/utils/design_system.dart';
@@ -21,17 +23,21 @@ class TeamPage extends StatefulWidget {
   State<TeamPage> createState() => _TeamPageState();
 }
 
+enum TeamViewMode { rolesBased, positionsBased }
+
 class _TeamPageState extends State<TeamPage> {
-  final LocalRepository _repo = LocalRepository();
+  final PositionRepository _positionRepo = PositionRepository();
   final TextEditingController _searchController = TextEditingController();
   bool _loading = true;
   String? _error;
   List<User> _teamUsers = [];
   List<User> _filteredUsers = [];
+  List<Position> _positions = [];
   String _teamId = '';
   String _teamName = 'Équipe';
   Color? _teamColor;
   String _searchQuery = '';
+  TeamViewMode _viewMode = TeamViewMode.rolesBased;
 
   @override
   void initState() {
@@ -40,18 +46,35 @@ class _TeamPageState extends State<TeamPage> {
     _init();
     // Listen to team data changes
     teamDataChangedNotifier.addListener(_onTeamDataChanged);
+    // Listen to user changes to update team if user's team changed
+    userNotifier.addListener(_onUserChanged);
   }
 
   @override
   void dispose() {
     _searchController.dispose();
     teamDataChangedNotifier.removeListener(_onTeamDataChanged);
+    userNotifier.removeListener(_onUserChanged);
     super.dispose();
   }
 
   void _onTeamDataChanged() {
     // Reload team data when notified of changes
     _init();
+  }
+
+  void _onUserChanged() {
+    // Update team ID if user's team changed (e.g., after team rename)
+    final newTeamId = userNotifier.value?.team;
+    // Update if:
+    // 1. New team ID is different from current
+    // 2. Either widget.teamId is null (showing user's team) OR widget.teamId matches old team (was set to old team at navigation)
+    if (newTeamId != null && newTeamId != _teamId) {
+      setState(() {
+        _teamId = newTeamId;
+      });
+      _init();
+    }
   }
 
   Future<void> _init() async {
@@ -61,13 +84,25 @@ class _TeamPageState extends State<TeamPage> {
     });
 
     try {
-      final users = await _repo.getAllUsers();
+      // Get stationId from userNotifier for dev mode
+      final stationId = userNotifier.value?.station;
+      if (stationId == null) {
+        throw Exception('User station is null');
+      }
+
+      final users = await UserRepository().getByStation(stationId);
       final filtered = users.where((u) => u.team == _teamId).toList();
       filtered.sort((a, b) => a.lastName.compareTo(b.lastName));
-      final team = await TeamRepository().getById(_teamId);
+
+      final team = await TeamRepository().getById(_teamId, stationId: stationId);
+
+      // Load positions for the team's station
+      final positions = await _positionRepo.getPositionsByStation(stationId).first;
+
       setState(() {
         _teamUsers = filtered;
         _filteredUsers = filtered;
+        _positions = positions;
         _teamName = team?.name ?? 'Équipe $_teamId';
         _teamColor = team?.color;
         _loading = false;
@@ -106,6 +141,27 @@ class _TeamPageState extends State<TeamPage> {
         title: _teamName,
         onTitleTap: () => _showTeamPicker(context),
         bottomColor: accent,
+        actions: [
+          IconButton(
+            icon: Icon(
+              _viewMode == TeamViewMode.rolesBased
+                  ? Icons.work_outline
+                  : Icons.shield_moon,
+              color: accent,
+            ),
+            onPressed: () {
+              HapticFeedback.lightImpact();
+              setState(() {
+                _viewMode = _viewMode == TeamViewMode.rolesBased
+                    ? TeamViewMode.positionsBased
+                    : TeamViewMode.rolesBased;
+              });
+            },
+            tooltip: _viewMode == TeamViewMode.rolesBased
+                ? 'Vue par postes'
+                : 'Vue par rôles',
+          ),
+        ],
       ),
       body: _loading
           ? const TeamPageSkeleton()
@@ -116,6 +172,12 @@ class _TeamPageState extends State<TeamPage> {
   }
 
   Widget _buildBody(BuildContext context) {
+    return _viewMode == TeamViewMode.rolesBased
+        ? _buildRolesBasedView(context)
+        : _buildPositionsBasedView(context);
+  }
+
+  Widget _buildRolesBasedView(BuildContext context) {
     final leaders =
         _filteredUsers
             .where(
@@ -247,6 +309,148 @@ class _TeamPageState extends State<TeamPage> {
                       _sectionHeader(context, 'Agents', icon: Icons.group),
                       SizedBox(height: KSpacing.s),
                       ...agents.map((u) => _userTile(context, u)),
+                    ],
+                  ],
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPositionsBasedView(BuildContext context) {
+    // Group users by position
+    final usersByPosition = <String?, List<User>>{};
+    for (final user in _filteredUsers) {
+      final positionId = user.positionId;
+      if (!usersByPosition.containsKey(positionId)) {
+        usersByPosition[positionId] = [];
+      }
+      usersByPosition[positionId]!.add(user);
+    }
+
+    // Sort users in each position group
+    for (final users in usersByPosition.values) {
+      users.sort((a, b) => a.lastName.compareTo(b.lastName));
+    }
+
+    final totalCount = _filteredUsers.length;
+
+    return Column(
+      children: [
+        // Search bar
+        Padding(
+          padding: KSpacing.paddingL,
+          child: TextField(
+            controller: _searchController,
+            onChanged: (value) {
+              setState(() {
+                _searchQuery = value;
+              });
+              _applySearch();
+            },
+            decoration: InputDecoration(
+              hintText: 'Rechercher un agent...',
+              hintStyle: KTypography.body(
+                color: Theme.of(context).colorScheme.tertiary,
+              ),
+              prefixIcon: Icon(
+                Icons.search,
+                color: Theme.of(context).colorScheme.tertiary,
+              ),
+              suffixIcon: _searchQuery.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() {
+                          _searchQuery = '';
+                        });
+                        _applySearch();
+                      },
+                    )
+                  : null,
+              filled: true,
+              fillColor: Theme.of(context).colorScheme.surface,
+              border: OutlineInputBorder(
+                borderRadius: KBorderRadius.circularM,
+                borderSide: BorderSide.none,
+              ),
+              contentPadding: KSpacing.paddingM,
+            ),
+          ),
+        ),
+        // Stats badge
+        if (_searchQuery.isEmpty) ...[
+          SizedBox(height: KSpacing.m),
+          Padding(
+            padding: KSpacing.paddingHorizontalL,
+            child: Container(
+              padding: KSpacing.paddingM,
+              decoration: BoxDecoration(
+                color: (_teamColor ?? Theme.of(context).colorScheme.primary)
+                    .withOpacity(0.1),
+                borderRadius: KBorderRadius.circularM,
+                border: Border.all(
+                  color: (_teamColor ?? Theme.of(context).colorScheme.primary)
+                      .withOpacity(0.3),
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _buildStatItem(context, Icons.groups, '$totalCount', 'Total'),
+                ],
+              ),
+            ),
+          ),
+        ],
+        SizedBox(height: KSpacing.l),
+        // List
+        Expanded(
+          child: _filteredUsers.isEmpty
+              ? custom.EmptyStateWidget(
+                  message: _searchQuery.isEmpty
+                      ? 'Aucun membre dans cette équipe'
+                      : 'Aucun résultat pour "$_searchQuery"',
+                  icon: _searchQuery.isEmpty
+                      ? Icons.group_off
+                      : Icons.search_off,
+                )
+              : ListView(
+                  padding: KSpacing.paddingL,
+                  children: [
+                    // Display users grouped by position
+                    ..._positions.map((position) {
+                      final users = usersByPosition[position.id] ?? [];
+                      if (users.isEmpty) return const SizedBox.shrink();
+
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _sectionHeader(
+                            context,
+                            position.name,
+                            icon: position.iconName != null
+                                ? KSkills.positionIcons[position.iconName]
+                                : Icons.work_outline,
+                          ),
+                          SizedBox(height: KSpacing.s),
+                          ...users.map((u) => _userTile(context, u)),
+                          SizedBox(height: KSpacing.l),
+                        ],
+                      );
+                    }),
+                    // Display users without position
+                    if (usersByPosition[null]?.isNotEmpty ?? false) ...[
+                      _sectionHeader(
+                        context,
+                        'Sans poste défini',
+                        icon: Icons.person_outline,
+                      ),
+                      SizedBox(height: KSpacing.s),
+                      ...usersByPosition[null]!.map(
+                        (u) => _userTile(context, u),
+                      ),
                     ],
                   ],
                 ),
@@ -438,8 +642,9 @@ class _TeamPageState extends State<TeamPage> {
   void _showTeamPicker(BuildContext context) async {
     HapticFeedback.mediumImpact();
 
-    // Load teams from repository
-    final teams = await TeamRepository().getAll();
+    // Load teams from repository filtered by user's station
+    final userStation = userNotifier.value?.station ?? KConstants.station;
+    final teams = await TeamRepository().getByStation(userStation);
 
     if (!context.mounted) return;
 

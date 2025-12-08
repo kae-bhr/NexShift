@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/data/models/team_model.dart';
 import 'package:nexshift_app/core/data/models/trucks_model.dart';
+import 'package:nexshift_app/core/data/models/position_model.dart';
 import 'package:nexshift_app/core/repositories/team_repository.dart';
 import 'package:nexshift_app/core/repositories/truck_repository.dart';
 import 'package:nexshift_app/core/repositories/user_repository.dart';
+import 'package:nexshift_app/core/repositories/position_repository.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 import 'package:nexshift_app/features/station/presentation/pages/agents_tab_page.dart';
@@ -30,6 +32,7 @@ class _StationShellPageState extends State<StationShellPage>
   List<User> _allUsers = [];
   List<Team> _allTeams = [];
   List<Truck> _allTrucks = [];
+  List<Position> _allPositions = [];
   Map<String, List<User>> _usersByTeam = {};
 
   @override
@@ -51,15 +54,18 @@ class _StationShellPageState extends State<StationShellPage>
       final teamRepo = TeamRepository();
       final truckRepo = TruckRepository();
       final userRepo = UserRepository();
+      final positionRepo = PositionRepository();
 
       final currentUser = await UserStorageHelper.loadUser();
-      final users = await userRepo.getAll();
+      final userStation = currentUser?.station ?? KConstants.station;
 
-      // Note: La purge automatique des utilisateurs a été désactivée
-      // Les administrateurs peuvent gérer manuellement les utilisateurs depuis l'onglet Agents
-
-      final teams = await teamRepo.getAll();
-      final trucks = await truckRepo.getByStation(KConstants.station);
+      // Filtrer toutes les données par station de l'utilisateur
+      final users = await userRepo.getByStation(userStation);
+      final teams = await teamRepo.getByStation(userStation);
+      final trucks = await truckRepo.getByStation(userStation);
+      final positions = currentUser != null
+          ? await positionRepo.getPositionsByStation(currentUser.station).first
+          : <Position>[];
 
       // Group users by team
       final Map<String, List<User>> usersByTeam = {};
@@ -76,6 +82,7 @@ class _StationShellPageState extends State<StationShellPage>
         _allUsers = users;
         _allTeams = teams;
         _allTrucks = trucks;
+        _allPositions = positions;
         _usersByTeam = usersByTeam;
         _isLoading = false;
       });
@@ -93,7 +100,7 @@ class _StationShellPageState extends State<StationShellPage>
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          KConstants.station,
+          _currentUser?.station ?? KConstants.station,
           style: TextStyle(
             color: Theme.of(context).colorScheme.primary,
             fontWeight: FontWeight.bold,
@@ -133,6 +140,7 @@ class _StationShellPageState extends State<StationShellPage>
                   usersByTeam: _usersByTeam,
                   currentUser: _currentUser,
                   onDataChanged: _loadData,
+                  allPositions: _allPositions,
                 ),
                 VehiclesTabPage(
                   allTrucks: _allTrucks,

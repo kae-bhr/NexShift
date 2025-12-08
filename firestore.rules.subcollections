@@ -1,0 +1,186 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ============================================
+    // RÈGLES POUR L'ARCHITECTURE SOUS-COLLECTIONS
+    // À déployer UNIQUEMENT sur nexshift-dev
+    // ============================================
+
+    // Helper function: Vérifie si l'utilisateur est authentifié
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Helper function: Vérifie si l'utilisateur appartient à la station
+    // TEMPORAIRE: Permet l'accès sans custom claims en attendant la configuration
+    function belongsToStation(stationId) {
+      return isSignedIn();
+      // TODO: Réactiver après configuration des custom claims:
+      // return isSignedIn() && request.auth.token.station == stationId;
+    }
+
+    // Helper function: Vérifie si l'utilisateur est admin
+    // TEMPORAIRE: Permet l'accès admin sans custom claims
+    function isAdmin() {
+      return isSignedIn();
+      // TODO: Réactiver après configuration des custom claims:
+      // return isSignedIn() && request.auth.token.admin == true;
+    }
+
+    // Collection stations (racine)
+    // Chaque document /stations/{stationId} contient la config de la station
+    // + ses sous-collections (teams, users, plannings, etc.)
+    match /stations/{stationId} {
+      // Lecture du document station (config)
+      allow read: if belongsToStation(stationId);
+      // Seuls les admins peuvent créer/modifier/supprimer la config
+      allow create, update, delete: if belongsToStation(stationId) && isAdmin();
+
+      // Sous-collection: teams
+      match /teams/{teamId} {
+        allow read: if belongsToStation(stationId);
+        allow write: if belongsToStation(stationId) &&
+                        (isAdmin() || request.auth.token.status == 'leader');
+      }
+
+      // Sous-collection: users
+      match /users/{userId} {
+        allow read: if belongsToStation(stationId);
+        // Seuls les admins peuvent créer/supprimer des utilisateurs
+        allow create, delete: if belongsToStation(stationId) && isAdmin();
+        // Les utilisateurs peuvent modifier leur propre profil ou les admins
+        allow update: if belongsToStation(stationId) &&
+                         (request.auth.uid == userId || isAdmin());
+      }
+
+      // Sous-collection: plannings
+      match /plannings/{planningId} {
+        allow read: if belongsToStation(stationId);
+        // Seuls les admins et chefs peuvent modifier les plannings
+        allow write: if belongsToStation(stationId) &&
+                        (isAdmin() || request.auth.token.status == 'leader');
+      }
+
+      // Sous-collection: trucks
+      match /trucks/{truckId} {
+        allow read: if belongsToStation(stationId);
+        // Seuls les admins et chefs peuvent modifier les véhicules
+        allow write: if belongsToStation(stationId) &&
+                        (isAdmin() || request.auth.token.status == 'leader');
+      }
+
+      // Sous-collection: shift_rules
+      match /shift_rules/{ruleId} {
+        allow read: if belongsToStation(stationId);
+        // Seuls les admins peuvent modifier les règles d'astreintes
+        allow write: if belongsToStation(stationId) && isAdmin();
+      }
+
+      // Sous-collection: shift_exceptions
+      match /shift_exceptions/{exceptionId} {
+        allow read: if belongsToStation(stationId);
+        // Admins et chefs peuvent créer des exceptions
+        allow write: if belongsToStation(stationId) &&
+                        (isAdmin() || request.auth.token.status == 'leader');
+      }
+
+      // Sous-collection: availabilities
+      match /availabilities/{availabilityId} {
+        allow read: if belongsToStation(stationId);
+        // Les utilisateurs peuvent gérer leurs propres disponibilités
+        allow create, delete: if belongsToStation(stationId) &&
+                                  request.auth.uid == resource.data.userId;
+        allow update: if belongsToStation(stationId) &&
+                         (request.auth.uid == resource.data.userId || isAdmin());
+      }
+
+      // Sous-collection: subshifts (remplacements)
+      match /subshifts/{subshiftId} {
+        allow read: if belongsToStation(stationId);
+        // Les utilisateurs impliqués peuvent modifier leurs remplacements
+        allow write: if belongsToStation(stationId);
+      }
+
+      // Sous-collection: positions
+      match /positions/{positionId} {
+        allow read: if belongsToStation(stationId);
+        // Seuls les admins peuvent modifier les postes
+        allow write: if belongsToStation(stationId) && isAdmin();
+      }
+
+      // Sous-collection: replacementRequests
+      match /replacementRequests/{requestId} {
+        allow read: if belongsToStation(stationId);
+        allow write: if belongsToStation(stationId);
+      }
+
+      // Sous-collection: replacementRequestDeclines
+      match /replacementRequestDeclines/{declineId} {
+        allow read: if belongsToStation(stationId);
+        allow write: if belongsToStation(stationId);
+      }
+
+      // Sous-collection: manualReplacementAcceptances
+      match /manualReplacementAcceptances/{acceptanceId} {
+        allow read: if belongsToStation(stationId);
+        allow write: if belongsToStation(stationId);
+      }
+
+      // Sous-collection: manualReplacementProposals
+      match /manualReplacementProposals/{proposalId} {
+        allow read: if belongsToStation(stationId);
+        allow write: if belongsToStation(stationId);
+      }
+
+      // Sous-collection: notificationTriggers
+      match /notificationTriggers/{triggerId} {
+        allow read: if belongsToStation(stationId);
+        allow write: if belongsToStation(stationId) &&
+                        (isAdmin() || request.auth.token.status == 'leader');
+      }
+
+      // Sous-collection: waveStateTriggers
+      match /waveStateTriggers/{triggerId} {
+        allow read: if belongsToStation(stationId);
+        allow write: if belongsToStation(stationId);
+      }
+
+      // Sous-collection: testNotifications
+      match /testNotifications/{notificationId} {
+        allow read: if belongsToStation(stationId);
+        allow write: if belongsToStation(stationId) && isAdmin();
+      }
+
+      // Sous-collection: vehicleRules
+      match /vehicleRules/{ruleId} {
+        allow read: if belongsToStation(stationId);
+        allow write: if belongsToStation(stationId) &&
+                        (isAdmin() || request.auth.token.status == 'leader');
+      }
+    }
+
+    // Collection licences (racine) - Gestion multi-tenant
+    match /licences/{licenceId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Collection user_stations (racine) - Mapping utilisateur -> stations
+    // Permet à chaque utilisateur de voir ses stations
+    match /user_stations/{userId} {
+      // TEMPORAIRE: Accès permissif pour débloquer le développement Phase 1
+      // Tout utilisateur connecté peut lire/écrire dans user_stations
+      allow read, write: if isSignedIn();
+
+      // TODO Phase 2: Implémenter la logique correcte avec SDIS
+      // allow read: if isSignedIn() && request.auth.token.email.split('@')[0] == userId;
+      // allow write: if isAdmin();
+    }
+
+    // Bloquer tous les autres accès
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

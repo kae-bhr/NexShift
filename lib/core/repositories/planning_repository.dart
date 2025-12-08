@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:nexshift_app/core/data/models/planning_model.dart';
 import 'package:nexshift_app/core/services/firestore_service.dart';
+import 'package:nexshift_app/core/config/environment_config.dart';
 
 class PlanningRepository {
   static const _collectionName = 'plannings';
@@ -17,6 +18,11 @@ class PlanningRepository {
   PlanningRepository.forTest(FirebaseFirestore firestore)
       : _directFirestore = firestore,
         _firestoreService = FirestoreService();
+
+  /// Retourne le chemin de collection selon l'environnement
+  String _getCollectionPath(String? stationId) {
+    return EnvironmentConfig.getCollectionPath(_collectionName, stationId);
+  }
 
   /// Récupère tous les plannings
   Future<List<Planning>> getAll() async {
@@ -39,6 +45,53 @@ class PlanningRepository {
     }
   }
 
+  /// Récupère les plannings d'une station spécifique
+  Future<List<Planning>> getByStation(String stationId) async {
+    try {
+      final collectionPath = _getCollectionPath(stationId);
+
+      // En mode dev (sous-collections), récupérer tous les plannings de la sous-collection
+      if (EnvironmentConfig.useStationSubcollections) {
+        // Mode test
+        if (_directFirestore != null) {
+          final snapshot = await _directFirestore.collection(collectionPath).get();
+          return snapshot.docs.map((doc) {
+            final data = doc.data();
+            data['id'] = doc.id;
+            return Planning.fromJson(data);
+          }).toList();
+        }
+        // Mode production
+        final data = await _firestoreService.getAll(collectionPath);
+        return data.map((e) => Planning.fromJson(e)).toList();
+      }
+
+      // En mode prod (collections plates), filtrer par stationId
+      // Mode test
+      if (_directFirestore != null) {
+        final snapshot = await _directFirestore
+            .collection(_collectionName)
+            .where('station', isEqualTo: stationId)
+            .get();
+        return snapshot.docs.map((doc) {
+          final data = doc.data();
+          data['id'] = doc.id;
+          return Planning.fromJson(data);
+        }).toList();
+      }
+      // Mode production
+      final data = await _firestoreService.getWhere(
+        _collectionName,
+        'station',
+        stationId,
+      );
+      return data.map((e) => Planning.fromJson(e)).toList();
+    } catch (e) {
+      debugPrint('Firestore error in getByStation: $e');
+      rethrow;
+    }
+  }
+
   /// Récupère tous les plannings dans une période
   Future<List<Planning>> getAllInRange(DateTime start, DateTime end) async {
     try {
@@ -54,6 +107,50 @@ class PlanningRepository {
 
       return plannings;
     } catch (e) {
+      rethrow;
+    }
+  }
+
+  /// Récupère les plannings d'une station dans une période
+  Future<List<Planning>> getByStationInRange(
+    String stationId,
+    DateTime start,
+    DateTime end,
+  ) async {
+    try {
+      final collectionPath = _getCollectionPath(stationId);
+
+      // Mode dev avec subcollections: charger directement depuis le chemin SDIS
+      if (EnvironmentConfig.useStationSubcollections) {
+        if (_directFirestore != null) {
+          final snapshot = await _directFirestore
+              .collection(collectionPath)
+              .where('startTime', isLessThan: end)
+              .where('endTime', isGreaterThan: start)
+              .get();
+
+          return snapshot.docs.map((doc) {
+            final data = doc.data();
+            data['id'] = doc.id;
+            return Planning.fromJson(data);
+          }).toList();
+        }
+
+        final data = await _firestoreService.getInDateRange(
+          collectionPath,
+          'startTime',
+          'endTime',
+          start,
+          end,
+        );
+        return data.map((e) => Planning.fromJson(e)).toList();
+      }
+
+      // Mode prod: récupérer tous et filtrer par station
+      final allPlannings = await getAllInRange(start, end);
+      return allPlannings.where((p) => p.station == stationId).toList();
+    } catch (e) {
+      debugPrint('Firestore error in getByStationInRange: $e');
       rethrow;
     }
   }
@@ -142,13 +239,19 @@ class PlanningRepository {
   }
 
   /// Sauvegarde tous les plannings (remplace la liste complète)
-  Future<void> saveAll(List<Planning> plannings) async {
+  Future<void> saveAll(List<Planning> plannings, {String? stationId}) async {
+    if (EnvironmentConfig.useStationSubcollections && stationId == null) {
+      throw Exception('stationId required in dev mode for saveAll');
+    }
+
+    final collectionPath = _getCollectionPath(stationId);
+
     try {
       final operations = plannings
           .map(
             (planning) => {
               'type': 'set',
-              'collection': _collectionName,
+              'collection': collectionPath,
               'id': planning.id,
               'data': planning.toJson(),
             },
@@ -214,10 +317,17 @@ class PlanningRepository {
   /// Supprime tous les plannings dans une plage de dates
   Future<void> deletePlanningsInRange(
     DateTime startDate,
-    DateTime endDate,
-  ) async {
+    DateTime endDate, {
+    String? stationId,
+  }) async {
+    if (EnvironmentConfig.useStationSubcollections && stationId == null) {
+      throw Exception('stationId required in dev mode for deletePlanningsInRange');
+    }
+
+    final collectionPath = _getCollectionPath(stationId);
+
     try {
-      final all = await getAll();
+      final all = await getByStation(stationId!);
       final toDelete = all.where((p) {
         // Supprimer les plannings qui chevauchent la plage
         return !p.endTime.isBefore(startDate) && !p.startTime.isAfter(endDate);
@@ -227,7 +337,7 @@ class PlanningRepository {
         // Mode test: supprimer individuellement
         if (_directFirestore != null) {
           for (final planning in toDelete) {
-            await _directFirestore.collection(_collectionName).doc(planning.id).delete();
+            await _directFirestore.collection(collectionPath).doc(planning.id).delete();
           }
           return;
         }
@@ -236,7 +346,7 @@ class PlanningRepository {
             .map(
               (planning) => {
                 'type': 'delete',
-                'collection': _collectionName,
+                'collection': collectionPath,
                 'id': planning.id,
               },
             )

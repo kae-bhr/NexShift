@@ -6,8 +6,6 @@ import 'package:nexshift_app/core/presentation/pages/about_page.dart';
 import 'package:nexshift_app/core/presentation/pages/privacy_policy_page.dart';
 import 'package:nexshift_app/core/presentation/pages/terms_of_service_page.dart';
 import 'package:nexshift_app/core/repositories/team_repository.dart';
-import 'package:nexshift_app/core/repositories/station_repository.dart';
-import 'package:nexshift_app/core/data/models/station_model.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:nexshift_app/core/services/push_notification_service.dart';
 import 'package:nexshift_app/features/auth/presentation/pages/login_page.dart';
@@ -59,13 +57,6 @@ class _SettingsPageState extends State<SettingsPage> {
           _buildDataSection(context),
           const SizedBox(height: 24),
 
-          // Section Administration (uniquement pour leaders/admins)
-          if (user != null && (user.admin || user.status == 'leader')) ...[
-            _buildSectionHeader(context, 'Administration'),
-            _buildAdministrationSection(context, user),
-            const SizedBox(height: 24),
-          ],
-
           // Section Informations
           _buildSectionHeader(context, 'Informations'),
           _buildInformationsSection(context),
@@ -110,7 +101,7 @@ class _SettingsPageState extends State<SettingsPage> {
     }
 
     return FutureBuilder(
-      future: TeamRepository().getById(user.team),
+      future: TeamRepository().getById(user.team, stationId: user.station),
       builder: (context, snapshot) {
         final team = snapshot.data;
         final teamColor = team?.color ?? Colors.grey;
@@ -310,35 +301,6 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  Widget _buildAdministrationSection(BuildContext context, user) {
-    final stationRepository = StationRepository();
-
-    return Card(
-      child: Column(
-        children: [
-          FutureBuilder<Station?>(
-            future: stationRepository.getById(user.station),
-            builder: (context, snapshot) {
-              final station = snapshot.data;
-              final delayMinutes = station?.notificationWaveDelayMinutes ?? 30;
-
-              return ListTile(
-                leading: const Icon(
-                  Icons.notifications_active,
-                  color: Colors.blue,
-                ),
-                title: const Text('Délai entre les vagues de notifications'),
-                subtitle: Text('$delayMinutes minutes entre chaque vague'),
-                trailing: const Icon(Icons.edit, size: 20),
-                onTap: () =>
-                    _showNotificationDelayDialog(user.station, delayMinutes),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildInformationsSection(BuildContext context) {
     return Card(
@@ -432,124 +394,6 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  void _showNotificationDelayDialog(String stationId, int currentDelay) {
-    final controller = TextEditingController(text: currentDelay.toString());
-
-    showDialog(
-      context: context,
-      builder: (context) {
-        final colorScheme = Theme.of(context).colorScheme;
-        return AlertDialog(
-          backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          title: Text(
-            'Délai entre les vagues',
-            style: TextStyle(
-              color: colorScheme.primary,
-              fontSize: KTextStyle.regularTextStyle.fontSize,
-              fontFamily: KTextStyle.regularTextStyle.fontFamily,
-              fontWeight: KTextStyle.regularTextStyle.fontWeight,
-            ),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Configurez le délai (en minutes) entre chaque vague de notifications pour les demandes de remplacement.\nMinimum 5 minutes.\n\nLogique des vagues :\n - Agents en astreinte (jamais notifiés)\n - Vague 1 : Équipe (hors astreinte)\n - Vague 2 : Compétences identiques\n - Vague 3 : Compétences très proches (80%+)\n - Vague 4 : Compétences proches (60%+)\n - Vague 5 : Tous les autres agents',
-                style: TextStyle(
-                  color: colorScheme.tertiary,
-                  fontSize: KTextStyle.descriptionTextStyle.fontSize,
-                  fontFamily: KTextStyle.descriptionTextStyle.fontFamily,
-                  fontWeight: KTextStyle.descriptionTextStyle.fontWeight,
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: controller,
-                keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                  labelText: 'Délai (minutes)',
-                  hintText: 'Ex: 30',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  suffixText: 'min',
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Annuler'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                try {
-                  final delayMinutes = int.tryParse(controller.text);
-
-                  if (delayMinutes == null || delayMinutes <= 0) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Veuillez entrer un nombre valide > 0'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                    return;
-                  }
-
-                  // Récupérer la station actuelle
-                  final stationRepository = StationRepository();
-                  Station? station = await stationRepository.getById(stationId);
-
-                  // Si la station n'existe pas, la créer avec les valeurs par défaut
-                  if (station == null) {
-                    station = Station(
-                      id: stationId,
-                      name: stationId, // Utilisera l'ID comme nom temporaire
-                      notificationWaveDelayMinutes: delayMinutes,
-                    );
-                  } else {
-                    // Mettre à jour avec le nouveau délai
-                    station = station.copyWith(
-                      notificationWaveDelayMinutes: delayMinutes,
-                    );
-                  }
-
-                  await stationRepository.upsert(station);
-
-                  if (mounted) {
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Délai mis à jour avec succès'),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
-                    // Rafraîchir la page
-                    setState(() {});
-                  }
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Erreur : $e'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
-                }
-              },
-              child: const Text('Enregistrer'),
-            ),
-          ],
-        );
-      },
-    );
-  }
 
   void _showClearCacheDialog() {
     showDialog(

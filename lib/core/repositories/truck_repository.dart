@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:nexshift_app/core/data/models/trucks_model.dart';
 import 'package:nexshift_app/core/services/firestore_service.dart';
+import 'package:nexshift_app/core/config/environment_config.dart';
 
 class TruckRepository {
   static const _collectionName = 'trucks';
@@ -17,6 +18,11 @@ class TruckRepository {
   TruckRepository.forTest(FirebaseFirestore firestore)
       : _directFirestore = firestore,
         _firestoreService = FirestoreService();
+
+  /// Retourne le chemin de collection selon l'environnement
+  String _getCollectionPath(String? stationId) {
+    return EnvironmentConfig.getCollectionPath(_collectionName, stationId);
+  }
 
   Future<List<Truck>> getAll() async {
     try {
@@ -62,6 +68,25 @@ class TruckRepository {
 
   Future<List<Truck>> getByStation(String stationName) async {
     try {
+      final collectionPath = _getCollectionPath(stationName);
+
+      // En mode dev (sous-collections), récupérer tous les trucks de la sous-collection
+      if (EnvironmentConfig.useStationSubcollections) {
+        // Mode test
+        if (_directFirestore != null) {
+          final snapshot = await _directFirestore.collection(collectionPath).get();
+          return snapshot.docs.map((doc) {
+            final data = doc.data();
+            data['id'] = doc.id;
+            return Truck.fromJson(data);
+          }).toList();
+        }
+        // Mode production
+        final data = await _firestoreService.getAll(collectionPath);
+        return data.map((e) => Truck.fromJson(e)).toList();
+      }
+
+      // En mode prod (collections plates), filtrer par stationName
       // Mode test
       if (_directFirestore != null) {
         final snapshot = await _directFirestore
@@ -84,9 +109,18 @@ class TruckRepository {
   }
 
   /// Get the next available ID for a new truck (global unique ID for Firestore)
-  Future<int> getNextId() async {
+  /// In subcollection mode, stationId is required to get the next ID for that station
+  Future<int> getNextId({String? stationId}) async {
     try {
-      final allTrucks = await getAll();
+      final List<Truck> allTrucks;
+
+      // En mode sous-collections, on doit récupérer les trucks de la station
+      if (EnvironmentConfig.useStationSubcollections && stationId != null) {
+        allTrucks = await getByStation(stationId);
+      } else {
+        allTrucks = await getAll();
+      }
+
       if (allTrucks.isEmpty) {
         return 1;
       }
@@ -122,13 +156,15 @@ class TruckRepository {
 
   Future<void> save(Truck truck) async {
     try {
+      final collectionPath = _getCollectionPath(truck.station);
+
       // Mode test
       if (_directFirestore != null) {
-        await _directFirestore.collection(_collectionName).doc(truck.id.toString()).set(truck.toJson());
+        await _directFirestore.collection(collectionPath).doc(truck.id.toString()).set(truck.toJson());
         return;
       }
       // Mode production
-      await _firestoreService.upsert(_collectionName, truck.id.toString(), truck.toJson());
+      await _firestoreService.upsert(collectionPath, truck.id.toString(), truck.toJson());
     } catch (e) {
       debugPrint('Firestore error during save: $e');
       rethrow;
@@ -150,15 +186,17 @@ class TruckRepository {
     }
   }
 
-  Future<void> delete(int id) async {
+  Future<void> delete(int id, {String? stationId}) async {
     try {
+      final collectionPath = _getCollectionPath(stationId);
+
       // Mode test
       if (_directFirestore != null) {
-        await _directFirestore.collection(_collectionName).doc(id.toString()).delete();
+        await _directFirestore.collection(collectionPath).doc(id.toString()).delete();
         return;
       }
       // Mode production
-      await _firestoreService.delete(_collectionName, id.toString());
+      await _firestoreService.delete(collectionPath, id.toString());
     } catch (e) {
       debugPrint('Firestore error during delete: $e');
       rethrow;

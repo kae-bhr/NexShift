@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/data/models/team_model.dart';
 import 'package:nexshift_app/core/repositories/team_repository.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:nexshift_app/core/repositories/local_repositories.dart';
 import 'package:nexshift_app/core/data/datasources/notifiers.dart';
+import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 
 /// Teams tab page - manages station teams
 class TeamsTabPage extends StatefulWidget {
@@ -355,6 +356,17 @@ class _TeamsTabPageState extends State<TeamsTabPage> {
   }
 
   Future<void> _showAddTeamDialog() async {
+    // Vérifier que l'utilisateur courant existe
+    if (widget.currentUser == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Erreur: utilisateur non connecté'),
+        ),
+      );
+      return;
+    }
+
     // Generate new team ID based on existing teams
     final existingIds = widget.allTeams.map((t) => t.id).toList();
     String newId = 'A';
@@ -385,7 +397,7 @@ class _TeamsTabPageState extends State<TeamsTabPage> {
     final newTeam = Team(
       id: newId,
       name: 'Nouvelle équipe',
-      stationId: KConstants.station,
+      stationId: widget.currentUser!.station,
       color: Colors.grey.shade400,
     );
 
@@ -408,19 +420,35 @@ class _TeamsTabPageState extends State<TeamsTabPage> {
   }
 
   void _showEditTeamNameDialog(Team team) {
-    final controller = TextEditingController(text: team.name);
+    final nameController = TextEditingController(text: team.name);
+    final idController = TextEditingController(text: team.id);
 
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Modifier le nom de l\'équipe'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            labelText: 'Nom de l\'équipe',
-            hintText: 'Ex: Équipe A',
-          ),
-          autofocus: true,
+        title: const Text('Modifier l\'équipe'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              decoration: const InputDecoration(
+                labelText: 'Nom de l\'équipe',
+                hintText: 'Ex: Équipe 1',
+              ),
+              autofocus: true,
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: idController,
+              decoration: const InputDecoration(
+                labelText: 'Initiale de l\'équipe',
+                hintText: 'Ex: A, B, 1, 2...',
+                helperText: 'L\'initiale apparaît dans les badges et titres',
+              ),
+              maxLength: 3,
+            ),
+          ],
         ),
         actions: [
           TextButton(
@@ -429,7 +457,9 @@ class _TeamsTabPageState extends State<TeamsTabPage> {
           ),
           FilledButton(
             onPressed: () async {
-              final newName = controller.text.trim();
+              final newName = nameController.text.trim();
+              final newId = idController.text.trim();
+
               if (newName.isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Le nom ne peut pas être vide')),
@@ -437,10 +467,63 @@ class _TeamsTabPageState extends State<TeamsTabPage> {
                 return;
               }
 
-              // Update team name
-              final updatedTeam = team.copyWith(name: newName);
+              if (newId.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('L\'initiale ne peut pas être vide')),
+                );
+                return;
+              }
+
+              // Check if new ID already exists (excluding current team)
+              final existingTeam = widget.allTeams.firstWhere(
+                (t) => t.id == newId && t.id != team.id,
+                orElse: () => Team(id: '', name: '', stationId: '', color: Colors.grey),
+              );
+
+              if (existingTeam.id.isNotEmpty) {
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('L\'initiale "$newId" est déjà utilisée')),
+                );
+                return;
+              }
+
               final teamRepo = TeamRepository();
-              await teamRepo.upsert(updatedTeam);
+
+              // If ID changed, we need to delete old team and create new one
+              if (newId != team.id) {
+                // Delete old team (pass stationId for dev mode)
+                await teamRepo.delete(team.id, stationId: team.stationId);
+
+                // Create new team with new ID
+                final newTeam = Team(
+                  id: newId,
+                  name: newName,
+                  stationId: team.stationId,
+                  color: team.color,
+                );
+                await teamRepo.upsert(newTeam);
+
+                // Update all users with the old team to the new team
+                final LocalRepository localRepo = LocalRepository();
+                final allUsers = await localRepo.getAllUsers();
+                final usersToUpdate = allUsers.where((u) => u.team == team.id).toList();
+
+                for (final user in usersToUpdate) {
+                  final updatedUser = user.copyWith(team: newId);
+                  await localRepo.updateUserProfile(updatedUser);
+
+                  // If this is the current user, update userNotifier
+                  if (updatedUser.id == widget.currentUser?.id) {
+                    userNotifier.value = updatedUser;
+                    await UserStorageHelper.saveUser(updatedUser);
+                  }
+                }
+              } else {
+                // Just update the name
+                final updatedTeam = team.copyWith(name: newName);
+                await teamRepo.upsert(updatedTeam);
+              }
 
               // Notify other parts of the app to reload team data
               teamDataChangedNotifier.value++;
@@ -449,7 +532,7 @@ class _TeamsTabPageState extends State<TeamsTabPage> {
               if (!context.mounted) return;
               Navigator.pop(context);
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Nom de l\'équipe modifié: $newName')),
+                const SnackBar(content: Text('Équipe modifiée avec succès')),
               );
             },
             child: const Text('Enregistrer'),

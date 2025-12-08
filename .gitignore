@@ -13,6 +13,9 @@
 migrate_working_dir/
 .claude/
 
+# Firebase environment selector (temporary file created during build)
+android/.env-firebase
+
 # IntelliJ related
 *.iml
 *.ipr
@@ -60,7 +63,7 @@ ios/Runner.xcodeproj/project.xcworkspace/xcuserdata/
 **/*.jks
 
 # Firebase configuration files (contains API keys)
-/android/app/google-services.json
+/android/app/google-services*
 /ios/Runner/GoogleService-Info.plist
 /lib/firebase_options*
 
@@ -74,6 +77,7 @@ ios/Runner.xcodeproj/project.xcworkspace/xcuserdata/
 **/secrets.json
 **/credentials.json
 **/service-account*.json
+**/serviceAccount*.json
 
 # Session logs (may contain sensitive data)
 **/logs/

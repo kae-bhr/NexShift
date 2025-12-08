@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:nexshift_app/core/data/datasources/notifiers.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
+import 'package:nexshift_app/core/data/models/position_model.dart';
 import 'package:nexshift_app/core/repositories/local_repositories.dart';
+import 'package:nexshift_app/core/repositories/position_repository.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:nexshift_app/core/utils/design_system.dart';
 import 'package:nexshift_app/features/skills/presentation/pages/edit_skills_page.dart';
@@ -23,7 +25,9 @@ class SkillsPage extends StatefulWidget {
 
 class _SkillsPageState extends State<SkillsPage> {
   final LocalRepository _repository = LocalRepository();
+  final PositionRepository _positionRepository = PositionRepository();
   User? _displayedUser;
+  Position? _userPosition;
   bool _isLoading = true;
   String? _errorMessage;
   bool _showAcquiredOnly = false;
@@ -44,6 +48,7 @@ class _SkillsPageState extends State<SkillsPage> {
     try {
       if (widget.userId != null) {
         final user = await _repository.getUserProfile(widget.userId!);
+        await _loadPosition(user);
         setState(() {
           _displayedUser = user;
           _isLoading = false;
@@ -54,6 +59,7 @@ class _SkillsPageState extends State<SkillsPage> {
         final currentUser = userNotifier.value;
         if (currentUser != null) {
           final user = await _repository.getUserProfile(currentUser.id);
+          await _loadPosition(user);
           setState(() {
             _displayedUser = user;
             _isLoading = false;
@@ -70,6 +76,28 @@ class _SkillsPageState extends State<SkillsPage> {
         _errorMessage = KErrorMessages.loadingError;
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _loadPosition(User user) async {
+    if (user.positionId == null) {
+      _userPosition = null;
+      return;
+    }
+
+    try {
+      final positions = await _positionRepository
+          .getPositionsByStation(user.station)
+          .first;
+      _userPosition = positions.firstWhere(
+        (p) => p.id == user.positionId,
+        orElse: () => Position(id: '', name: '', stationId: '', order: 0),
+      );
+      if (_userPosition?.id.isEmpty ?? true) {
+        _userPosition = null;
+      }
+    } catch (e) {
+      _userPosition = null;
     }
   }
 
@@ -142,13 +170,28 @@ class _SkillsPageState extends State<SkillsPage> {
             tag: 'avatar_${widget.userId ?? "current"}',
             child: Material(
               color: Colors.transparent,
-              child: Text(
-                userName,
-                textAlign: TextAlign.center,
-                style: KTypography.bodyLarge(
-                  color: Theme.of(context).colorScheme.primary,
-                  fontWeight: KTypography.fontWeightBold,
-                ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    userName,
+                    textAlign: TextAlign.center,
+                    style: KTypography.bodyLarge(
+                      color: Theme.of(context).colorScheme.primary,
+                      fontWeight: KTypography.fontWeightBold,
+                    ),
+                  ),
+                  if (_displayedUser != null)
+                    Text(
+                      "(${_displayedUser!.id})",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Theme.of(context).colorScheme.tertiary,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                ],
               ),
             ),
           ),
@@ -230,6 +273,73 @@ class _SkillsPageState extends State<SkillsPage> {
 
     return Column(
       children: [
+        // Position tile
+        if (_userPosition != null)
+          Padding(
+            padding: KSpacing.paddingL,
+            child: Row(
+              children: [
+                Expanded(
+                  child: Container(
+                    padding: KSpacing.paddingM,
+                    decoration: BoxDecoration(
+                      color: KColors.appNameColor.withOpacity(0.1),
+                      borderRadius: KBorderRadius.circularM,
+                      border: Border.all(
+                        color: KColors.appNameColor.withOpacity(0.3),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        if (_userPosition!.iconName != null)
+                          Icon(
+                            KSkills.positionIcons[_userPosition!.iconName],
+                            size: KIconSize.m,
+                            color: KColors.appNameColor,
+                          )
+                        else
+                          Icon(
+                            Icons.work_outline,
+                            size: KIconSize.m,
+                            color: KColors.appNameColor,
+                          ),
+                        SizedBox(width: KSpacing.m),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Poste',
+                                style: KTypography.caption().copyWith(
+                                  color: KColors.appNameColor,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              Text(
+                                _userPosition!.name,
+                                style: KTypography.body().copyWith(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              if (_userPosition!.description != null &&
+                                  _userPosition!.description!.isNotEmpty)
+                                Text(
+                                  _userPosition!.description!,
+                                  style: KTypography.caption().copyWith(
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        if (_userPosition != null) Divider(height: 1.0),
         // Toggle filter
         Padding(
           padding: KSpacing.paddingL,
@@ -254,7 +364,7 @@ class _SkillsPageState extends State<SkillsPage> {
                         size: KIconSize.s,
                         color: Theme.of(context).colorScheme.primary,
                       ),
-                      SizedBox(width: KSpacing.s),
+                      SizedBox(width: KSpacing.s, height: 2.0),
                       Expanded(
                         child: Text(
                           'Compétences acquises uniquement',
@@ -278,7 +388,7 @@ class _SkillsPageState extends State<SkillsPage> {
             ],
           ),
         ),
-        SizedBox(height: KSpacing.l),
+        SizedBox(height: 2.0),
         // Skills list or empty state
         Expanded(
           child: displayedSkills.isEmpty

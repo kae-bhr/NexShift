@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:nexshift_app/core/data/models/vehicle_rule_set_model.dart';
 import 'package:nexshift_app/core/utils/default_vehicle_rules.dart';
 import 'package:nexshift_app/core/services/firestore_service.dart';
+import 'package:nexshift_app/core/config/environment_config.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Repository for managing vehicle crew rules
@@ -11,6 +12,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 class VehicleRulesRepository {
   static const _collectionName = 'vehicle_rule_sets';
   final FirestoreService _firestore = FirestoreService();
+
+  /// Retourne le chemin de collection selon l'environnement
+  String _getCollectionPath(String? stationId) {
+    return EnvironmentConfig.getCollectionPath(_collectionName, stationId);
+  }
 
   // In-memory storage for station-specific rules (cache)
   static final Map<String, VehicleRuleSet> _stationRules = {};
@@ -50,7 +56,8 @@ class VehicleRulesRepository {
 
     // Try Firestore
     try {
-      final data = await _firestore.getById(_collectionName, key);
+      final collectionPath = _getCollectionPath(stationId);
+      final data = await _firestore.getById(collectionPath, key);
       if (data != null) {
         final rs = VehicleRuleSet.fromJson(data);
         _stationRules[key] = rs; // warm the cache
@@ -68,7 +75,8 @@ class VehicleRulesRepository {
           _stationRules[key] = rs; // warm the cache
           // Migrate to Firestore
           try {
-            await _firestore.upsert(_collectionName, key, rs.toJson());
+            final collectionPath = _getCollectionPath(stationId);
+            await _firestore.upsert(collectionPath, key, rs.toJson());
             await prefs.remove(_key(stationId, vehicleType)); // Clean old data
           } catch (_) {}
           return rs;
@@ -92,7 +100,8 @@ class VehicleRulesRepository {
 
     // Save to Firestore
     try {
-      await _firestore.upsert(_collectionName, key, ruleSet.toJson());
+      final collectionPath = _getCollectionPath(ruleSet.stationId);
+      await _firestore.upsert(collectionPath, key, ruleSet.toJson());
     } catch (e) {
       debugPrint('Firestore error during saveStationRules: $e');
       rethrow;
@@ -109,7 +118,8 @@ class VehicleRulesRepository {
 
     // Delete from Firestore
     try {
-      await _firestore.delete(_collectionName, key);
+      final collectionPath = _getCollectionPath(stationId);
+      await _firestore.delete(collectionPath, key);
     } catch (e) {
       debugPrint('Firestore error during deleteStationRules: $e');
       rethrow;
@@ -119,6 +129,29 @@ class VehicleRulesRepository {
   /// Get all station-specific rules for a station
   Future<List<VehicleRuleSet>> getAllStationRules(String stationId) async {
     try {
+      final collectionPath = _getCollectionPath(stationId);
+
+      // En mode dev (sous-collections), récupérer tous les documents de la sous-collection
+      if (EnvironmentConfig.useStationSubcollections) {
+        final data = await _firestore.getAll(collectionPath);
+        final result = <VehicleRuleSet>[];
+
+        for (final item in data) {
+          try {
+            final rs = VehicleRuleSet.fromJson(item);
+            result.add(rs);
+            // Update cache
+            final key = '${stationId}_${rs.vehicleType}';
+            _stationRules[key] = rs;
+          } catch (_) {
+            // Skip malformed entries
+          }
+        }
+
+        return result;
+      }
+
+      // En mode prod (collections plates), filtrer par stationId
       final data = await _firestore.getWhere(_collectionName, 'stationId', stationId);
       final result = <VehicleRuleSet>[];
 
@@ -151,7 +184,8 @@ class VehicleRulesRepository {
 
     // Check Firestore
     try {
-      final data = await _firestore.getById(_collectionName, key);
+      final collectionPath = _getCollectionPath(stationId);
+      final data = await _firestore.getById(collectionPath, key);
       return data != null;
     } catch (e) {
       debugPrint('Firestore error in hasCustomRules: $e');

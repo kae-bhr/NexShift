@@ -20,8 +20,36 @@ class LocalRepository {
     return await _planningRepository.getAll();
   }
 
+  /// Authentifie un utilisateur avec Firebase Authentication (nouvelle version multi-stations et multi-SDIS)
+  /// Retourne AuthenticationResult qui peut contenir plusieurs stations
+  Future<AuthenticationResult> loginWithStations(
+    String id,
+    String password, {
+    String? sdisId,
+  }) async {
+    try {
+      final result = await _authService.signInWithStations(
+        matricule: id,
+        password: password,
+        sdisId: sdisId,
+      );
+      return result;
+    } on UserProfileNotFoundException {
+      // Propager l'exception spécifique pour que la page login puisse la gérer
+      rethrow;
+    } catch (e) {
+      throw Exception('Identifiants invalides');
+    }
+  }
+
+  /// Charge le profil utilisateur pour une station spécifique
+  Future<User?> loadUserForStation(String matricule, String stationId) async {
+    return await _authService.loadUserProfileForStation(matricule, stationId);
+  }
+
   /// Authentifie un utilisateur avec Firebase Authentication
   /// Retourne le profil utilisateur complet depuis Firestore
+  /// @deprecated Utilisez loginWithStations() pour gérer les utilisateurs multi-stations
   Future<User> login(String id, String password) async {
     try {
       final user = await _authService.signInWithEmailAndPassword(
@@ -124,6 +152,15 @@ class LocalRepository {
     return await _planningRepository.getAllInRange(start, end);
   }
 
+  /// Retourne les plannings d'une station dans un intervalle
+  Future<List<Planning>> getPlanningsByStationInRange(
+    String stationId,
+    DateTime start,
+    DateTime end,
+  ) async {
+    return await _planningRepository.getByStationInRange(stationId, start, end);
+  }
+
   /// Variante de getPlanningsForUser avec une période explicite.
   Future<List<Planning>> getPlanningsForUserInRange(
     User user,
@@ -131,7 +168,11 @@ class LocalRepository {
     DateTime start,
     DateTime end,
   ) async {
-    final allPlannings = await _planningRepository.getAllInRange(start, end);
+    final allPlannings = await _planningRepository.getByStationInRange(
+      user.station,
+      start,
+      end,
+    );
     return allPlannings.where((p) {
       if (agentView) return p.agentsId.contains(user.id);
       return _matchUserScope(p, user);

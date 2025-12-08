@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:nexshift_app/core/data/models/shift_rule_model.dart';
+import 'package:nexshift_app/core/data/models/team_model.dart';
 import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
 import 'package:nexshift_app/core/repositories/shift_rule_repository.dart';
+import 'package:nexshift_app/core/repositories/team_repository.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 import 'package:uuid/uuid.dart';
 
 class EditShiftRulePage extends StatefulWidget {
@@ -18,6 +21,7 @@ class _EditShiftRulePageState extends State<EditShiftRulePage> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _repository = ShiftRuleRepository();
+  final _teamRepository = TeamRepository();
   final _uuid = const Uuid();
 
   late TimeOfDay _startTime;
@@ -31,11 +35,15 @@ class _EditShiftRulePageState extends State<EditShiftRulePage> {
   late DateTime _endDate;
 
   bool _isEditing = false;
+  List<Team> _availableTeams = [];
+  bool _isLoadingTeams = true;
+  String? _currentUserStation;
 
   @override
   void initState() {
     super.initState();
     _isEditing = widget.rule != null;
+    _loadTeams();
 
     if (_isEditing) {
       try {
@@ -61,7 +69,7 @@ class _EditShiftRulePageState extends State<EditShiftRulePage> {
         _startTime = const TimeOfDay(hour: 19, minute: 0);
         _endTime = const TimeOfDay(hour: 6, minute: 0);
         _rotationType = ShiftRotationType.daily;
-        _selectedTeams = ['A', 'B', 'C', 'D'];
+        _selectedTeams = [];
         _selectedDays = DaysOfWeek.weekdays;
         _spansNextDay = true;
         _rotationInterval = 1;
@@ -73,12 +81,59 @@ class _EditShiftRulePageState extends State<EditShiftRulePage> {
       _startTime = const TimeOfDay(hour: 19, minute: 0);
       _endTime = const TimeOfDay(hour: 6, minute: 0);
       _rotationType = ShiftRotationType.daily;
-      _selectedTeams = ['A', 'B', 'C', 'D'];
+      _selectedTeams = [];
       _selectedDays = DaysOfWeek.weekdays;
       _spansNextDay = true;
       _rotationInterval = 1;
       _startDate = DateTime.now();
       _endDate = DateTime.now().add(const Duration(days: 365));
+    }
+  }
+
+  Future<void> _loadTeams() async {
+    try {
+      final user = await UserStorageHelper.loadUser();
+      if (user == null) {
+        debugPrint('EditShiftRulePage: User is null, cannot load teams');
+        setState(() {
+          _availableTeams = [];
+          _isLoadingTeams = false;
+        });
+        return;
+      }
+
+      debugPrint('EditShiftRulePage: Loading teams for station ${user.station}');
+      final stationTeams = await _teamRepository.getByStation(user.station);
+      debugPrint('EditShiftRulePage: Total teams loaded: ${stationTeams.length}');
+
+      stationTeams.sort((a, b) => a.order.compareTo(b.order));
+
+      debugPrint('EditShiftRulePage: Station teams: ${stationTeams.map((t) => t.name).toList()}');
+
+      setState(() {
+        _currentUserStation = user.station;
+        _availableTeams = stationTeams;
+        _isLoadingTeams = false;
+
+        // Filtrer les équipes sélectionnées pour ne garder que celles qui existent
+        if (_isEditing && _selectedTeams.isNotEmpty) {
+          final validTeamIds = stationTeams.map((t) => t.id).toSet();
+          final oldSelectedTeams = List<String>.from(_selectedTeams);
+          _selectedTeams = _selectedTeams
+              .where((teamId) => validTeamIds.contains(teamId))
+              .toList();
+
+          debugPrint(
+            'EditShiftRulePage: Filtered teams from $oldSelectedTeams to $_selectedTeams',
+          );
+        }
+      });
+    } catch (e) {
+      debugPrint('EditShiftRulePage: Error loading teams: $e');
+      setState(() {
+        _availableTeams = [];
+        _isLoadingTeams = false;
+      });
     }
   }
 
@@ -309,25 +364,44 @@ class _EditShiftRulePageState extends State<EditShiftRulePage> {
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        children: ['A', 'B', 'C', 'D'].map((team) {
-                          final isSelected = _selectedTeams.contains(team);
-                          return FilterChip(
-                            label: Text('Équipe $team'),
-                            selected: isSelected,
-                            onSelected: (selected) {
-                              setState(() {
-                                if (selected) {
-                                  _selectedTeams.add(team);
-                                } else {
-                                  _selectedTeams.remove(team);
-                                }
-                              });
-                            },
-                          );
-                        }).toList(),
-                      ),
+                      if (_isLoadingTeams)
+                        const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(16.0),
+                            child: CircularProgressIndicator(),
+                          ),
+                        )
+                      else if (_availableTeams.isEmpty)
+                        Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Text(
+                            'Aucune équipe disponible. Veuillez créer des équipes dans la page Station.',
+                            style: TextStyle(
+                              color: Colors.grey[600],
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                        )
+                      else
+                        Wrap(
+                          spacing: 8,
+                          children: _availableTeams.map((team) {
+                            final isSelected = _selectedTeams.contains(team.id);
+                            return FilterChip(
+                              label: Text(team.name),
+                              selected: isSelected,
+                              onSelected: (selected) {
+                                setState(() {
+                                  if (selected) {
+                                    _selectedTeams.add(team.id);
+                                  } else {
+                                    _selectedTeams.remove(team.id);
+                                  }
+                                });
+                              },
+                            );
+                          }).toList(),
+                        ),
                       if (_selectedTeams.isNotEmpty) ...[
                         const SizedBox(height: 16),
                         const Divider(),
@@ -455,17 +529,26 @@ class _EditShiftRulePageState extends State<EditShiftRulePage> {
       },
       children: _selectedTeams.asMap().entries.map((entry) {
         final index = entry.key;
-        final team = entry.value;
+        final teamId = entry.value;
+        final team = _availableTeams.firstWhere(
+          (t) => t.id == teamId,
+          orElse: () => Team(
+            id: teamId,
+            name: 'Équipe $teamId',
+            stationId: '',
+            color: KColors.appNameColor,
+          ),
+        );
         return ListTile(
-          key: ValueKey(team),
+          key: ValueKey(teamId),
           leading: CircleAvatar(
-            backgroundColor: KColors.appNameColor,
+            backgroundColor: team.color,
             child: Text(
               '${index + 1}',
               style: const TextStyle(color: Colors.white),
             ),
           ),
-          title: Text('Équipe $team'),
+          title: Text(team.name),
           subtitle: index == 0
               ? const Text(
                   'Commence en premier',
@@ -515,7 +598,7 @@ class _EditShiftRulePageState extends State<EditShiftRulePage> {
       priority: _isEditing ? widget.rule!.priority : 0,
     );
 
-    await _repository.upsert(rule);
+    await _repository.upsert(rule, stationId: _currentUserStation);
 
     if (mounted) {
       Navigator.pop(context, true);

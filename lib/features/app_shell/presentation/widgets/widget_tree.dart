@@ -8,9 +8,11 @@ import 'package:nexshift_app/features/home/presentation/pages/home_page.dart';
 import 'package:nexshift_app/features/planning/presentation/pages/planning_page.dart';
 import 'package:nexshift_app/features/planning/presentation/pages/my_shifts_page.dart';
 import 'package:nexshift_app/features/settings/presentation/pages/settings_page.dart';
+import 'package:nexshift_app/features/settings/presentation/pages/admin_page.dart';
 import 'package:nexshift_app/features/station/presentation/pages/station_shell_page.dart';
 import 'package:nexshift_app/features/skills/presentation/pages/skills_page.dart';
 import 'package:nexshift_app/features/app_shell/presentation/widgets/navbar_widget.dart';
+import 'package:nexshift_app/features/app_shell/presentation/widgets/station_switcher_button.dart';
 import 'package:nexshift_app/features/teams/presentation/pages/team_page.dart';
 import 'package:nexshift_app/features/availability/presentation/pages/add_availability_page.dart';
 import 'package:nexshift_app/features/replacement/presentation/pages/replacement_requests_list_page.dart';
@@ -187,6 +189,9 @@ class _WidgetTreeState extends State<WidgetTree> {
           ),
           leading: DrawerButton(color: Theme.of(context).colorScheme.primary),
           actions: [
+            // Bouton de changement de station (affiché uniquement si multi-stations)
+            const StationSwitcherButton(),
+            // Bouton paramètres
             IconButton(
               onPressed: () {
                 Navigator.push(
@@ -358,6 +363,37 @@ class _WidgetTreeState extends State<WidgetTree> {
                             ),
                           ),
                         ),
+                      // Administration - visible pour admins, chefs de centre et chefs de garde
+                      if (user.admin || user.status == KConstants.statusLeader)
+                        TextButton(
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => const AdminPage(),
+                              ),
+                            );
+                          },
+                          child: ListTile(
+                            minTileHeight: 0.0,
+                            leading: Icon(
+                              Icons.admin_panel_settings,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                            title: Text(
+                              "Administration",
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.tertiary,
+                                fontSize:
+                                    KTextStyle.descriptionTextStyle.fontSize,
+                                fontFamily:
+                                    KTextStyle.descriptionTextStyle.fontFamily,
+                                fontWeight:
+                                    KTextStyle.descriptionTextStyle.fontWeight,
+                              ),
+                            ),
+                          ),
+                        ),
                       TextButton(
                         onPressed: () {
                           Navigator.push(
@@ -385,10 +421,18 @@ class _WidgetTreeState extends State<WidgetTree> {
                                 title: Text(
                                   "Remplacements",
                                   style: TextStyle(
-                                    color: Theme.of(context).colorScheme.tertiary,
-                                    fontSize: KTextStyle.descriptionTextStyle.fontSize,
-                                    fontFamily: KTextStyle.descriptionTextStyle.fontFamily,
-                                    fontWeight: KTextStyle.descriptionTextStyle.fontWeight,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.tertiary,
+                                    fontSize: KTextStyle
+                                        .descriptionTextStyle
+                                        .fontSize,
+                                    fontFamily: KTextStyle
+                                        .descriptionTextStyle
+                                        .fontFamily,
+                                    fontWeight: KTextStyle
+                                        .descriptionTextStyle
+                                        .fontWeight,
                                   ),
                                 ),
                               );
@@ -405,23 +449,32 @@ class _WidgetTreeState extends State<WidgetTree> {
                                 int pendingCount = 0;
 
                                 if (declinesSnapshot.hasData) {
-                                  final declinedRequestIds = declinesSnapshot.data!.docs
+                                  final declinedRequestIds = declinesSnapshot
+                                      .data!
+                                      .docs
                                       .map((doc) {
-                                        final data = doc.data() as Map<String, dynamic>;
+                                        final data =
+                                            doc.data() as Map<String, dynamic>;
                                         return data['requestId'] as String;
                                       })
                                       .toSet();
 
-                                  pendingCount = requestsSnapshot.data!.docs.where((doc) {
-                                    final data = doc.data() as Map<String, dynamic>;
+                                  pendingCount = requestsSnapshot.data!.docs.where((
+                                    doc,
+                                  ) {
+                                    final data =
+                                        doc.data() as Map<String, dynamic>;
                                     final requestId = doc.id;
-                                    final requesterId = data['requesterId'] as String?;
+                                    final requesterId =
+                                        data['requesterId'] as String?;
                                     final notifiedUserIds = List<String>.from(
                                       data['notifiedUserIds'] ?? [],
                                     );
 
                                     // Exclure les demandes refusées par l'utilisateur
-                                    if (declinedRequestIds.contains(requestId)) {
+                                    if (declinedRequestIds.contains(
+                                      requestId,
+                                    )) {
                                       return false;
                                     }
 
@@ -430,56 +483,74 @@ class _WidgetTreeState extends State<WidgetTree> {
                                   }).length;
                                 } else {
                                   // Si pas encore de données sur les refus, compter toutes les demandes
-                                  pendingCount = requestsSnapshot.data!.docs.where((doc) {
-                                    final data = doc.data() as Map<String, dynamic>;
-                                    final requesterId = data['requesterId'] as String?;
-                                    final notifiedUserIds = List<String>.from(
-                                      data['notifiedUserIds'] ?? [],
-                                    );
-                                    return requesterId == user.id ||
-                                        notifiedUserIds.contains(user.id);
-                                  }).length;
+                                  pendingCount = requestsSnapshot.data!.docs
+                                      .where((doc) {
+                                        final data =
+                                            doc.data() as Map<String, dynamic>;
+                                        final requesterId =
+                                            data['requesterId'] as String?;
+                                        final notifiedUserIds =
+                                            List<String>.from(
+                                              data['notifiedUserIds'] ?? [],
+                                            );
+                                        return requesterId == user.id ||
+                                            notifiedUserIds.contains(user.id);
+                                      })
+                                      .length;
                                 }
 
-                            return ListTile(
-                              minTileHeight: 0.0,
-                              leading: Icon(
-                                Icons.swap_horiz,
-                                color: Theme.of(context).colorScheme.primary,
-                              ),
-                              title: Text(
-                                "Remplacements",
-                                style: TextStyle(
-                                  color: Theme.of(context).colorScheme.tertiary,
-                                  fontSize:
-                                      KTextStyle.descriptionTextStyle.fontSize,
-                                  fontFamily:
-                                      KTextStyle.descriptionTextStyle.fontFamily,
-                                  fontWeight:
-                                      KTextStyle.descriptionTextStyle.fontWeight,
-                                ),
-                              ),
-                              trailing: pendingCount > 0
-                                  ? Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 4,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: Theme.of(context).colorScheme.primary,
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      child: Text(
-                                        pendingCount.toString(),
-                                        style: TextStyle(
-                                          color: Theme.of(context).colorScheme.onPrimary,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    )
-                                  : null,
-                            );
+                                return ListTile(
+                                  minTileHeight: 0.0,
+                                  leading: Icon(
+                                    Icons.swap_horiz,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
+                                  ),
+                                  title: Text(
+                                    "Remplacements",
+                                    style: TextStyle(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.tertiary,
+                                      fontSize: KTextStyle
+                                          .descriptionTextStyle
+                                          .fontSize,
+                                      fontFamily: KTextStyle
+                                          .descriptionTextStyle
+                                          .fontFamily,
+                                      fontWeight: KTextStyle
+                                          .descriptionTextStyle
+                                          .fontWeight,
+                                    ),
+                                  ),
+                                  trailing: pendingCount > 0
+                                      ? Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 4,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.primary,
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            pendingCount.toString(),
+                                            style: TextStyle(
+                                              color: Theme.of(
+                                                context,
+                                              ).colorScheme.onPrimary,
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        )
+                                      : null,
+                                );
                               },
                             );
                           },

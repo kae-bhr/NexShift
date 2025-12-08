@@ -4,6 +4,7 @@ import 'package:nexshift_app/core/data/models/shift_exception_model.dart';
 import 'package:nexshift_app/core/data/models/shift_rule_model.dart';
 import 'package:nexshift_app/core/repositories/planning_repository.dart';
 import 'package:nexshift_app/core/repositories/shift_rule_repository.dart';
+import 'package:nexshift_app/core/repositories/station_repository.dart';
 import 'package:nexshift_app/core/repositories/user_repository.dart';
 import 'package:nexshift_app/core/services/shift_generator.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
@@ -13,16 +14,19 @@ class PlanningGenerationService {
   final PlanningRepository _planningRepository;
   final ShiftRuleRepository _ruleRepository;
   final UserRepository _userRepository;
+  final StationRepository _stationRepository;
   final ShiftGenerator _shiftGenerator;
 
   PlanningGenerationService({
     PlanningRepository? planningRepository,
     ShiftRuleRepository? ruleRepository,
     UserRepository? userRepository,
+    StationRepository? stationRepository,
     ShiftGenerator? shiftGenerator,
   }) : _planningRepository = planningRepository ?? PlanningRepository(),
        _ruleRepository = ruleRepository ?? ShiftRuleRepository(),
        _userRepository = userRepository ?? UserRepository(),
+       _stationRepository = stationRepository ?? StationRepository(),
        _shiftGenerator = shiftGenerator ?? ShiftGenerator();
 
   /// Génère les plannings à partir des règles actives
@@ -41,17 +45,18 @@ class PlanningGenerationService {
     final stationName = station ?? KConstants.station;
 
     // Compter les plannings qui vont être supprimés
-    final oldPlannings = await _planningRepository.getAllInRange(
+    final oldPlannings = await _planningRepository.getByStationInRange(
+      stationName,
       startDate,
       endDate.add(const Duration(days: 1)),
     );
     final deletedCount = oldPlannings.length;
 
     // Supprimer les plannings dans la plage de dates AVANT de générer les nouveaux
-    await _planningRepository.deletePlanningsInRange(startDate, endDate);
+    await _planningRepository.deletePlanningsInRange(startDate, endDate, stationId: stationName);
 
     // Récupérer les règles actives
-    final rules = await _ruleRepository.getActiveRules();
+    final rules = await _ruleRepository.getActiveRules(stationId: stationName);
 
     if (rules.isEmpty) {
       // Même sans règles, on permet la suppression des plannings existants
@@ -74,7 +79,7 @@ class PlanningGenerationService {
     );
 
     // Récupérer tous les utilisateurs pour l'assignation automatique
-    final allUsers = await _userRepository.getAll();
+    final allUsers = await _userRepository.getByStation(stationName);
 
     // Convertir les GeneratedShift en Planning
     final newPlannings = await _convertShiftsToPlannings(
@@ -87,9 +92,9 @@ class PlanningGenerationService {
 
     // Sauvegarder les nouveaux plannings (les anciens dans la plage ont déjà été supprimés)
     if (newPlannings.isNotEmpty) {
-      final existingPlannings = await _planningRepository.getAll();
+      final existingPlannings = await _planningRepository.getByStation(stationName);
       final allPlannings = [...existingPlannings, ...newPlannings];
-      await _planningRepository.saveAll(allPlannings);
+      await _planningRepository.saveAll(allPlannings, stationId: stationName);
     }
 
     return GenerationResult(
@@ -110,6 +115,9 @@ class PlanningGenerationService {
     List<ShiftException> exceptions,
     List<dynamic> allUsers,
   ) async {
+    // Charger la configuration de la station pour récupérer maxAgentsPerShift
+    final stationConfig = await _stationRepository.getById(station);
+    final stationMaxAgents = stationConfig?.maxAgentsPerShift ?? 6;
     // Regrouper les shifts par date et équipe
     final Map<String, List<GeneratedShift>> shiftsByDateAndTeam = {};
 
@@ -151,7 +159,7 @@ class PlanningGenerationService {
       }
 
       // Déterminer le maxAgents : vérifier si ça vient d'une exception
-      int maxAgents = 6; // Valeur par défaut
+      int maxAgents = stationMaxAgents; // Utiliser la config de la station
 
       if (firstShift.isException) {
         // Chercher l'exception correspondante
@@ -165,18 +173,13 @@ class PlanningGenerationService {
             startDateTime: DateTime.now(),
             endDateTime: DateTime.now(),
             reason: '',
-            maxAgents: 6,
+            maxAgents: stationMaxAgents,
           ),
         );
         maxAgents = matchingException.maxAgents;
       } else {
-        // Trouver la règle correspondante pour récupérer maxAgents
-        // Une règle peut avoir plusieurs équipes, on cherche celle qui contient teamId
-        final rule = rules.firstWhere(
-          (r) => r.teamIds.contains(teamId),
-          orElse: () => rules.first,
-        );
-        maxAgents = rule.maxAgents;
+        // Toujours utiliser la config de la station comme référence
+        maxAgents = stationMaxAgents;
       }
 
       // Récupérer tous les agents de cette équipe

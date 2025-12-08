@@ -7,6 +7,7 @@ class User {
   final bool admin;
   final String team;
   final List<String> skills;
+  final String? positionId; // ID du poste occupé par l'agent
 
   User({
     required this.id,
@@ -17,6 +18,7 @@ class User {
     this.admin = false,
     required this.team,
     required this.skills,
+    this.positionId,
   });
 
   /// Permet de dupliquer l'objet avec des champs modifiés
@@ -29,6 +31,7 @@ class User {
     bool? admin,
     String? team,
     List<String>? skills,
+    String? positionId,
   }) {
     return User(
       id: id ?? this.id,
@@ -39,6 +42,7 @@ class User {
       admin: admin ?? this.admin,
       team: team ?? this.team,
       skills: skills ?? this.skills,
+      positionId: positionId ?? this.positionId,
     );
   }
 
@@ -51,6 +55,7 @@ class User {
     'admin': admin,
     'team': team,
     'skills': skills,
+    if (positionId != null) 'positionId': positionId,
   };
 
   factory User.fromJson(Map<String, dynamic> json) => User(
@@ -62,6 +67,7 @@ class User {
     admin: json['admin'] ?? false,
     team: json['team'],
     skills: List<String>.from(json['skills']),
+    positionId: json['positionId'] as String?,
   );
 
   static User empty() => User(

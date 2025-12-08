@@ -6,6 +6,7 @@ import 'package:nexshift_app/core/repositories/shift_exception_repository.dart';
 import 'package:nexshift_app/core/repositories/team_repository.dart';
 import 'package:nexshift_app/core/services/shift_generator.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 
 class CalendarPreviewPage extends StatefulWidget {
   const CalendarPreviewPage({super.key});
@@ -23,6 +24,7 @@ class _CalendarPreviewPageState extends State<CalendarPreviewPage> {
   List<GeneratedShift> _shifts = [];
   bool _isLoading = true;
   DateTime _selectedMonth = DateTime.now();
+  String? _currentUserStation;
 
   @override
   void initState() {
@@ -33,8 +35,14 @@ class _CalendarPreviewPageState extends State<CalendarPreviewPage> {
   Future<void> _generateShifts() async {
     setState(() => _isLoading = true);
 
-    final rules = await _ruleRepository.getActiveRules();
-    final exceptions = await _exceptionRepository.getAll();
+    final user = await UserStorageHelper.loadUser();
+    if (user == null) {
+      setState(() => _isLoading = false);
+      return;
+    }
+
+    final rules = await _ruleRepository.getActiveRules(stationId: user.station);
+    final exceptions = await _exceptionRepository.getAll(stationId: user.station);
     debugPrint('📅 [Preview] Total exceptions loaded: ${exceptions.length}');
 
     final startDate = DateTime(_selectedMonth.year, _selectedMonth.month, 1);
@@ -79,6 +87,7 @@ class _CalendarPreviewPageState extends State<CalendarPreviewPage> {
 
     setState(() {
       _shifts = shifts;
+      _currentUserStation = user.station;
       _isLoading = false;
     });
   }
@@ -241,7 +250,7 @@ class _CalendarPreviewPageState extends State<CalendarPreviewPage> {
 
   Widget _buildShiftTile(GeneratedShift shift) {
     return FutureBuilder(
-      future: _teamRepository.getById(shift.teamId ?? ''),
+      future: _teamRepository.getById(shift.teamId ?? '', stationId: _currentUserStation),
       builder: (context, snapshot) {
         final team = snapshot.data;
         final teamColor = team?.color ?? Colors.grey;

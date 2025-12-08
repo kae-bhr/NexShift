@@ -66,7 +66,7 @@ class _VehiclesTabPageState extends State<VehiclesTabPage> {
   Future<void> _loadStationCustomRules() async {
     // Load station-specific rules for all present vehicle types so the UI
     // reflects previously saved edits instead of defaults.
-    final stationId = KConstants.station;
+    final stationId = widget.currentUser?.station ?? KConstants.station;
     final types = widget.allTrucks.map((t) => t.type).toSet().toList();
     for (final type in types) {
       final rs = await _rulesRepo.getRules(
@@ -806,7 +806,7 @@ class _VehiclesTabPageState extends State<VehiclesTabPage> {
         vehicleType: baseRuleSet.vehicleType,
         modes: updatedModes,
         defaultModeId: baseRuleSet.defaultModeId,
-        stationId: KConstants.station, // mark station-specific
+        stationId: widget.currentUser?.station ?? KConstants.station, // mark station-specific
       );
 
       await _rulesRepo.saveStationRules(updatedRuleSet);
@@ -836,7 +836,7 @@ class _VehiclesTabPageState extends State<VehiclesTabPage> {
         vehicleType: baseRuleSet.vehicleType,
         modes: updatedModes,
         defaultModeId: baseRuleSet.defaultModeId,
-        stationId: KConstants.station,
+        stationId: widget.currentUser?.station ?? KConstants.station,
       );
       await _rulesRepo.saveStationRules(updatedRuleSet);
       setState(() {
@@ -1455,22 +1455,20 @@ class _VehiclesTabPageState extends State<VehiclesTabPage> {
                         color: color,
                         onTap: () async {
                           final truckRepo = TruckRepository();
+                          final stationId = widget.currentUser?.station ?? KConstants.station;
 
                           // Get next global ID (unique pour Firestore)
-                          final nextId = await truckRepo.getNextId();
+                          final nextId = await truckRepo.getNextId(stationId: stationId);
 
                           // Get next display number for this type
-                          final nextDisplayNumber =
-                              await truckRepo.getNextDisplayNumber(
-                            type,
-                            KConstants.station,
-                          );
+                          final nextDisplayNumber = await truckRepo
+                              .getNextDisplayNumber(type, stationId);
 
                           final newTruck = Truck(
                             id: nextId,
                             displayNumber: nextDisplayNumber,
                             type: type,
-                            station: KConstants.station,
+                            station: stationId,
                           );
 
                           await truckRepo.save(newTruck);
@@ -1602,7 +1600,7 @@ class _VehiclesTabPageState extends State<VehiclesTabPage> {
           FilledButton(
             onPressed: () async {
               final truckRepo = TruckRepository();
-              await truckRepo.delete(truck.id);
+              await truckRepo.delete(truck.id, stationId: truck.station);
 
               navigator.pop();
 

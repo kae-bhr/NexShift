@@ -69,7 +69,10 @@ class _PlanningCardState extends State<PlanningCard> {
   }
 
   Future<void> _loadTeam() async {
-    final team = await TeamRepository().getById(widget.planning.team);
+    final team = await TeamRepository().getById(
+      widget.planning.team,
+      stationId: widget.planning.station,
+    );
     if (mounted) {
       setState(() {
         _team = team;
@@ -570,8 +573,13 @@ class _VehicleIcon extends StatelessWidget {
         spec['period']
             as String?; // displaySuffix (e.g. '4H', '6H', 'PS', 'DEF')
 
-    // Fetch the truck data
-    final trucks = await TruckRepository().getAll();
+    // Fetch the truck data for this planning's station
+    final trucks = await TruckRepository().getByStation(planning.station);
+    if (trucks.isEmpty) {
+      debugPrint('⚠️ No trucks found for station ${planning.station}');
+      return;
+    }
+
     final truck = trucks.firstWhere(
       (t) => t.type == type && t.id == id,
       orElse: () => trucks.first,

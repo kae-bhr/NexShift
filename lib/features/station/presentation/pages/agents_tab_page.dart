@@ -3,11 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/data/models/team_model.dart';
+import 'package:nexshift_app/core/data/models/position_model.dart';
 import 'package:nexshift_app/core/repositories/user_repository.dart';
+import 'package:nexshift_app/core/repositories/position_repository.dart';
 import 'package:nexshift_app/core/services/debug_logger.dart';
 import 'package:nexshift_app/core/services/firebase_auth_service.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
+import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/features/skills/presentation/pages/skills_page.dart';
 import 'package:nexshift_app/features/settings/presentation/pages/similar_agents_page.dart';
 
@@ -19,6 +22,7 @@ class AgentsTabPage extends StatefulWidget {
   final Map<String, List<User>> usersByTeam;
   final User? currentUser;
   final VoidCallback onDataChanged;
+  final List<Position> allPositions;
 
   const AgentsTabPage({
     super.key,
@@ -27,6 +31,7 @@ class AgentsTabPage extends StatefulWidget {
     required this.usersByTeam,
     required this.currentUser,
     required this.onDataChanged,
+    this.allPositions = const [],
   });
 
   @override
@@ -513,6 +518,13 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
 
   Widget _buildAgentCard(User user, Team? team) {
     final teamColor = team?.color ?? Colors.grey;
+    final position = user.positionId != null
+        ? widget.allPositions.firstWhere(
+            (p) => p.id == user.positionId,
+            orElse: () => Position(id: '', name: '', stationId: '', order: 0),
+          )
+        : null;
+    final hasPosition = position != null && position.id.isNotEmpty;
 
     return InkWell(
       onTap: () async {
@@ -610,6 +622,29 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                       ],
                     ],
                   ),
+                  if (hasPosition) ...[
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        if (position.iconName != null) ...[
+                          Icon(
+                            KSkills.positionIcons[position.iconName],
+                            size: 14,
+                            color: Colors.grey[600],
+                          ),
+                          const SizedBox(width: 4),
+                        ],
+                        Text(
+                          position.name,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontStyle: FontStyle.italic,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                   if (user.skills.isNotEmpty) ...[
                     const SizedBox(height: 4),
                     Wrap(
@@ -730,13 +765,27 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                       ],
                     ),
                   ),
+                  const PopupMenuItem(
+                    value: 'position',
+                    child: Row(
+                      children: [
+                        Icon(Icons.work_outline, size: 18),
+                        SizedBox(width: 8),
+                        Text('Définir le poste'),
+                      ],
+                    ),
+                  ),
                   // Option de test de notification (uniquement pour les admins)
                   if (widget.currentUser?.admin == true)
                     const PopupMenuItem(
                       value: 'test_notification',
                       child: Row(
                         children: [
-                          Icon(Icons.notifications_active, size: 18, color: Colors.blue),
+                          Icon(
+                            Icons.notifications_active,
+                            size: 18,
+                            color: Colors.blue,
+                          ),
                           SizedBox(width: 8),
                           Text(
                             'Tester notification',
@@ -911,6 +960,9 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
       case 'role':
         _showChangeRoleDialog(user);
         break;
+      case 'position':
+        _showChangePositionDialog(user);
+        break;
       case 'test_notification':
         _sendTestNotification(user);
         break;
@@ -931,6 +983,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
     final passwordController = TextEditingController();
     final firstNameController = TextEditingController();
     final lastNameController = TextEditingController();
+    final adminPasswordController = TextEditingController();
 
     showDialog(
       context: context,
@@ -943,7 +996,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
               TextField(
                 controller: matriculeController,
                 decoration: const InputDecoration(
-                  labelText: 'Matricule',
+                  labelText: 'Matricule du nouvel agent',
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -951,7 +1004,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
               TextField(
                 controller: passwordController,
                 decoration: const InputDecoration(
-                  labelText: 'Mot de passe',
+                  labelText: 'Mot de passe du nouvel agent',
                   border: OutlineInputBorder(),
                 ),
                 obscureText: true,
@@ -974,6 +1027,23 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                 ),
                 textCapitalization: TextCapitalization.words,
               ),
+              const SizedBox(height: 20),
+              const Divider(),
+              const SizedBox(height: 12),
+              const Text(
+                'Pour créer ce compte, veuillez confirmer votre mot de passe administrateur :',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: adminPasswordController,
+                decoration: const InputDecoration(
+                  labelText: 'Votre mot de passe',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.admin_panel_settings),
+                ),
+                obscureText: true,
+              ),
             ],
           ),
         ),
@@ -988,12 +1058,14 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
               final password = passwordController.text.trim();
               final firstName = firstNameController.text.trim();
               final lastName = lastNameController.text.trim();
+              final adminPassword = adminPasswordController.text.trim();
 
               // Validation
               if (matricule.isEmpty ||
                   password.isEmpty ||
                   firstName.isEmpty ||
-                  lastName.isEmpty) {
+                  lastName.isEmpty ||
+                  adminPassword.isEmpty) {
                 ScaffoldMessenger.of(dialogContext).showSnackBar(
                   const SnackBar(
                     content: Text('Veuillez remplir tous les champs'),
@@ -1021,26 +1093,28 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                 return;
               }
 
+              if (widget.currentUser == null) {
+                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                  const SnackBar(
+                    content: Text('Erreur: utilisateur non connecté'),
+                  ),
+                );
+                return;
+              }
+
               final authService = FirebaseAuthService();
 
               try {
-                // Créer le compte Firebase Auth
-                await authService.createUser(
-                  matricule: matricule,
-                  password: password,
+                // Créer le compte Firebase Auth en préservant la session admin
+                await authService.createUserAsAdmin(
+                  adminMatricule: widget.currentUser!.id,
+                  adminPassword: adminPassword,
+                  newUserMatricule: matricule,
+                  newUserPassword: password,
+                  sdisId: SDISContext().currentSDISId,
                 );
                 DebugLogger().log('✅ Firebase Auth user created: $matricule');
-              } catch (e) {
-                ScaffoldMessenger.of(dialogContext).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      'Compte précédemment créé : recréation de l\'utilisateur.',
-                    ),
-                  ),
-                );
-              }
 
-              try {
                 // Créer le profil utilisateur dans Firestore
                 // Hériter de la station de l'utilisateur créateur
                 await authService.createUserProfile(
@@ -1048,6 +1122,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                   firstName: firstName,
                   lastName: lastName,
                   station: widget.currentUser?.station,
+                  sdisId: SDISContext().currentSDISId,
                 );
                 DebugLogger().log(
                   '✅ Firebase user profile created: $matricule',
@@ -1066,7 +1141,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                 ScaffoldMessenger.of(
                   dialogContext,
                 ).showSnackBar(SnackBar(content: Text('Erreur: $e')));
-                DebugLogger().logError('❌ Error creating user profile: $e');
+                DebugLogger().logError('❌ Error creating user: $e');
               }
             },
             child: const Text('Créer'),
@@ -1189,7 +1264,11 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                     children: [
                       Row(
                         children: [
-                          Icon(Icons.warning, color: Colors.red.shade700, size: 20),
+                          Icon(
+                            Icons.warning,
+                            color: Colors.red.shade700,
+                            size: 20,
+                          ),
                           const SizedBox(width: 8),
                           Text(
                             'Suppression complète',
@@ -1264,9 +1343,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                       if (userPassword.isEmpty || adminPassword.isEmpty) {
                         scaffoldMessenger.showSnackBar(
                           const SnackBar(
-                            content: Text(
-                              'Les deux mots de passe sont requis',
-                            ),
+                            content: Text('Les deux mots de passe sont requis'),
                             backgroundColor: Colors.orange,
                           ),
                         );
@@ -1281,10 +1358,14 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                         final currentUserId = widget.currentUser?.id;
 
                         if (currentUserId == null) {
-                          throw Exception('Impossible d\'identifier l\'admin actuel');
+                          throw Exception(
+                            'Impossible d\'identifier l\'admin actuel',
+                          );
                         }
 
-                        debugPrint('🔥 Début de la suppression de l\'utilisateur: ${user.id}');
+                        debugPrint(
+                          '🔥 Début de la suppression de l\'utilisateur: ${user.id}',
+                        );
 
                         // 1. Supprimer le document Firestore
                         debugPrint('🗑️ Suppression du document Firestore...');
@@ -1292,7 +1373,9 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                         debugPrint('✅ Document Firestore supprimé');
 
                         // 2. Supprimer le compte Firebase Authentication
-                        debugPrint('🗑️ Suppression du compte Authentication...');
+                        debugPrint(
+                          '🗑️ Suppression du compte Authentication...',
+                        );
                         await authService.deleteUserByCredentials(
                           matricule: user.id,
                           password: userPassword,
@@ -1325,9 +1408,11 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                         if (e.toString().contains('wrong-password')) {
                           errorMessage = 'Mot de passe incorrect';
                         } else if (e.toString().contains('user-not-found')) {
-                          errorMessage = 'Compte Authentication introuvable (peut-être déjà supprimé)';
+                          errorMessage =
+                              'Compte Authentication introuvable (peut-être déjà supprimé)';
                         } else if (e.toString().contains('too-many-requests')) {
-                          errorMessage = 'Trop de tentatives. Réessayez plus tard';
+                          errorMessage =
+                              'Trop de tentatives. Réessayez plus tard';
                         } else {
                           errorMessage = e.toString();
                         }
@@ -1594,6 +1679,222 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
     );
   }
 
+  void _showChangePositionDialog(User user) async {
+    if (!mounted) return;
+
+    final positionRepo = PositionRepository();
+    final userRepo = UserRepository();
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    final colorScheme = Theme.of(context).colorScheme;
+
+    // Récupérer les positions disponibles pour la caserne
+    final positions = await positionRepo
+        .getPositionsByStation(widget.currentUser?.station ?? '')
+        .first;
+
+    if (!mounted) return;
+
+    Future<void> updatePosition(String? positionId, String label) async {
+      try {
+        final updatedUser = user.copyWith(positionId: positionId);
+        await userRepo.upsert(updatedUser);
+
+        if (widget.currentUser?.id == user.id) {
+          await UserStorageHelper.saveUser(updatedUser);
+        }
+
+        navigator.pop();
+        if (mounted) {
+          widget.onDataChanged();
+          scaffoldMessenger.showSnackBar(
+            SnackBar(content: Text('Poste mis à jour: $label')),
+          );
+        }
+      } catch (e) {
+        navigator.pop();
+        if (mounted) {
+          scaffoldMessenger.showSnackBar(
+            SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+          );
+        }
+      }
+    }
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Header
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: colorScheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      Icons.work_outline,
+                      color: colorScheme.onPrimaryContainer,
+                      size: 28,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Définir le poste',
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${user.firstName} ${user.lastName}',
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(color: Colors.grey[600]),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              // Position options
+              if (positions.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 20),
+                  child: Text(
+                    'Aucun poste configuré.\nVeuillez créer des postes dans les paramètres.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.grey[600]),
+                  ),
+                )
+              else
+                ...positions.map((position) {
+                  final icon = position.iconName != null
+                      ? KSkills.positionIcons[position.iconName]
+                      : null;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _buildPositionCard(
+                      icon: icon ?? Icons.work_outline,
+                      iconColor: KColors.appNameColor,
+                      title: position.name,
+                      description: position.description ?? '',
+                      isSelected: user.positionId == position.id,
+                      onTap: () => updatePosition(position.id, position.name),
+                    ),
+                  );
+                }),
+              if (positions.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                _buildPositionCard(
+                  icon: Icons.clear,
+                  iconColor: Colors.grey,
+                  title: 'Aucun poste',
+                  description: 'Retirer l\'assignation de poste',
+                  isSelected: user.positionId == null,
+                  onTap: () => updatePosition(null, 'Aucun'),
+                ),
+              ],
+              const SizedBox(height: 24),
+              // Cancel button
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: () => navigator.pop(),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text('Annuler'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPositionCard({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String description,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: isSelected ? colorScheme.primary : Colors.grey[300]!,
+            width: isSelected ? 2 : 1,
+          ),
+          borderRadius: BorderRadius.circular(12),
+          color: isSelected
+              ? colorScheme.primaryContainer.withOpacity(0.3)
+              : Colors.transparent,
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: iconColor.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: iconColor, size: 24),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: isSelected
+                          ? colorScheme.primary
+                          : Theme.of(context).colorScheme.tertiary,
+                    ),
+                  ),
+                  if (description.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      description,
+                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (isSelected)
+              Icon(Icons.check_circle, color: colorScheme.primary, size: 24),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildRoleCard({
     required IconData icon,
     required Color iconColor,
@@ -1790,7 +2091,9 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
     if (!currentUser.admin) {
       scaffoldMessenger.showSnackBar(
         const SnackBar(
-          content: Text('Seuls les administrateurs peuvent envoyer des notifications de test'),
+          content: Text(
+            'Seuls les administrateurs peuvent envoyer des notifications de test',
+          ),
           backgroundColor: Colors.red,
         ),
       );
@@ -1829,7 +2132,10 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
               SizedBox(
                 width: 20,
                 height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
               ),
               SizedBox(width: 12),
               Text('Envoi de la notification de test...'),
@@ -1848,7 +2154,9 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
         'processed': false,
       });
 
-      debugPrint('✅ Test notification trigger created for user ${targetUser.id}');
+      debugPrint(
+        '✅ Test notification trigger created for user ${targetUser.id}',
+      );
 
       // Afficher un message de succès
       scaffoldMessenger.clearSnackBars();

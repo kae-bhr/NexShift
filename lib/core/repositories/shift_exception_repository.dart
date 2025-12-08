@@ -1,15 +1,26 @@
 import 'package:flutter/foundation.dart';
 import 'package:nexshift_app/core/data/models/shift_exception_model.dart';
 import 'package:nexshift_app/core/services/firestore_service.dart';
+import 'package:nexshift_app/core/config/environment_config.dart';
 
 class ShiftExceptionRepository {
   static const _collectionName = 'shift_exceptions';
   final FirestoreService _firestore = FirestoreService();
 
-  /// Récupère toutes les exceptions
-  Future<List<ShiftException>> getAll() async {
+  /// Génère le chemin de collection en fonction de l'environnement et de la station
+  String _getCollectionPath(String? stationId) {
+    return EnvironmentConfig.getCollectionPath(_collectionName, stationId);
+  }
+
+  /// Récupère toutes les exceptions d'une station
+  Future<List<ShiftException>> getAll({String? stationId}) async {
+    if (EnvironmentConfig.useStationSubcollections && stationId == null) {
+      throw Exception('stationId required in dev mode for getAll');
+    }
+
     try {
-      final data = await _firestore.getAll(_collectionName);
+      final collectionPath = _getCollectionPath(stationId);
+      final data = await _firestore.getAll(collectionPath);
       return data.map((e) => ShiftException.fromJson(e)).toList();
     } catch (e) {
       debugPrint('Firestore error in getAll: $e');
@@ -18,8 +29,12 @@ class ShiftExceptionRepository {
   }
 
   /// Récupère les exceptions pour une année spécifique
-  Future<List<ShiftException>> getByYear(int year) async {
-    final all = await getAll();
+  Future<List<ShiftException>> getByYear(int year, {String? stationId}) async {
+    if (EnvironmentConfig.useStationSubcollections && stationId == null) {
+      throw Exception('stationId required in dev mode for getByYear');
+    }
+
+    final all = await getAll(stationId: stationId);
     final yearStart = DateTime(year, 1, 1);
     final yearEnd = DateTime(year + 1, 1, 1);
     return all.where((e) {
@@ -30,9 +45,14 @@ class ShiftExceptionRepository {
   }
 
   /// Récupère une exception par ID
-  Future<ShiftException?> getById(String id) async {
+  Future<ShiftException?> getById(String id, {String? stationId}) async {
+    if (EnvironmentConfig.useStationSubcollections && stationId == null) {
+      throw Exception('stationId required in dev mode for getById');
+    }
+
     try {
-      final data = await _firestore.getById(_collectionName, id);
+      final collectionPath = _getCollectionPath(stationId);
+      final data = await _firestore.getById(collectionPath, id);
       if (data != null) {
         return ShiftException.fromJson(data);
       }
@@ -44,8 +64,12 @@ class ShiftExceptionRepository {
   }
 
   /// Récupère les exceptions qui chevauchent une date/heure donnée
-  Future<List<ShiftException>> getByDateTime(DateTime dateTime) async {
-    final all = await getAll();
+  Future<List<ShiftException>> getByDateTime(DateTime dateTime, {String? stationId}) async {
+    if (EnvironmentConfig.useStationSubcollections && stationId == null) {
+      throw Exception('stationId required in dev mode for getByDateTime');
+    }
+
+    final all = await getAll(stationId: stationId);
     return all.where((e) {
       return e.startDateTime.isBefore(dateTime) &&
           e.endDateTime.isAfter(dateTime);
@@ -53,9 +77,14 @@ class ShiftExceptionRepository {
   }
 
   /// Ajoute ou met à jour une exception
-  Future<void> upsert(ShiftException exception) async {
+  Future<void> upsert(ShiftException exception, {String? stationId}) async {
+    if (EnvironmentConfig.useStationSubcollections && stationId == null) {
+      throw Exception('stationId required in dev mode for upsert');
+    }
+
     try {
-      await _firestore.upsert(_collectionName, exception.id, exception.toJson());
+      final collectionPath = _getCollectionPath(stationId);
+      await _firestore.upsert(collectionPath, exception.id, exception.toJson());
     } catch (e) {
       debugPrint('Firestore error during upsert: $e');
       rethrow;
@@ -63,9 +92,14 @@ class ShiftExceptionRepository {
   }
 
   /// Supprime une exception
-  Future<void> delete(String id) async {
+  Future<void> delete(String id, {String? stationId}) async {
+    if (EnvironmentConfig.useStationSubcollections && stationId == null) {
+      throw Exception('stationId required in dev mode for delete');
+    }
+
     try {
-      await _firestore.delete(_collectionName, id);
+      final collectionPath = _getCollectionPath(stationId);
+      await _firestore.delete(collectionPath, id);
     } catch (e) {
       debugPrint('Firestore error during delete: $e');
       rethrow;
@@ -73,15 +107,20 @@ class ShiftExceptionRepository {
   }
 
   /// Supprime toutes les exceptions d'une année
-  Future<void> deleteByYear(int year) async {
+  Future<void> deleteByYear(int year, {String? stationId}) async {
+    if (EnvironmentConfig.useStationSubcollections && stationId == null) {
+      throw Exception('stationId required in dev mode for deleteByYear');
+    }
+
     try {
-      final all = await getAll();
+      final collectionPath = _getCollectionPath(stationId);
+      final all = await getAll(stationId: stationId);
       final toDelete = all.where((e) => e.startDateTime.year == year).toList();
 
       if (toDelete.isNotEmpty) {
         final operations = toDelete.map((e) => {
           'type': 'delete',
-          'collection': _collectionName,
+          'collection': collectionPath,
           'id': e.id,
         }).toList();
         await _firestore.batchWrite(operations);
@@ -93,13 +132,18 @@ class ShiftExceptionRepository {
   }
 
   /// Supprime toutes les exceptions
-  Future<void> clear() async {
+  Future<void> clear({String? stationId}) async {
+    if (EnvironmentConfig.useStationSubcollections && stationId == null) {
+      throw Exception('stationId required in dev mode for clear');
+    }
+
     try {
-      final all = await getAll();
+      final collectionPath = _getCollectionPath(stationId);
+      final all = await getAll(stationId: stationId);
       if (all.isNotEmpty) {
         final operations = all.map((e) => {
           'type': 'delete',
-          'collection': _collectionName,
+          'collection': collectionPath,
           'id': e.id,
         }).toList();
         await _firestore.batchWrite(operations);
