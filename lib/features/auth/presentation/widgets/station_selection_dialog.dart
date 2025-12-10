@@ -66,7 +66,6 @@ class StationSelectionDialog extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 12),
       child: InkWell(
         onTap: () {
-          Navigator.of(context).pop();
           onStationSelected(station);
         },
         borderRadius: BorderRadius.circular(8),

@@ -485,30 +485,35 @@ class FirebaseAuthService {
   /// Utilisé après que l'utilisateur a sélectionné une station dans le menu
   Future<User?> loadUserProfileForStation(String matricule, String stationId) async {
     try {
-      debugPrint('Loading user profile for station: $stationId');
+      debugPrint('🟡 [AUTH_SERVICE] loadUserProfileForStation called: matricule=$matricule, stationId=$stationId');
+      debugPrint('🟡 [AUTH_SERVICE] Current SDIS Context: ${SDISContext().currentSDISId}');
 
       final user = await _userRepository.getById(matricule, stationId: stationId);
 
       if (user == null) {
-        debugPrint('User profile not found for station: $stationId');
+        debugPrint('❌ [AUTH_SERVICE] User profile not found for station: $stationId');
         return null;
       }
+
+      debugPrint('🟡 [AUTH_SERVICE] User found in station: ${user.firstName} ${user.lastName}, station=${user.station}');
 
       // Récupérer les données personnelles depuis user_stations
       final userStations = await _userStationsRepository.getUserStations(matricule);
 
       if (userStations == null) {
-        debugPrint('User stations not found, using station data as-is');
+        debugPrint('⚠️ [AUTH_SERVICE] User stations not found, using station data as-is');
         return user;
       }
+
+      debugPrint('🟡 [AUTH_SERVICE] User stations found: ${userStations.stations}');
 
       // Fusionner avec les données personnelles
       final mergedUser = _mergeUserWithPersonalData(user, userStations);
 
-      debugPrint('User profile loaded: ${mergedUser.firstName} ${mergedUser.lastName} (${mergedUser.station})');
+      debugPrint('✅ [AUTH_SERVICE] User profile loaded successfully: ${mergedUser.firstName} ${mergedUser.lastName} (${mergedUser.station})');
       return mergedUser;
     } catch (e) {
-      debugPrint('Error loading user profile for station: $e');
+      debugPrint('❌ [AUTH_SERVICE] Error loading user profile for station: $e');
       return null;
     }
   }

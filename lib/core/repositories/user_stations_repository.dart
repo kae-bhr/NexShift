@@ -47,10 +47,12 @@ class UserStationsRepository {
     String? sdisId,
   }) async {
     try {
+      // IMPORTANT: Utiliser merge: true pour ne PAS écraser les autres champs
+      // (firstName, lastName, fcmToken, etc.)
       await _getCollection(sdisId).doc(userId).set({
         'userId': userId,
         'stations': stations,
-      });
+      }, SetOptions(merge: true));
     } catch (e) {
       debugPrint('Error setting user stations: $e');
       rethrow;

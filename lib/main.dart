@@ -15,10 +15,10 @@ import 'package:nexshift_app/core/services/push_notification_service.dart';
 import 'package:nexshift_app/core/services/debug_logger.dart';
 import 'package:nexshift_app/core/services/connectivity_service.dart';
 import 'package:nexshift_app/core/services/log_service.dart';
-import 'package:nexshift_app/core/repositories/local_repositories.dart';
 import 'package:nexshift_app/core/presentation/pages/offline_page.dart';
 import 'package:nexshift_app/features/app_shell/presentation/widgets/widget_tree.dart';
 import 'package:nexshift_app/features/auth/presentation/pages/welcome_page.dart';
+import 'package:nexshift_app/features/auth/presentation/pages/profile_completion_page.dart';
 import 'package:nexshift_app/features/replacement/presentation/pages/replacement_request_dialog.dart';
 import 'package:nexshift_app/features/replacement/presentation/pages/replacement_requests_list_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -183,7 +183,6 @@ class NexShift extends StatefulWidget {
 
 class _NexShiftState extends State<NexShift> {
   final _authService = FirebaseAuthService();
-  final _localRepo = LocalRepository();
   final _pushNotificationService = PushNotificationService();
   final _connectivityService = ConnectivityService();
 
@@ -227,59 +226,93 @@ class _NexShiftState extends State<NexShift> {
 
   /// Vérifie l'état d'authentification Firebase au démarrage
   void _checkAuthState() async {
+    debugPrint('🟡 [AUTH_LISTENER] Setting up authStateChanges listener');
     // Écouter les changements d'état d'authentification
     _authService.authStateChanges.listen((firebaseUser) async {
+      debugPrint('🟡 [AUTH_LISTENER] ========== AUTH STATE CHANGED ==========');
       if (firebaseUser != null) {
-        debugPrint('User authenticated: ${firebaseUser.email}');
+        debugPrint(
+          '🟡 [AUTH_LISTENER] User authenticated: ${firebaseUser.email}',
+        );
+        debugPrint(
+          '🟡 [AUTH_LISTENER] Current isUserAuthentifiedNotifier: ${isUserAuthentifiedNotifier.value}',
+        );
+        debugPrint(
+          '🟡 [AUTH_LISTENER] Current userNotifier: ${userNotifier.value != null ? '${userNotifier.value!.firstName} ${userNotifier.value!.lastName} (${userNotifier.value!.id})' : 'NULL'}',
+        );
 
-        // Récupérer le profil utilisateur complet
-        try {
-          final user = await _localRepo.getCurrentUser();
-          if (user != null) {
-            userNotifier.value = user;
-            isUserAuthentifiedNotifier.value = true;
+        // IMPORTANT: Ne pas mettre à jour isUserAuthentifiedNotifier ici
+        // pour éviter une navigation automatique pendant le processus de login
+        // multi-stations. EnterApp.build() gérera la navigation après
+        // la sélection de station.
 
-            // Sauvegarder le token FCM pour l'utilisateur
-            try {
-              DebugLogger().log(
-                '📱 Attempting to save FCM token for user: ${user.id}',
+        // Extraire userId et stationId de l'email Firebase
+        // Format: sdisId_matricule@nexshift.app ou sdisId_matricule_station@nexshift.app
+        final email = firebaseUser.email;
+        if (email != null && email.endsWith('@nexshift.app')) {
+          final parts = email.split('@')[0].split('_');
+          if (parts.length >= 2) {
+            final sdisId = parts[0];
+            final matricule = parts[1];
+            final stationId = parts.length > 2 ? parts[2] : null;
+
+            debugPrint(
+              '🟡 [AUTH_LISTENER] Extracted from email: sdisId=$sdisId, matricule=$matricule, station=$stationId',
+            );
+
+            // Attendre que userNotifier soit mis à jour avec le bon utilisateur
+            // pour obtenir le stationId si nécessaire
+            debugPrint(
+              '🟡 [AUTH_LISTENER] Waiting 500ms for userNotifier update...',
+            );
+            await Future.delayed(Duration(milliseconds: 500));
+            final currentUser = userNotifier.value;
+            debugPrint(
+              '🟡 [AUTH_LISTENER] After wait, userNotifier: ${currentUser != null ? '${currentUser.firstName} ${currentUser.lastName} (${currentUser.id})' : 'NULL'}',
+            );
+
+            if (currentUser != null && currentUser.id == matricule) {
+              try {
+                debugPrint(
+                  '🟡 [AUTH_LISTENER] User match! Saving FCM token...',
+                );
+                DebugLogger().log(
+                  '📱 Attempting to save FCM token for user: ${currentUser.id} at station ${currentUser.station}',
+                );
+                await _pushNotificationService.saveUserToken(
+                  currentUser.id,
+                  stationId: currentUser.station,
+                );
+                debugPrint(
+                  '✅ [AUTH_LISTENER] FCM token saved for user: ${currentUser.id}',
+                );
+              } catch (e) {
+                debugPrint('❌ [AUTH_LISTENER] Error saving FCM token: $e');
+                DebugLogger().logError('Failed to save FCM token: $e');
+              }
+            } else {
+              debugPrint(
+                '⚠️ [AUTH_LISTENER] userNotifier not yet updated or mismatch - skipping FCM token save',
               );
-              await _pushNotificationService.saveUserToken(user.id);
-              debugPrint('FCM token saved for user: ${user.id}');
-            } catch (e) {
-              debugPrint('Error saving FCM token: $e');
-              DebugLogger().logError('Failed to save FCM token: $e');
+              debugPrint(
+                '   Expected userId: $matricule, Got: ${currentUser?.id}',
+              );
             }
-
-            // Sauvegarder l'état d'authentification
-            final prefs = await SharedPreferences.getInstance();
-            await prefs.setBool(KConstants.authentifiedKey, true);
           }
-        } catch (e) {
-          debugPrint('Error loading user profile: $e');
-          isUserAuthentifiedNotifier.value = false;
         }
       } else {
-        debugPrint('User not authenticated');
-
-        // Supprimer le token FCM si l'utilisateur était connecté
-        final previousUser = userNotifier.value;
-        if (previousUser != null) {
-          try {
-            await _pushNotificationService.deleteUserToken(previousUser.id);
-            debugPrint('FCM token deleted for user: ${previousUser.id}');
-          } catch (e) {
-            debugPrint('Error deleting FCM token: $e');
-          }
-        }
-
-        isUserAuthentifiedNotifier.value = false;
-        userNotifier.value = null;
-
-        // Nettoyer l'état d'authentification
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool(KConstants.authentifiedKey, false);
+        debugPrint('🟡 [AUTH_LISTENER] User NOT authenticated (null)');
+        debugPrint(
+          '🟡 [AUTH_LISTENER] Current isUserAuthentifiedNotifier: ${isUserAuthentifiedNotifier.value}',
+        );
+        debugPrint(
+          '🟡 [AUTH_LISTENER] Current userNotifier: ${userNotifier.value != null ? '${userNotifier.value!.firstName} ${userNotifier.value!.lastName}' : 'NULL'}',
+        );
+        // NOTE: Ne pas nettoyer les notifiers ici car cela provoque un rebuild
+        // intermédiaire du MaterialApp vers WelcomePage pendant un changement d'utilisateur.
+        // La déconnexion explicite est gérée dans settings_page.dart.
       }
+      debugPrint('🟡 [AUTH_LISTENER] ========================================');
     });
   }
 
@@ -289,32 +322,57 @@ class _NexShiftState extends State<NexShift> {
       first: isDarkModeNotifier,
       second: isUserAuthentifiedNotifier,
       builder: (context, isDarkMode, isUserAuthentified, child) {
-        return MaterialApp(
-          navigatorKey: navigatorKey,
-          debugShowCheckedModeBanner: false,
+        debugPrint(
+          '🔴 [MATERIAL_APP] ValueListenableBuilder2 rebuild - isDarkMode=$isDarkMode, isUserAuthentified=$isUserAuthentified',
+        );
+        return ValueListenableBuilder(
+          valueListenable: userNotifier,
+          builder: (context, user, _) {
+            // debugPrint('🔴 [MATERIAL_APP] ========================================');
+            // debugPrint('🔴 [MATERIAL_APP] build() called');
+            // debugPrint('🔴 [MATERIAL_APP]   - isUserAuthentified: $isUserAuthentified');
+            // debugPrint('🔴 [MATERIAL_APP]   - user: ${user != null ? '${user.firstName} ${user.lastName} (id=${user.id}, station=${user.station})' : 'NULL'}');
+            // debugPrint('🔴 [MATERIAL_APP]   - isOnline: $_isOnline');
 
-          // Localisation en français
-          locale: const Locale('fr', 'FR'),
-          supportedLocales: const [Locale('fr', 'FR'), Locale('en', 'US')],
-          localizationsDelegates: const [
-            GlobalMaterialLocalizations.delegate,
-            GlobalWidgetsLocalizations.delegate,
-            GlobalCupertinoLocalizations.delegate,
-          ],
+            // Déterminer la page d'accueil en fonction de l'état
+            Widget homePage;
+            if (!_isOnline) {
+              homePage = const OfflinePage();
+            } else if (isUserAuthentified == true && user != null) {
+              // Vérifier si le profil est complet
+              if (user.firstName.isEmpty || user.lastName.isEmpty) {
+                homePage = ProfileCompletionPage(user: user);
+              } else {
+                homePage = const WidgetTree();
+              }
+            } else {
+              homePage = const WelcomePage();
+            }
 
-          theme: KTheme.lightTheme,
-          darkTheme: KTheme.darkTheme,
-          themeMode: isDarkMode == true ? ThemeMode.dark : ThemeMode.light,
-          builder: (context, child) {
-            return EnvironmentBanner(
-              child: child ?? const SizedBox.shrink(),
+            return MaterialApp(
+              navigatorKey: navigatorKey,
+              debugShowCheckedModeBanner: false,
+
+              // Localisation en français
+              locale: const Locale('fr', 'FR'),
+              supportedLocales: const [Locale('fr', 'FR'), Locale('en', 'US')],
+              localizationsDelegates: const [
+                GlobalMaterialLocalizations.delegate,
+                GlobalWidgetsLocalizations.delegate,
+                GlobalCupertinoLocalizations.delegate,
+              ],
+
+              theme: KTheme.lightTheme,
+              darkTheme: KTheme.darkTheme,
+              themeMode: isDarkMode == true ? ThemeMode.dark : ThemeMode.light,
+              builder: (context, child) {
+                return EnvironmentBanner(
+                  child: child ?? const SizedBox.shrink(),
+                );
+              },
+              home: homePage,
             );
           },
-          home: !_isOnline
-              ? const OfflinePage()
-              : isUserAuthentified == true
-                  ? const WidgetTree()
-                  : const WelcomePage(),
         );
       },
     );

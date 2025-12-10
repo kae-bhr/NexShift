@@ -234,6 +234,26 @@ class UserRepository {
     }
   }
 
+  /// Supprime un utilisateur d'une station spécifique
+  Future<void> deleteFromStation(String id, String stationId) async {
+    try {
+      final collectionPath = _getCollectionPath(stationId);
+
+      // Mode test : utiliser directement FirebaseFirestore
+      if (_directFirestore != null) {
+        await _directFirestore.collection(collectionPath).doc(id).delete();
+        return;
+      }
+
+      // Mode production : utiliser FirestoreService
+      // Le chemin complet est passé comme nom de collection
+      await _firestoreService.delete(collectionPath, id);
+    } catch (e) {
+      debugPrint('Firestore error during deleteFromStation: $e');
+      rethrow;
+    }
+  }
+
   /// Supprime tous les utilisateurs
   Future<void> clear() async {
     try {

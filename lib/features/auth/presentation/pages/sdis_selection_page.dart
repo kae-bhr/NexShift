@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:nexshift_app/core/data/models/sdis_model.dart';
 import 'package:nexshift_app/core/repositories/sdis_repository.dart';
 import 'package:nexshift_app/features/auth/presentation/pages/login_page.dart';
+import 'package:nexshift_app/core/presentation/widgets/hero_widget.dart';
 
 /// Page de sélection du SDIS
 /// Première page de l'application, permet de choisir le SDIS avant le login
@@ -50,10 +51,7 @@ class _SDISSelectionPageState extends State<SDISSelectionPage> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => LoginPage(
-          chgtPw: false,
-          sdisId: sdis.id,
-        ),
+        builder: (context) => LoginPage(chgtPw: false, sdisId: sdis.id),
       ),
     );
   }
@@ -62,16 +60,7 @@ class _SDISSelectionPageState extends State<SDISSelectionPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Theme.of(context).primaryColor.withValues(alpha: 0.1),
-              Colors.white,
-            ],
-          ),
-        ),
+        decoration: BoxDecoration(),
         child: SafeArea(
           child: Center(
             child: SingleChildScrollView(
@@ -79,36 +68,15 @@ class _SDISSelectionPageState extends State<SDISSelectionPage> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // Logo et titre
-                  Icon(
-                    Icons.local_fire_department,
-                    size: 100,
-                    color: Theme.of(context).primaryColor,
-                  ),
-                  const SizedBox(height: 24),
-                  const Text(
-                    'NexShift',
-                    style: TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Gestion des plannings de garde',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.grey,
-                    ),
-                  ),
-                  const SizedBox(height: 48),
+                  HeroWidget(),
 
                   // Titre de sélection
-                  const Text(
+                  Text(
                     'Sélectionnez votre SDIS',
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.w600,
+                      color: Theme.of(context).primaryColor,
                     ),
                   ),
                   const SizedBox(height: 24),
@@ -169,18 +137,13 @@ class _SDISCard extends StatelessWidget {
   final SDIS sdis;
   final VoidCallback onTap;
 
-  const _SDISCard({
-    required this.sdis,
-    required this.onTap,
-  });
+  const _SDISCard({required this.sdis, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     return Card(
       elevation: 4,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
@@ -223,20 +186,13 @@ class _SDISCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       'Département ${sdis.name}',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey[600],
-                      ),
+                      style: TextStyle(fontSize: 14, color: Colors.grey[600]),
                     ),
                   ],
                 ),
               ),
               // Icône de flèche
-              Icon(
-                Icons.arrow_forward_ios,
-                size: 20,
-                color: Colors.grey[400],
-              ),
+              Icon(Icons.arrow_forward_ios, size: 20, color: Colors.grey[400]),
             ],
           ),
         ),

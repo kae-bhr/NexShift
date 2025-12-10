@@ -9,6 +9,7 @@ class WelcomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    debugPrint('🏠 [WELCOME_PAGE] build() called');
     return Scaffold(
       body: Padding(
         padding: const EdgeInsets.all(20.0),

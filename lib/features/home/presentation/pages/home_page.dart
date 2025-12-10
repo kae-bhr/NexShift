@@ -60,6 +60,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+    debugPrint('🏠 [HOME_PAGE] initState() called');
     _loadData();
     stationViewNotifier.addListener(_onStationViewChanged);
     // Reload when the connected user changes
@@ -80,18 +81,28 @@ class _HomePageState extends State<HomePage> {
 
   void _onUserChanged() {
     final u = userNotifier.value;
+    debugPrint('🏠 [HOME_PAGE] _onUserChanged() - user=${u != null ? '${u.firstName} ${u.lastName} (${u.id})' : 'NULL'}');
     // Only reload if the user actually changed
-    if (u == null) return;
-    if (_lastUserId == u.id && !_isLoading) return;
+    if (u == null) {
+      debugPrint('🏠 [HOME_PAGE] _onUserChanged() - user is null, returning');
+      return;
+    }
+    if (_lastUserId == u.id && !_isLoading) {
+      debugPrint('🏠 [HOME_PAGE] _onUserChanged() - same user, not loading');
+      return;
+    }
+    debugPrint('🏠 [HOME_PAGE] _onUserChanged() - calling _loadData()');
     _loadData();
   }
 
   Future<void> _loadData() async {
+    debugPrint('🏠 [HOME_PAGE] _loadData() started');
     setState(() => _isLoading = true);
 
     // Prefer the notifier to avoid re-setting it during loadUser, which can
     // cause a reload loop. Fallback to storage only if not available.
     final user = userNotifier.value ?? await UserStorageHelper.loadUser();
+    debugPrint('🏠 [HOME_PAGE] _loadData() - user=${user != null ? '${user.firstName} ${user.lastName} (${user.station})' : 'NULL'}');
     if (user != null) {
       final repo = LocalRepository();
       // Charger les plannings de la semaine courante (on filtrera ensuite côté client)

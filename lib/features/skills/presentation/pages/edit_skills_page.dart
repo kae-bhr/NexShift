@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/repositories/local_repositories.dart';
+import 'package:nexshift_app/core/repositories/user_repository.dart';
+import 'package:nexshift_app/core/repositories/user_stations_repository.dart';
+import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:nexshift_app/core/utils/design_system.dart';
 import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
@@ -54,6 +57,9 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
 
       await _repository.updateUserProfile(updatedUser);
 
+      // Synchroniser les compétences sur toutes les stations de l'utilisateur
+      await _syncSkillsAcrossStations(updatedUser);
+
       // Si c'est l'utilisateur actuel, mettre à jour le notifier
       if (userNotifier.value?.id == updatedUser.id) {
         userNotifier.value = updatedUser;
@@ -93,6 +99,73 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
           _isSaving = false;
         });
       }
+    }
+  }
+
+  /// Synchronise les compétences de l'utilisateur sur toutes ses stations
+  Future<void> _syncSkillsAcrossStations(User user) async {
+    try {
+      final userStationsRepo = UserStationsRepository();
+      final userRepo = UserRepository();
+      final sdisId = SDISContext().currentSDISId;
+
+      // Récupérer toutes les stations de l'utilisateur
+      final userStations = await userStationsRepo.getUserStations(
+        user.id,
+        sdisId: sdisId,
+      );
+
+      if (userStations == null || userStations.stations.length <= 1) {
+        // L'utilisateur n'est que dans une seule station, pas besoin de synchroniser
+        debugPrint('👤 User ${user.id} is only in one station, no sync needed');
+        return;
+      }
+
+      debugPrint(
+        '🔄 Syncing skills for user ${user.id} across ${userStations.stations.length} stations',
+      );
+
+      // Mettre à jour les compétences dans toutes les autres stations
+      for (final stationId in userStations.stations) {
+        if (stationId == user.station) {
+          // Station actuelle déjà mise à jour
+          continue;
+        }
+
+        try {
+          // Récupérer l'utilisateur dans cette station
+          final userInStation = await userRepo.getById(
+            user.id,
+            stationId: stationId,
+          );
+
+          if (userInStation != null) {
+            // Mettre à jour uniquement les compétences
+            final updatedUserInStation = User(
+              id: userInStation.id,
+              firstName: userInStation.firstName,
+              lastName: userInStation.lastName,
+              station: userInStation.station,
+              team: userInStation.team,
+              status: userInStation.status,
+              skills: user.skills, // Compétences synchronisées
+              admin: userInStation.admin,
+              positionId: userInStation.positionId,
+            );
+
+            await userRepo.upsert(updatedUserInStation);
+            debugPrint('✅ Skills synced for station $stationId');
+          }
+        } catch (e) {
+          debugPrint('⚠️ Error syncing skills for station $stationId: $e');
+          // Continue avec les autres stations même en cas d'erreur
+        }
+      }
+
+      debugPrint('✅ Skills sync complete for user ${user.id}');
+    } catch (e) {
+      debugPrint('❌ Error during skills synchronization: $e');
+      // Ne pas bloquer la sauvegarde principale si la sync échoue
     }
   }
 

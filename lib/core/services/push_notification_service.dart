@@ -3,6 +3,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:nexshift_app/core/config/environment_config.dart';
 import 'debug_logger.dart';
 
 /// Handler pour les messages reçus en arrière-plan
@@ -233,20 +234,25 @@ class PushNotificationService {
 
   /// Supprime le token FCM de l'appareil lors de la déconnexion
   /// Cela permet d'éviter de recevoir des notifications après déconnexion
-  Future<void> clearDeviceToken(String userId) async {
+  Future<void> clearDeviceToken(String userId, {String? stationId}) async {
     try {
       debugPrint('🗑️ Clearing FCM token for user: $userId');
 
+      // Utiliser le chemin complet avec station si fourni
+      final collectionPath = stationId != null
+          ? EnvironmentConfig.getCollectionPath('users', stationId)
+          : 'users';
+
       // Supprimer le token du document utilisateur dans Firestore
       await FirebaseFirestore.instance
-          .collection('users')
+          .collection(collectionPath)
           .doc(userId)
           .update({'fcmToken': FieldValue.delete()});
 
       // Supprimer le token local de FCM
       await _firebaseMessaging.deleteToken();
 
-      debugPrint('✅ FCM token cleared successfully');
+      debugPrint('✅ FCM token cleared successfully in $collectionPath');
     } catch (e) {
       debugPrint('❌ Error clearing FCM token: $e');
       // Ne pas throw l'erreur pour ne pas bloquer la déconnexion
@@ -254,7 +260,7 @@ class PushNotificationService {
   }
 
   /// Sauvegarde le token FCM pour un utilisateur
-  Future<void> saveUserToken(String userId) async {
+  Future<void> saveUserToken(String userId, {String? stationId}) async {
     final logger = DebugLogger();
 
     try {
@@ -267,17 +273,22 @@ class PushNotificationService {
       }
 
       logger.logFCM('Token received: ${token.substring(0, 20)}...');
-      logger.logFCM('Saving token for user: $userId');
+      logger.logFCM('Saving token for user: $userId, station: $stationId');
+
+      // Utiliser le chemin complet avec station si fourni
+      final collectionPath = stationId != null
+          ? EnvironmentConfig.getCollectionPath('users', stationId)
+          : 'users';
 
       await FirebaseFirestore.instance
-          .collection('users')
+          .collection(collectionPath)
           .doc(userId)
           .update({
         'fcmToken': token,
         'fcmTokenUpdatedAt': FieldValue.serverTimestamp(),
       });
 
-      debugPrint('✅ FCM token saved for user: $userId');
+      debugPrint('✅ FCM token saved for user: $userId in $collectionPath');
       logger.logSuccess('FCM token saved for user: $userId');
     } catch (e) {
       debugPrint('❌ Error saving FCM token: $e');
@@ -286,17 +297,22 @@ class PushNotificationService {
   }
 
   /// Supprime le token FCM lors de la déconnexion
-  Future<void> deleteUserToken(String userId) async {
+  Future<void> deleteUserToken(String userId, {String? stationId}) async {
     try {
+      // Utiliser le chemin complet avec station si fourni
+      final collectionPath = stationId != null
+          ? EnvironmentConfig.getCollectionPath('users', stationId)
+          : 'users';
+
       await FirebaseFirestore.instance
-          .collection('users')
+          .collection(collectionPath)
           .doc(userId)
           .update({
         'fcmToken': FieldValue.delete(),
         'fcmTokenUpdatedAt': FieldValue.delete(),
       });
 
-      debugPrint('✅ FCM token deleted for user: $userId');
+      debugPrint('✅ FCM token deleted for user: $userId in $collectionPath');
     } catch (e) {
       debugPrint('❌ Error deleting FCM token: $e');
     }

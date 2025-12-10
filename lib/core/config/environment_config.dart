@@ -48,4 +48,17 @@ class EnvironmentConfig {
     }
     return 'stations';
   }
+
+  /// Retourne le chemin de la collection user_notifications au niveau SDIS
+  /// En DEV avec SDIS: /sdis/{sdisId}/user_notifications
+  /// En DEV sans SDIS ou PROD: /user_notifications
+  static String get userNotificationsCollectionPath {
+    if (useStationSubcollections) {
+      final sdisId = SDISContext().currentSDISId;
+      if (sdisId != null && sdisId.isNotEmpty) {
+        return 'sdis/$sdisId/user_notifications';
+      }
+    }
+    return 'user_notifications';
+  }
 }

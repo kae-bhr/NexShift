@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:nexshift_app/core/data/models/user_model.dart' as models;
 import 'package:nexshift_app/core/presentation/widgets/hero_widget.dart';
 import 'package:nexshift_app/core/repositories/local_repositories.dart';
 import 'package:nexshift_app/core/services/firebase_auth_service.dart';
@@ -9,6 +10,7 @@ import 'package:nexshift_app/features/auth/presentation/widgets/password_strengt
 import 'package:nexshift_app/features/auth/presentation/widgets/snake_bar_widget.dart';
 import 'package:nexshift_app/features/auth/presentation/widgets/station_selection_dialog.dart';
 import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
+import 'package:nexshift_app/features/app_shell/presentation/widgets/widget_tree.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({
@@ -121,11 +123,12 @@ class _LoginPageState extends State<LoginPage> {
     final repo = LocalRepository();
     try {
       // Login with Firebase Auth - nouvelle version avec gestion multi-stations et multi-SDIS
+      debugPrint('🔵 [LOGIN] Attempting login for matricule=$id');
       final authResult = await repo.loginWithStations(id, pw, sdisId: widget.sdisId);
 
       // Cas 1: Utilisateur avec une seule station
       if (authResult.hasSingleStation && authResult.user != null) {
-        _navigateAfterLogin(authResult.user!.id);
+        _navigateAfterLogin(authResult.user!.id, user: authResult.user);
         return;
       }
 
@@ -133,26 +136,38 @@ class _LoginPageState extends State<LoginPage> {
       if (authResult.needsStationSelection && authResult.userStations != null) {
         if (!mounted) return;
 
+        debugPrint('🔵 [LOGIN] Showing station selection dialog with ${authResult.userStations!.stations.length} stations: ${authResult.userStations!.stations}');
+
         final selectedStation = await StationSelectionDialog.show(
           context: context,
           stations: authResult.userStations!.stations,
         );
 
+        debugPrint('🔵 [LOGIN] User selected station: $selectedStation');
+
         if (selectedStation != null) {
+          debugPrint('🔵 [LOGIN] Loading user profile for matricule=$id, station=$selectedStation');
+
           // Charger le profil utilisateur pour la station sélectionnée
           final user = await repo.loadUserForStation(id, selectedStation);
+
+          debugPrint('🔵 [LOGIN] User profile loaded: ${user != null ? 'SUCCESS (id=${user.id}, station=${user.station})' : 'NULL'}');
 
           if (!mounted) return;
 
           if (user != null) {
-            _navigateAfterLogin(user.id);
+            debugPrint('🔵 [LOGIN] Calling _navigateAfterLogin with userId=${user.id} and user object');
+            _navigateAfterLogin(user.id, user: user);
           } else {
+            debugPrint('❌ [LOGIN] User is null, showing error');
             SnakebarWidget.showSnackBar(
               context,
               'Erreur lors du chargement du profil pour cette station.',
               colorScheme.error,
             );
           }
+        } else {
+          debugPrint('⚠️ [LOGIN] User cancelled station selection (selectedStation is null)');
         }
         return;
       }
@@ -180,10 +195,15 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   /// Navigue vers la page appropriée après connexion
-  void _navigateAfterLogin(String userId) {
-    if (!widget.chgtPw) {
-      EnterApp.build(context, userId);
-    } else {
+  void _navigateAfterLogin(String userId, {models.User? user}) async {
+    debugPrint('🟢 [LOGIN] _navigateAfterLogin called with userId=$userId, user=${user != null ? '${user.firstName} ${user.lastName} (${user.station})' : 'NULL'}, chgtPw=${widget.chgtPw}');
+
+    if (widget.chgtPw) {
+      // Pour le changement de mot de passe, on met à jour les notifiers puis on navigue
+      debugPrint('🟢 [LOGIN] Calling EnterApp.build() for password change flow');
+      await EnterApp.build(context, userId, user: user);
+      debugPrint('🟢 [LOGIN] Navigating to ConfirmationPage');
+      if (!mounted) return;
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(
@@ -191,7 +211,21 @@ class _LoginPageState extends State<LoginPage> {
         ),
         (route) => false,
       );
+    } else {
+      // NOUVELLE STRATÉGIE: Navigation impérative pour forcer le changement de page
+      // On met à jour les notifiers puis on fait un pushAndRemoveUntil vers WidgetTree
+
+      debugPrint('🟢 [LOGIN] Updating notifiers');
+      await EnterApp.build(context, userId, user: user);
+
+      debugPrint('🟢 [LOGIN] Force navigation to WidgetTree');
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (context) => const WidgetTree()),
+        (route) => false,
+      );
     }
+    debugPrint('🟢 [LOGIN] _navigateAfterLogin completed');
   }
 
   Future<void> _showCreateProfileDialog(

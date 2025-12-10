@@ -32,6 +32,7 @@ class _WidgetTreeState extends State<WidgetTree> {
   @override
   void initState() {
     super.initState();
+    debugPrint('🏠 [WIDGET_TREE] initState() called');
     _pageController = PageController(initialPage: selectedPageNotifier.value);
     // Sync PageView with notifier
     selectedPageNotifier.addListener(_onPageNotifierChanged);
@@ -209,6 +210,7 @@ class _WidgetTreeState extends State<WidgetTree> {
         drawer: ValueListenableBuilder(
           valueListenable: userNotifier,
           builder: (context, user, child) {
+            debugPrint('🎨 [DRAWER] Building drawer with user: ${user != null ? '${user.firstName} ${user.lastName} (id=${user.id})' : 'NULL'}');
             return Drawer(
               child: Column(
                 children: [
@@ -230,7 +232,7 @@ class _WidgetTreeState extends State<WidgetTree> {
                               style: TextStyle(fontWeight: FontWeight.w300),
                             ),
                             TextSpan(
-                              text: "${user!.firstName} ${user.lastName}",
+                              text: user != null ? "${user.firstName} ${user.lastName}" : "",
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
                                 color: Theme.of(context).colorScheme.primary,
@@ -273,14 +275,14 @@ class _WidgetTreeState extends State<WidgetTree> {
                         ),
                       ),
                       TextButton(
-                        onPressed: () {
+                        onPressed: user != null ? () {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
                               builder: (context) => TeamPage(teamId: user.team),
                             ),
                           );
-                        },
+                        } : null,
                         child: ListTile(
                           minTileHeight: 0.0,
                           leading: Icon(
@@ -331,9 +333,9 @@ class _WidgetTreeState extends State<WidgetTree> {
                         ),
                       ),
                       // Mes astreintes - visible pour leaders, chiefs et admins
-                      if (user.admin ||
+                      if (user != null && (user.admin ||
                           user.status == KConstants.statusLeader ||
-                          user.status == KConstants.statusChief)
+                          user.status == KConstants.statusChief))
                         TextButton(
                           onPressed: () {
                             Navigator.push(
@@ -364,7 +366,7 @@ class _WidgetTreeState extends State<WidgetTree> {
                           ),
                         ),
                       // Administration - visible pour admins, chefs de centre et chefs de garde
-                      if (user.admin || user.status == KConstants.statusLeader)
+                      if (user != null && (user.admin || user.status == KConstants.statusLeader))
                         TextButton(
                           onPressed: () {
                             Navigator.push(
@@ -405,11 +407,11 @@ class _WidgetTreeState extends State<WidgetTree> {
                           );
                         },
                         child: StreamBuilder<QuerySnapshot>(
-                          stream: FirebaseFirestore.instance
+                          stream: user != null ? FirebaseFirestore.instance
                               .collection('replacementRequests')
                               .where('status', isEqualTo: 'pending')
                               .where('station', isEqualTo: user.station)
-                              .snapshots(),
+                              .snapshots() : Stream.empty(),
                           builder: (context, requestsSnapshot) {
                             if (!requestsSnapshot.hasData) {
                               return ListTile(
@@ -439,10 +441,10 @@ class _WidgetTreeState extends State<WidgetTree> {
                             }
 
                             return StreamBuilder<QuerySnapshot>(
-                              stream: FirebaseFirestore.instance
+                              stream: user != null ? FirebaseFirestore.instance
                                   .collection('replacementRequestDeclines')
                                   .where('userId', isEqualTo: user.id)
-                                  .snapshots(),
+                                  .snapshots() : Stream.empty(),
                               builder: (context, declinesSnapshot) {
                                 // Compter les demandes où l'utilisateur est demandeur OU notifié
                                 // ET n'a PAS refusé
@@ -478,8 +480,8 @@ class _WidgetTreeState extends State<WidgetTree> {
                                       return false;
                                     }
 
-                                    return requesterId == user.id ||
-                                        notifiedUserIds.contains(user.id);
+                                    return user != null && (requesterId == user.id ||
+                                        notifiedUserIds.contains(user.id));
                                   }).length;
                                 } else {
                                   // Si pas encore de données sur les refus, compter toutes les demandes
@@ -493,8 +495,8 @@ class _WidgetTreeState extends State<WidgetTree> {
                                             List<String>.from(
                                               data['notifiedUserIds'] ?? [],
                                             );
-                                        return requesterId == user.id ||
-                                            notifiedUserIds.contains(user.id);
+                                        return user != null && (requesterId == user.id ||
+                                            notifiedUserIds.contains(user.id));
                                       })
                                       .length;
                                 }

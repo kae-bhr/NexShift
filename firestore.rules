@@ -216,12 +216,39 @@ service cloud.firestore {
                           (isAdmin() || request.auth.token.status == 'leader');
         }
       }
+
+      // Sous-collection: user_notifications (au niveau SDIS)
+      // Notifications pour tous les utilisateurs du SDIS
+      match /user_notifications/{notificationId} {
+        // Un utilisateur peut lire ses propres notifications
+        allow read: if belongsToSDIS(sdisId) && resource.data.userId == getUserMatricule();
+        // Seuls les admins peuvent créer des notifications
+        allow create: if belongsToSDIS(sdisId) && isAdmin();
+        // Un utilisateur peut marquer ses notifications comme lues
+        allow update: if belongsToSDIS(sdisId) && resource.data.userId == getUserMatricule();
+        // Seuls les admins peuvent supprimer
+        allow delete: if belongsToSDIS(sdisId) && isAdmin();
+      }
     }
 
     // Collection licences (racine) - Gestion multi-tenant
     match /licences/{licenceId} {
       allow read: if isSignedIn();
       allow write: if isAdmin();
+    }
+
+    // LEGACY: Collection user_notifications (racine) - Notifications utilisateurs
+    // Permet la rétrocompatibilité pendant la migration
+    // À SUPPRIMER une fois la migration vers /sdis/{sdisId}/user_notifications terminée
+    match /user_notifications/{notificationId} {
+      // Un utilisateur peut lire ses propres notifications
+      allow read: if isSignedIn() && resource.data.userId == getUserMatricule();
+      // Seuls les admins peuvent créer des notifications
+      allow create: if isSignedIn() && isAdmin();
+      // Un utilisateur peut marquer ses notifications comme lues
+      allow update: if isSignedIn() && resource.data.userId == getUserMatricule();
+      // Seuls les admins peuvent supprimer
+      allow delete: if isSignedIn() && isAdmin();
     }
 
     // LEGACY: Collection user_stations (racine) - Mapping utilisateur -> stations

@@ -10,6 +10,7 @@ import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:nexshift_app/core/services/push_notification_service.dart';
 import 'package:nexshift_app/features/auth/presentation/pages/login_page.dart';
 import 'package:nexshift_app/features/auth/presentation/pages/welcome_page.dart';
+import 'package:nexshift_app/features/app_shell/presentation/widgets/widget_tree.dart';
 import 'package:nexshift_app/features/settings/presentation/pages/logs_viewer_page.dart';
 import 'package:nexshift_app/features/skills/presentation/pages/skills_page.dart';
 import 'package:nexshift_app/features/settings/presentation/pages/notification_settings_page.dart';
@@ -19,6 +20,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:nexshift_app/core/repositories/user_stations_repository.dart';
+import 'package:nexshift_app/core/repositories/local_repositories.dart';
+import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
+import 'package:nexshift_app/features/auth/presentation/widgets/station_selection_dialog.dart';
 
 const String appVersion = '1.0.0';
 
@@ -353,6 +358,13 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           const Divider(height: 1),
           ListTile(
+            leading: const Icon(Icons.swap_horiz),
+            title: const Text('Changer de caserne'),
+            trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+            onTap: () => _gestionChangementCaserne(),
+          ),
+          const Divider(height: 1),
+          ListTile(
             leading: const Icon(Icons.lock_outline, color: Colors.red),
             title: const Text(
               'Changer mon mot de passe',
@@ -462,6 +474,96 @@ class _SettingsPageState extends State<SettingsPage> {
         );
       },
     );
+  }
+
+  /// Gère le changement de caserne pour les utilisateurs multi-affectés
+  void _gestionChangementCaserne() async {
+    final user = userNotifier.value;
+    if (user == null) return;
+
+    try {
+      final userStationsRepo = UserStationsRepository();
+      final sdisId = SDISContext().currentSDISId;
+
+      // Récupérer les stations de l'utilisateur
+      final userStations = await userStationsRepo.getUserStations(
+        user.id,
+        sdisId: sdisId,
+      );
+
+      if (userStations == null || userStations.stations.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Aucune station trouvée pour cet utilisateur'),
+            ),
+          );
+        }
+        return;
+      }
+
+      // Si une seule station, informer l'utilisateur
+      if (userStations.stations.length == 1) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Vous n\'êtes affecté qu\'à une seule caserne'),
+            ),
+          );
+        }
+        return;
+      }
+
+      // Afficher le dialog de sélection de station
+      if (!mounted) return;
+      final selectedStation = await StationSelectionDialog.show(
+        context: context,
+        stations: userStations.stations,
+      );
+
+      if (selectedStation != null && selectedStation != user.station) {
+        // Charger le profil utilisateur pour la station sélectionnée
+        final localRepo = LocalRepository();
+        final newUser = await localRepo.loadUserForStation(user.id, selectedStation);
+
+        if (newUser != null) {
+          // Mettre à jour l'utilisateur dans le contexte
+          await UserStorageHelper.saveUser(newUser);
+          userNotifier.value = newUser;
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Station changée vers: $selectedStation'),
+                backgroundColor: Colors.green,
+              ),
+            );
+
+            // Recharger la page pour rafraîchir l'interface
+            Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute(
+                builder: (_) => const WidgetTree(),
+              ),
+              (route) => false,
+            );
+          }
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Erreur lors du chargement du profil pour cette station'),
+              ),
+            );
+          }
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e')),
+        );
+      }
+    }
   }
 
   void _gestionChangementMotDePasse() {
@@ -579,11 +681,21 @@ class _SettingsPageState extends State<SettingsPage> {
                   // Supprimer le token FCM de cet appareil
                   if (user != null) {
                     final pushNotificationService = PushNotificationService();
-                    await pushNotificationService.clearDeviceToken(user.id);
+                    await pushNotificationService.clearDeviceToken(
+                      user.id,
+                      stationId: user.station,
+                    );
                   }
+
+                  // IMPORTANT: Déconnecter Firebase Auth en premier
+                  debugPrint('🔴 [LOGOUT] Signing out from Firebase Auth');
+                  await FirebaseAuth.instance.signOut();
+                  debugPrint('🔴 [LOGOUT] Firebase Auth signed out');
 
                   // Suppression de l'instance de l'utilisateur stockée
                   await UserStorageHelper.clearUser();
+                  userNotifier.value = null;
+                  debugPrint('🔴 [LOGOUT] User notifier cleared');
 
                   // Vider GetStorage (cache local)
                   final storage = GetStorage();
@@ -593,8 +705,9 @@ class _SettingsPageState extends State<SettingsPage> {
                   isUserAuthentifiedNotifier.value = false;
                   await prefs.setBool(
                     KConstants.authentifiedKey,
-                    isUserAuthentifiedNotifier.value,
+                    false,
                   );
+                  debugPrint('🔴 [LOGOUT] Auth notifier set to false');
 
                   // Retour à la page d'accueil en supprimant les pages intermédiaires
                   if (mounted) {
@@ -604,9 +717,10 @@ class _SettingsPageState extends State<SettingsPage> {
                       MaterialPageRoute(builder: (_) => const WelcomePage()),
                       (route) => false,
                     );
+                    debugPrint('🔴 [LOGOUT] Navigated to WelcomePage');
                   }
                 } catch (e) {
-                  debugPrint('Error during logout: $e');
+                  debugPrint('❌ [LOGOUT] Error during logout: $e');
                   if (mounted) {
                     Navigator.pop(context);
                     ScaffoldMessenger.of(context).showSnackBar(
