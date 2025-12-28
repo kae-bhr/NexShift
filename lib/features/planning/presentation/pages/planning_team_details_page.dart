@@ -86,7 +86,7 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
     }
 
     final users = await UserRepository().getByStation(_currentUser!.station);
-    final subshifts = await repo.getSubshifts();
+    final subshifts = await repo.getSubshifts(stationId: _currentUser!.station);
     final availabilities = await repo.getAvailabilities();
     _allUsers = users;
     // Résoudre les cascades de remplacements pour toujours pointer vers l'agent original

@@ -16,6 +16,9 @@ import 'package:nexshift_app/core/repositories/team_repository.dart';
 import 'package:nexshift_app/core/utils/subshift_normalizer.dart';
 import 'package:nexshift_app/features/replacement/presentation/pages/replacement_page.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:nexshift_app/core/config/environment_config.dart';
+import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class PlanningPage extends StatefulWidget {
   const PlanningPage({super.key});
@@ -258,6 +261,9 @@ class _PlanningPageState extends State<PlanningPage> {
       }
     }
 
+    // Vérifier s'il existe une demande de remplacement active
+    final hasActiveRequest = await _hasActiveReplacementRequest(planning, user.id, user.station);
+
     // Afficher un BottomSheet avec les actions
     showModalBottomSheet(
       context: context,
@@ -344,21 +350,29 @@ class _PlanningPageState extends State<PlanningPage> {
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => ReplacementPage(
-                          planning: planning,
-                          currentUser: user,
-                          parentSubshift: replacerSubshift,
-                        ),
-                      ),
-                    );
-                  },
+                  onPressed: (hasActiveRequest && user.status == KConstants.statusAgent)
+                      ? null
+                      : () {
+                          Navigator.pop(context);
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => ReplacementPage(
+                                planning: planning,
+                                currentUser: user,
+                                parentSubshift: replacerSubshift,
+                              ),
+                            ),
+                          );
+                        },
                   icon: const Icon(Icons.event_busy),
                   label: const Text("Je souhaite m'absenter"),
+                  style: (hasActiveRequest && user.status == KConstants.statusAgent)
+                      ? OutlinedButton.styleFrom(
+                          foregroundColor: Colors.grey,
+                          side: const BorderSide(color: Colors.grey),
+                        )
+                      : null,
                 ),
               ),
             ],
@@ -408,12 +422,27 @@ class _PlanningPageState extends State<PlanningPage> {
   Future<void> _loadUserAndPlanning() async {
     final user = await UserStorageHelper.loadUser();
     if (user != null) {
+      // S'assurer que le SDIS Context est initialisé
+      if (!SDISContext().hasSDIS) {
+        var sdisId = await UserStorageHelper.loadSdisId();
+        if (sdisId == null || sdisId.isEmpty) {
+          sdisId = '50'; // Valeur par défaut
+          await UserStorageHelper.saveSdisId(sdisId);
+        }
+        SDISContext().setCurrentSDISId(sdisId);
+        debugPrint('📅 [PLANNING_PAGE] SDIS Context initialized with: $sdisId');
+      }
+
       final repo = LocalRepository();
       final isStationView = stationViewNotifier.value;
+      debugPrint('📅 [PLANNING_PAGE] _loadUserAndPlanning() - user: ${user.firstName} ${user.lastName}, station: ${user.station}, stationView: $isStationView');
+      debugPrint('📅 [PLANNING_PAGE] _loadUserAndPlanning() - SDIS Context: ${SDISContext().currentSDISId}');
       // Load subshifts first (used to include extra plannings for replacer mode)
-      final rawSubshifts = await SubshiftRepository().getAll();
+      final rawSubshifts = await SubshiftRepository().getAll(stationId: user.station);
+      debugPrint('📅 [PLANNING_PAGE] _loadUserAndPlanning() - Loaded ${rawSubshifts.length} raw subshifts');
       // Résoudre les cascades de remplacements pour affichage correct
       final subshifts = resolveReplacementCascades(rawSubshifts);
+      debugPrint('📅 [PLANNING_PAGE] _loadUserAndPlanning() - After cascade resolution: ${subshifts.length} subshifts');
       // Load teams to colorize bars by team in station view
       Color? userTeamColor;
       try {
@@ -454,13 +483,18 @@ class _PlanningPageState extends State<PlanningPage> {
             .where((s) => s.replacerId == user.id)
             .map((s) => s.planningId)
             .toSet();
+        debugPrint('📅 [PLANNING_PAGE] Replacer planning IDs for user ${user.id}: $replacerPlanningIds');
+        debugPrint('📅 [PLANNING_PAGE] Current plannings loaded: ${plannings.map((p) => p.id).toList()}');
         final missingIds = replacerPlanningIds
             .where((id) => !plannings.any((p) => p.id == id))
             .toList();
+        debugPrint('📅 [PLANNING_PAGE] Missing planning IDs to load: $missingIds');
         for (final id in missingIds) {
-          final p = await repo.getPlanningById(id);
+          final p = await repo.getPlanningById(id, stationId: user.station);
+          debugPrint('📅 [PLANNING_PAGE] Loaded missing planning $id: ${p != null ? "SUCCESS (${p.team} ${p.startTime})" : "NULL"}');
           if (p != null) plannings.add(p);
         }
+        debugPrint('📅 [PLANNING_PAGE] Final plannings count after adding replacer plannings: ${plannings.length}');
 
         // Load user's availabilities for personal view
         final allAvailabilities = await repo.getAvailabilities();
@@ -477,6 +511,7 @@ class _PlanningPageState extends State<PlanningPage> {
         availabilities = _mergeOverlappingAvailabilities(userAvailabilities);
       }
 
+      debugPrint('📅 [PLANNING_PAGE] setState() - plannings: ${plannings.length}, subshifts: ${subshifts.length}, availabilities: ${availabilities.length}');
       setState(() {
         _plannings = plannings;
         _subshifts = subshifts;
@@ -484,6 +519,7 @@ class _PlanningPageState extends State<PlanningPage> {
         _currentUser = user;
         _userTeamColor = userTeamColor;
       });
+      debugPrint('📅 [PLANNING_PAGE] setState() completed - _subshifts in state: ${_subshifts.length}');
     }
   }
 
@@ -554,6 +590,8 @@ class _PlanningPageState extends State<PlanningPage> {
   List<Map<String, dynamic>> _generateBarsForDay(DateTime day) {
     final stationView = stationViewNotifier.value;
     final bars = <Map<String, dynamic>>[];
+
+    debugPrint('📊 [PLANNING_PAGE] _generateBarsForDay(${DateFormat('dd/MM').format(day)}) - stationView: $stationView, plannings: ${_plannings.length}, subshifts: ${_subshifts.length}');
 
     if (stationView) {
       // Mode caserne : afficher toutes les astreintes
@@ -679,6 +717,8 @@ class _PlanningPageState extends State<PlanningPage> {
                     s.start.isBefore(segEnd),
               )
               .toList();
+
+          debugPrint('📊 [PLANNING_PAGE] Replacer shifts for planning ${planning.id}: ${replacerShifts.length}');
 
           for (final shift in replacerShifts) {
             final shiftStart = shift.start.isBefore(segStart)
@@ -1073,6 +1113,43 @@ class _PlanningPageState extends State<PlanningPage> {
       ),
     );
   }
+
+  /// Vérifie s'il existe une demande de remplacement active pour un planning donné
+  Future<bool> _hasActiveReplacementRequest(Planning planning, String userId, String stationId) async {
+    try {
+      // Construire le chemin vers les demandes de remplacement
+      final requestsPath = EnvironmentConfig.useStationSubcollections && stationId.isNotEmpty
+          ? (SDISContext().currentSDISId != null && SDISContext().currentSDISId!.isNotEmpty
+              ? 'sdis/${SDISContext().currentSDISId}/stations/$stationId/replacements/automatic/replacementRequests'
+              : 'stations/$stationId/replacements/automatic/replacementRequests')
+          : 'replacementRequests';
+
+      // Chercher les demandes de remplacement pour ce planning et cet utilisateur
+      final snapshot = await FirebaseFirestore.instance
+          .collection(requestsPath)
+          .where('planningId', isEqualTo: planning.id)
+          .where('requesterId', isEqualTo: userId)
+          .where('status', whereIn: ['pending', 'accepted'])
+          .get();
+
+      // Vérifier s'il y a des demandes qui couvrent l'intégralité du planning
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final startTime = (data['startTime'] as Timestamp).toDate();
+        final endTime = (data['endTime'] as Timestamp).toDate();
+
+        // Vérifier si la demande couvre toute la période du planning
+        if (!startTime.isAfter(planning.startTime) && !endTime.isBefore(planning.endTime)) {
+          return true;
+        }
+      }
+
+      return false;
+    } catch (e) {
+      debugPrint('Error checking active replacement requests: $e');
+      return false;
+    }
+  }
 }
 
 /// Fonction helper pour convertir une couleur en shade400 (version plus douce)
@@ -1137,5 +1214,42 @@ class _TooltipWidget extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// Vérifie s'il existe une demande de remplacement active pour un planning donné
+  Future<bool> _hasActiveReplacementRequest(Planning planning, String userId, String stationId) async {
+    try {
+      // Construire le chemin vers les demandes de remplacement
+      final requestsPath = EnvironmentConfig.useStationSubcollections && stationId.isNotEmpty
+          ? (SDISContext().currentSDISId != null && SDISContext().currentSDISId!.isNotEmpty
+              ? 'sdis/${SDISContext().currentSDISId}/stations/$stationId/replacements/automatic/replacementRequests'
+              : 'stations/$stationId/replacements/automatic/replacementRequests')
+          : 'replacementRequests';
+
+      // Chercher les demandes de remplacement pour ce planning et cet utilisateur
+      final snapshot = await FirebaseFirestore.instance
+          .collection(requestsPath)
+          .where('planningId', isEqualTo: planning.id)
+          .where('requesterId', isEqualTo: userId)
+          .where('status', whereIn: ['pending', 'accepted'])
+          .get();
+
+      // Vérifier s'il y a des demandes qui couvrent l'intégralité du planning
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final startTime = (data['startTime'] as Timestamp).toDate();
+        final endTime = (data['endTime'] as Timestamp).toDate();
+
+        // Vérifier si la demande couvre toute la période du planning
+        if (!startTime.isAfter(planning.startTime) && !endTime.isBefore(planning.endTime)) {
+          return true;
+        }
+      }
+
+      return false;
+    } catch (e) {
+      debugPrint('Error checking active replacement requests: $e');
+      return false;
+    }
   }
 }

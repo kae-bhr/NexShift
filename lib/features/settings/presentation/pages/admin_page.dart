@@ -63,7 +63,16 @@ class _AdminPageState extends State<AdminPage> {
     if (_currentStation == null) return;
 
     try {
-      await _stationRepository.upsert(_currentStation!);
+      // Nettoyer les skillWeights pour supprimer les clés vides
+      final cleanedWeights = Map<String, double>.from(_currentStation!.skillWeights);
+      cleanedWeights.removeWhere((key, value) => key.isEmpty);
+
+      // Créer une station avec les poids nettoyés
+      final cleanedStation = _currentStation!.copyWith(
+        skillWeights: cleanedWeights,
+      );
+
+      await _stationRepository.upsert(cleanedStation);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -98,6 +107,9 @@ class _AdminPageState extends State<AdminPage> {
                     const SizedBox(height: 24),
                     _buildSectionHeader(context, 'Mode de remplacement'),
                     _buildReplacementModeSection(context),
+                    const SizedBox(height: 24),
+                    _buildSectionHeader(context, 'Pondération des compétences'),
+                    _buildSkillWeightsSection(context),
                     const SizedBox(height: 24),
                     _buildSectionHeader(context, 'Gestion des postes'),
                     _buildPositionsSection(context),
@@ -154,62 +166,151 @@ class _AdminPageState extends State<AdminPage> {
     return Card(
       child: Column(
         children: [
-          RadioListTile<ReplacementMode>(
-            secondary: const Icon(Icons.compare_arrows),
-            title: const Text('Par similarité'),
-            subtitle: const Text('Basé sur les compétences et l\'historique'),
-            value: ReplacementMode.similarity,
-            groupValue: _currentStation!.replacementMode,
+          SwitchListTile(
+            secondary: const Icon(Icons.how_to_reg),
+            title: const Text('Acceptation automatique d\'agents sous-qualifiés'),
+            subtitle: const Text('Permettre aux agents sous-qualifiés d\'accepter automatiquement les demandes de remplacement'),
+            value: _currentStation!.allowUnderQualifiedAutoAcceptance,
             activeColor: KColors.appNameColor,
+            activeTrackColor: KColors.appNameColor.withOpacity(0.5),
             onChanged: (value) {
-              if (value != null) {
-                setState(() {
-                  _currentStation = _currentStation!.copyWith(
-                    replacementMode: value,
-                  );
-                });
-                _saveStationConfig();
-              }
+              setState(() {
+                _currentStation = _currentStation!.copyWith(
+                  allowUnderQualifiedAutoAcceptance: value,
+                );
+              });
+              _saveStationConfig();
             },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSkillWeightsSection(BuildContext context) {
+    // Trier par catégorie pour un affichage organisé, en filtrant les skills vides
+    final skillsByCategory = <String, List<String>>{};
+    for (final category in KSkills.skillCategoryOrder) {
+      final categorySkills = KSkills.skillLevels[category];
+      if (categorySkills != null) {
+        // Filtrer les skills vides
+        final validSkills = categorySkills.where((skill) => skill.isNotEmpty).toList();
+        if (validSkills.isNotEmpty) {
+          skillsByCategory[category] = validSkills;
+        }
+      }
+    }
+
+    return Card(
+      child: Column(
+        children: [
+          ListTile(
+            leading: const Icon(Icons.tune),
+            title: const Text('Pondération des compétences'),
+            subtitle: const Text('Ajuster l\'importance de chaque compétence dans le calcul de similarité (1.0 = normal, 2.0 = double importance)'),
           ),
           const Divider(height: 1),
-          RadioListTile<ReplacementMode>(
-            secondary: const Icon(Icons.work_outline),
-            title: const Text('Par poste'),
-            subtitle: const Text('Basé sur la hiérarchie des postes'),
-            value: ReplacementMode.position,
-            groupValue: _currentStation!.replacementMode,
-            activeColor: KColors.appNameColor,
-            onChanged: (value) {
-              if (value != null) {
-                setState(() {
-                  _currentStation = _currentStation!.copyWith(
-                    replacementMode: value,
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Bouton pour réinitialiser
+                if (_currentStation!.skillWeights.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 16.0),
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.refresh, size: 18),
+                      label: const Text('Réinitialiser tous les poids'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.orange,
+                        foregroundColor: Colors.white,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _currentStation = _currentStation!.copyWith(
+                            skillWeights: {},
+                          );
+                        });
+                        _saveStationConfig();
+                      },
+                    ),
+                  ),
+                // Liste des catégories de compétences
+                ...KSkills.skillCategoryOrder.map((category) {
+                  final categorySkills = skillsByCategory[category] ?? [];
+                  if (categorySkills.isEmpty) return const SizedBox.shrink();
+
+                  return ExpansionTile(
+                    title: Text(
+                      category,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    initiallyExpanded: false,
+                    children: [
+                      for (final skill in categorySkills)
+                        if (skill.isNotEmpty) // Filtrer les skills vides
+                          Builder(
+                            builder: (context) {
+                              final currentWeight = _currentStation!.skillWeights[skill] ?? 1.0;
+                              final isModified = _currentStation!.skillWeights.containsKey(skill);
+
+                              return ListTile(
+                              dense: true,
+                              title: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      skill,
+                                      style: TextStyle(
+                                        fontWeight: isModified ? FontWeight.w600 : FontWeight.normal,
+                                        color: isModified ? KColors.appNameColor : null,
+                                      ),
+                                    ),
+                                  ),
+                                  Text(
+                                    '${currentWeight.toStringAsFixed(1)}x',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: isModified ? KColors.appNameColor : Colors.grey,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              subtitle: Slider(
+                                value: currentWeight,
+                                min: 0.0,
+                                max: 3.0,
+                                divisions: 30,
+                                activeColor: KColors.appNameColor,
+                                label: currentWeight.toStringAsFixed(1),
+                                onChanged: (value) {
+                                  setState(() {
+                                    final newWeights = Map<String, double>.from(_currentStation!.skillWeights);
+                                    if (value == 1.0) {
+                                      // Si on revient à 1.0, retirer de la map
+                                      newWeights.remove(skill);
+                                    } else {
+                                      newWeights[skill] = value;
+                                    }
+                                    _currentStation = _currentStation!.copyWith(
+                                      skillWeights: newWeights,
+                                    );
+                                  });
+                                },
+                                onChangeEnd: (value) {
+                                  _saveStationConfig();
+                                },
+                              ),
+                            );
+                          },
+                        ),
+                    ],
                   );
-                });
-                _saveStationConfig();
-              }
-            },
-          ),
-          if (_currentStation!.replacementMode == ReplacementMode.position) ...[
-            const Divider(height: 1),
-            SwitchListTile(
-              secondary: const Icon(Icons.arrow_downward),
-              title: const Text('Rechercher agents sous-qualifiés'),
-              subtitle: const Text('Permettre les postes inférieurs'),
-              value: _currentStation!.allowUnderQualifiedReplacement,
-              activeColor: KColors.appNameColor,
-              activeTrackColor: KColors.appNameColor.withOpacity(0.5),
-              onChanged: (value) {
-                setState(() {
-                  _currentStation = _currentStation!.copyWith(
-                    allowUnderQualifiedReplacement: value,
-                  );
-                });
-                _saveStationConfig();
-              },
+                }).toList(),
+              ],
             ),
-          ],
+          ),
         ],
       ),
     );
@@ -713,7 +814,10 @@ class _AdminPageState extends State<AdminPage> {
       final messenger = ScaffoldMessenger.of(context);
 
       try {
-        await _positionRepository.deletePosition(position.id);
+        await _positionRepository.deletePosition(
+          position.id,
+          stationId: position.stationId,
+        );
 
         if (mounted) {
           messenger.showSnackBar(

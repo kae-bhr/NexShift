@@ -208,7 +208,9 @@ class _SkillsPageState extends State<SkillsPage> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => const SimilarAgentsPage(),
+                    builder: (context) => SimilarAgentsPage(
+                      targetUser: _displayedUser,
+                    ),
                   ),
                 );
               },
@@ -488,6 +490,14 @@ class _SkillsPageState extends State<SkillsPage> {
                                   ],
                                 ),
                               ),
+                              // Afficher étoile si c'est une keySkill
+                              if (!isNotAcquired &&
+                                  user.keySkills.contains(skillName))
+                                Icon(
+                                  Icons.star,
+                                  color: Colors.amber,
+                                  size: 24,
+                                ),
                             ],
                           ),
                         ),

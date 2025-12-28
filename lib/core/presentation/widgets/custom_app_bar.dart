@@ -15,6 +15,9 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
   /// Couleur de la ligne inférieure (bottom bar). Si null, pas de ligne.
   final Color? bottomColor;
 
+  /// Widget personnalisé pour le bottom (ex: TabBar). Prioritaire sur bottomColor.
+  final PreferredSizeWidget? bottom;
+
   /// Widget leading optionnel (par défaut: BackButton avec colorScheme.primary).
   final Widget? leading;
 
@@ -32,6 +35,7 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
     required this.title,
     this.onTitleTap,
     this.bottomColor,
+    this.bottom,
     this.leading,
     this.actions,
     this.bottomOpacity = 0.7,
@@ -39,9 +43,16 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
   });
 
   @override
-  Size get preferredSize => Size.fromHeight(
-    kToolbarHeight + (bottomColor != null ? bottomHeight : 0),
-  );
+  Size get preferredSize {
+    // Si un bottom widget personnalisé est fourni, utiliser sa hauteur
+    if (bottom != null) {
+      return Size.fromHeight(kToolbarHeight + bottom!.preferredSize.height);
+    }
+    // Sinon, utiliser la hauteur de la ligne colorée si définie
+    return Size.fromHeight(
+      kToolbarHeight + (bottomColor != null ? bottomHeight : 0),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -87,7 +98,7 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
       centerTitle: true,
       title: titleWidget,
       actions: actions,
-      bottom: bottomColor != null
+      bottom: bottom ?? (bottomColor != null
           ? PreferredSize(
               preferredSize: Size.fromHeight(bottomHeight),
               child: Container(
@@ -95,7 +106,7 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
                 color: bottomColor!.withOpacity(bottomOpacity),
               ),
             )
-          : null,
+          : null),
     );
   }
 }

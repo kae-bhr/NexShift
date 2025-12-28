@@ -22,6 +22,7 @@ class EditSkillsPage extends StatefulWidget {
 class _EditSkillsPageState extends State<EditSkillsPage> {
   final LocalRepository _repository = LocalRepository();
   late Set<String> _selectedSkills;
+  late Set<String> _selectedKeySkills; // Compétences-clés
   bool _isSaving = false;
   final Map<String, String> _warnings = {};
 
@@ -29,6 +30,7 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
   void initState() {
     super.initState();
     _selectedSkills = Set.from(widget.user.skills);
+    _selectedKeySkills = Set.from(widget.user.keySkills);
   }
 
   Future<void> _saveSkills() async {
@@ -38,6 +40,10 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
       final proceed = await _showWarningDialog();
       if (!proceed) return;
     }
+
+    // Afficher le dialogue de confirmation avec les modifications
+    final confirmed = await _showConfirmationDialog();
+    if (!confirmed) return;
 
     HapticFeedback.mediumImpact();
     setState(() {
@@ -53,6 +59,7 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
         team: widget.user.team,
         status: widget.user.status,
         skills: _selectedSkills.toList(),
+        keySkills: _selectedKeySkills.toList(),
       );
 
       await _repository.updateUserProfile(updatedUser);
@@ -140,7 +147,7 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
           );
 
           if (userInStation != null) {
-            // Mettre à jour uniquement les compétences
+            // Mettre à jour les compétences ET les compétences-clés
             final updatedUserInStation = User(
               id: userInStation.id,
               firstName: userInStation.firstName,
@@ -149,12 +156,13 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
               team: userInStation.team,
               status: userInStation.status,
               skills: user.skills, // Compétences synchronisées
+              keySkills: user.keySkills, // Compétences-clés synchronisées
               admin: userInStation.admin,
               positionId: userInStation.positionId,
             );
 
             await userRepo.upsert(updatedUserInStation);
-            debugPrint('✅ Skills synced for station $stationId');
+            debugPrint('✅ Skills and keySkills synced for station $stationId');
           }
         } catch (e) {
           debugPrint('⚠️ Error syncing skills for station $stationId: $e');
@@ -270,11 +278,168 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
         false;
   }
 
+  Future<bool> _showConfirmationDialog() async {
+    final initialSkills = widget.user.skills.toSet();
+    final initialKeySkills = widget.user.keySkills.toSet();
+
+    // Calculer les modifications
+    final addedSkills = _selectedSkills.difference(initialSkills).toList()..sort();
+    final removedSkills = initialSkills.difference(_selectedSkills).toList()..sort();
+    final addedKeySkills = _selectedKeySkills.difference(initialKeySkills).toList()..sort();
+    final removedKeySkills = initialKeySkills.difference(_selectedKeySkills).toList()..sort();
+
+    // Debug
+    debugPrint('📊 Confirmation Dialog - Changes detected:');
+    debugPrint('  Added skills: $addedSkills');
+    debugPrint('  Removed skills: $removedSkills');
+    debugPrint('  Added keySkills: $addedKeySkills');
+    debugPrint('  Removed keySkills: $removedKeySkills');
+
+    // S'il n'y a aucune modification, ne pas afficher le dialogue
+    if (addedSkills.isEmpty && removedSkills.isEmpty &&
+        addedKeySkills.isEmpty && removedKeySkills.isEmpty) {
+      debugPrint('  ⚠️ No changes detected, skipping dialog');
+      return true;
+    }
+
+    return await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: KBorderRadius.circularL,
+            ),
+            title: Row(
+              children: [
+                Icon(
+                  Icons.edit_note,
+                  color: KColors.appNameColor,
+                  size: KIconSize.l,
+                ),
+                SizedBox(width: KSpacing.m),
+                const Expanded(
+                  child: Text('Confirmer les modifications'),
+                ),
+              ],
+            ),
+            content: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 50),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Compétences ajoutées
+                    if (addedSkills.isNotEmpty) ...[
+                      Row(
+                        children: [
+                          const Icon(Icons.add_circle, color: Colors.green, size: 20),
+                          SizedBox(width: KSpacing.s),
+                          Text(
+                            'Compétences ajoutées :',
+                            style: KTypography.body(fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: KSpacing.s),
+                      ...addedSkills.map(
+                        (skill) => Padding(
+                          padding: EdgeInsets.only(left: KSpacing.l, bottom: KSpacing.xs),
+                          child: Text('• $skill', style: KTypography.body()),
+                        ),
+                      ),
+                      SizedBox(height: KSpacing.m),
+                    ],
+                    // Compétences retirées
+                    if (removedSkills.isNotEmpty) ...[
+                      Row(
+                        children: [
+                          const Icon(Icons.remove_circle, color: Colors.red, size: 20),
+                          SizedBox(width: KSpacing.s),
+                          Text(
+                            'Compétences retirées :',
+                            style: KTypography.body(fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: KSpacing.s),
+                      ...removedSkills.map(
+                        (skill) => Padding(
+                          padding: EdgeInsets.only(left: KSpacing.l, bottom: KSpacing.xs),
+                          child: Text('• $skill', style: KTypography.body()),
+                        ),
+                      ),
+                      SizedBox(height: KSpacing.m),
+                    ],
+                    // Compétences-clés ajoutées
+                    if (addedKeySkills.isNotEmpty) ...[
+                      Row(
+                        children: [
+                          const Icon(Icons.star, color: Colors.amber, size: 20),
+                          SizedBox(width: KSpacing.s),
+                          Text(
+                            'Compétences-clés ajoutées :',
+                            style: KTypography.body(fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: KSpacing.s),
+                      ...addedKeySkills.map(
+                        (skill) => Padding(
+                          padding: EdgeInsets.only(left: KSpacing.l, bottom: KSpacing.xs),
+                          child: Text('• $skill', style: KTypography.body()),
+                        ),
+                      ),
+                      SizedBox(height: KSpacing.m),
+                    ],
+                    // Compétences-clés retirées
+                    if (removedKeySkills.isNotEmpty) ...[
+                      Row(
+                        children: [
+                          const Icon(Icons.star_border, color: Colors.grey, size: 20),
+                          SizedBox(width: KSpacing.s),
+                          Text(
+                            'Compétences-clés retirées :',
+                            style: KTypography.body(fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: KSpacing.s),
+                      ...removedKeySkills.map(
+                        (skill) => Padding(
+                          padding: EdgeInsets.only(left: KSpacing.l, bottom: KSpacing.xs),
+                          child: Text('• $skill', style: KTypography.body()),
+                        ),
+                      ),
+                    ],
+                ],
+              ),
+            ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Annuler'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: KColors.appNameColor,
+                ),
+                child: const Text('Confirmer'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
   void _toggleSkill(String skill, String category) {
     HapticFeedback.selectionClick();
     setState(() {
       if (_selectedSkills.contains(skill)) {
         _selectedSkills.remove(skill);
+        // Si on désélectionne une compétence, retirer aussi des keySkills
+        _selectedKeySkills.remove(skill);
         // Auto-désélectionner les niveaux supérieurs
         _deselectHigherLevels(category, skill);
       } else {
@@ -286,6 +451,20 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
           // Pour VPS et COD, garder l'ancienne logique (auto-sélection)
           _selectLowerLevels(category, skill);
         }
+      }
+    });
+  }
+
+  void _toggleKeySkill(String skill) {
+    // Ne peut être une keySkill que si elle est déjà sélectionnée
+    if (!_selectedSkills.contains(skill)) return;
+
+    HapticFeedback.selectionClick();
+    setState(() {
+      if (_selectedKeySkills.contains(skill)) {
+        _selectedKeySkills.remove(skill);
+      } else {
+        _selectedKeySkills.add(skill);
       }
     });
   }
@@ -380,118 +559,30 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
 
   // === Gestion des changements et confirmations ===
   bool _hasChanges() {
-    final initial = widget.user.skills.toSet();
-    return !_selectedSkills.containsAll(initial) ||
-        !initial.containsAll(_selectedSkills);
-  }
+    final initialSkills = widget.user.skills.toSet();
+    final initialKeySkills = widget.user.keySkills.toSet();
 
-  List<String> _addedSkills() {
-    final initial = widget.user.skills.toSet();
-    return _selectedSkills.difference(initial).toList()..sort();
-  }
+    // Vérifier les changements de skills
+    final skillsChanged = !_selectedSkills.containsAll(initialSkills) ||
+        !initialSkills.containsAll(_selectedSkills);
 
-  List<String> _removedSkills() {
-    final initial = widget.user.skills.toSet();
-    return initial.difference(_selectedSkills).toList()..sort();
-  }
+    // Vérifier les changements de keySkills
+    final keySkillsChanged = !_selectedKeySkills.containsAll(initialKeySkills) ||
+        !initialKeySkills.containsAll(_selectedKeySkills);
 
-  Future<bool> _showSaveConfirmationDialog() async {
-    final added = _addedSkills();
-    final removed = _removedSkills();
-    final count = added.length + removed.length;
-
-    return await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: KBorderRadius.circularL,
-            ),
-            title: Row(
-              children: [
-                Icon(
-                  Icons.check_circle_outline,
-                  color: Theme.of(context).colorScheme.primary,
-                  size: KIconSize.l,
-                ),
-                SizedBox(width: KSpacing.m),
-                Text('Confirmer l\'enregistrement'),
-              ],
-            ),
-            content: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'Voulez-vous enregistrer ces modifications ?',
-                    style: KTypography.body(),
-                  ),
-                  SizedBox(height: KSpacing.m),
-                  if (added.isNotEmpty) ...[
-                    Text(
-                      'Ajoutées (${added.length})',
-                      style: KTypography.body(
-                        fontWeight: KTypography.fontWeightSemiBold,
-                      ),
-                    ),
-                    SizedBox(height: KSpacing.xs),
-                    ...added.map(
-                      (s) => Padding(
-                        padding: EdgeInsets.only(bottom: KSpacing.xs),
-                        child: Row(
-                          children: [
-                            Icon(Icons.add, size: 16, color: Colors.green),
-                            SizedBox(width: KSpacing.s),
-                            Expanded(child: Text(s, style: KTypography.body())),
-                          ],
-                        ),
-                      ),
-                    ),
-                    SizedBox(height: KSpacing.s),
-                  ],
-                  if (removed.isNotEmpty) ...[
-                    Text(
-                      'Retirées (${removed.length})',
-                      style: KTypography.body(
-                        fontWeight: KTypography.fontWeightSemiBold,
-                      ),
-                    ),
-                    SizedBox(height: KSpacing.xs),
-                    ...removed.map(
-                      (s) => Padding(
-                        padding: EdgeInsets.only(bottom: KSpacing.xs),
-                        child: Row(
-                          children: [
-                            Icon(Icons.remove, size: 16, color: Colors.red),
-                            SizedBox(width: KSpacing.s),
-                            Expanded(child: Text(s, style: KTypography.body())),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('Annuler'),
-              ),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('Enregistrer'),
-              ),
-            ],
-          ),
-        ) ??
-        false;
+    return skillsChanged || keySkillsChanged;
   }
 
   Future<bool> _showDiscardChangesDialog() async {
-    final added = _addedSkills();
-    final removed = _removedSkills();
-    final count = added.length + removed.length;
+    // Calculer les modifications pour skills
+    final initialSkills = widget.user.skills.toSet();
+    final addedSkills = _selectedSkills.difference(initialSkills).toList()..sort();
+    final removedSkills = initialSkills.difference(_selectedSkills).toList()..sort();
+
+    // Calculer les modifications pour keySkills
+    final initialKeySkills = widget.user.keySkills.toSet();
+    final addedKeySkills = _selectedKeySkills.difference(initialKeySkills).toList()..sort();
+    final removedKeySkills = initialKeySkills.difference(_selectedKeySkills).toList()..sort();
 
     return await showDialog<bool>(
           context: context,
@@ -520,15 +611,15 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
                     style: KTypography.body(),
                   ),
                   SizedBox(height: KSpacing.m),
-                  if (added.isNotEmpty) ...[
+                  if (addedSkills.isNotEmpty) ...[
                     Text(
-                      'Ajoutées (${added.length})',
+                      'Compétences ajoutées (${addedSkills.length})',
                       style: KTypography.body(
                         fontWeight: KTypography.fontWeightSemiBold,
                       ),
                     ),
                     SizedBox(height: KSpacing.xs),
-                    ...added.map(
+                    ...addedSkills.map(
                       (s) => Padding(
                         padding: EdgeInsets.only(bottom: KSpacing.xs),
                         child: Row(
@@ -542,20 +633,64 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
                     ),
                     SizedBox(height: KSpacing.s),
                   ],
-                  if (removed.isNotEmpty) ...[
+                  if (removedSkills.isNotEmpty) ...[
                     Text(
-                      'Retirées (${removed.length})',
+                      'Compétences retirées (${removedSkills.length})',
                       style: KTypography.body(
                         fontWeight: KTypography.fontWeightSemiBold,
                       ),
                     ),
                     SizedBox(height: KSpacing.xs),
-                    ...removed.map(
+                    ...removedSkills.map(
                       (s) => Padding(
                         padding: EdgeInsets.only(bottom: KSpacing.xs),
                         child: Row(
                           children: [
                             Icon(Icons.remove, size: 16, color: Colors.red),
+                            SizedBox(width: KSpacing.s),
+                            Expanded(child: Text(s, style: KTypography.body())),
+                          ],
+                        ),
+                      ),
+                    ),
+                    SizedBox(height: KSpacing.s),
+                  ],
+                  if (addedKeySkills.isNotEmpty) ...[
+                    Text(
+                      'Compétences-clés ajoutées (${addedKeySkills.length})',
+                      style: KTypography.body(
+                        fontWeight: KTypography.fontWeightSemiBold,
+                      ),
+                    ),
+                    SizedBox(height: KSpacing.xs),
+                    ...addedKeySkills.map(
+                      (s) => Padding(
+                        padding: EdgeInsets.only(bottom: KSpacing.xs),
+                        child: Row(
+                          children: [
+                            Icon(Icons.star, size: 16, color: Colors.amber),
+                            SizedBox(width: KSpacing.s),
+                            Expanded(child: Text(s, style: KTypography.body())),
+                          ],
+                        ),
+                      ),
+                    ),
+                    SizedBox(height: KSpacing.s),
+                  ],
+                  if (removedKeySkills.isNotEmpty) ...[
+                    Text(
+                      'Compétences-clés retirées (${removedKeySkills.length})',
+                      style: KTypography.body(
+                        fontWeight: KTypography.fontWeightSemiBold,
+                      ),
+                    ),
+                    SizedBox(height: KSpacing.xs),
+                    ...removedKeySkills.map(
+                      (s) => Padding(
+                        padding: EdgeInsets.only(bottom: KSpacing.xs),
+                        child: Row(
+                          children: [
+                            Icon(Icons.star_border, size: 16, color: Colors.grey),
                             SizedBox(width: KSpacing.s),
                             Expanded(child: Text(s, style: KTypography.body())),
                           ],
@@ -654,10 +789,7 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
                     );
                     return;
                   }
-                  final ok = await _showSaveConfirmationDialog();
-                  if (ok) {
-                    await _saveSkills();
-                  }
+                  await _saveSkills();
                 },
               ),
             if (_isSaving)
@@ -775,6 +907,7 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
 
   Widget _buildSkillCheckbox(String skill, String category) {
     final isChecked = _selectedSkills.contains(skill);
+    final isKeySkill = _selectedKeySkills.contains(skill);
     final levelLabel = _getSkillLevelLabel(skill, category);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -818,6 +951,19 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
               style: KTypography.caption(
                 color: Theme.of(context).colorScheme.tertiary,
               ).copyWith(fontStyle: FontStyle.italic),
+            )
+          : null,
+      trailing: isChecked
+          ? IconButton(
+              icon: Icon(
+                isKeySkill ? Icons.star : Icons.star_border,
+                color: isKeySkill ? Colors.amber : Colors.grey,
+                size: 24,
+              ),
+              onPressed: () => _toggleKeySkill(skill),
+              tooltip: isKeySkill
+                  ? 'Retirer des compétences-clés'
+                  : 'Marquer comme compétence-clé',
             )
           : null,
     );

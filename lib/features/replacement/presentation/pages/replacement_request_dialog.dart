@@ -4,19 +4,21 @@ import 'package:nexshift_app/core/services/replacement_notification_service.dart
 import 'package:nexshift_app/core/repositories/user_repository.dart';
 import 'package:nexshift_app/core/repositories/subshift_repositories.dart';
 import 'package:nexshift_app/core/repositories/planning_repository.dart';
-import 'package:nexshift_app/core/data/models/subshift_model.dart';
-import 'package:uuid/uuid.dart';
+import 'package:nexshift_app/core/config/environment_config.dart';
+import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 
 /// Dialog affichant une demande de remplacement
 /// Permet à l'utilisateur de répondre (disponible / indisponible)
 class ReplacementRequestDialog extends StatefulWidget {
   final String requestId;
   final String currentUserId;
+  final String stationId;
 
   const ReplacementRequestDialog({
     super.key,
     required this.requestId,
     required this.currentUserId,
+    required this.stationId,
   });
 
   @override
@@ -41,6 +43,29 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
   DateTime? _selectedStartTime;
   DateTime? _selectedEndTime;
 
+  // Helper methods pour les chemins de collections
+  String _getReplacementRequestsPath() {
+    if (EnvironmentConfig.useStationSubcollections && widget.stationId.isNotEmpty) {
+      final sdisId = SDISContext().currentSDISId;
+      if (sdisId != null && sdisId.isNotEmpty) {
+        return 'sdis/$sdisId/stations/${widget.stationId}/replacements/automatic/replacementRequests';
+      }
+      return 'stations/${widget.stationId}/replacements/automatic/replacementRequests';
+    }
+    return 'replacementRequests';
+  }
+
+  String _getReplacementRequestDeclinesPath() {
+    if (EnvironmentConfig.useStationSubcollections && widget.stationId.isNotEmpty) {
+      final sdisId = SDISContext().currentSDISId;
+      if (sdisId != null && sdisId.isNotEmpty) {
+        return 'sdis/$sdisId/stations/${widget.stationId}/replacements/automatic/replacementRequestDeclines';
+      }
+      return 'stations/${widget.stationId}/replacements/automatic/replacementRequestDeclines';
+    }
+    return 'replacementRequestDeclines';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -51,7 +76,7 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
     try {
       // Charger la demande depuis Firestore
       final requestDoc = await _notificationService.firestore
-          .collection('replacementRequests')
+          .collection(_getReplacementRequestsPath())
           .doc(widget.requestId)
           .get();
 
@@ -95,6 +120,42 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
         cannotAcceptReason =
             'Vous ne pouvez pas accepter votre propre demande de remplacement.';
       }
+      // 3. Vérifier que l'utilisateur n'a pas déjà refusé cette demande
+      else {
+        final declinesPath = _getReplacementRequestDeclinesPath();
+        final declineSnapshot = await _notificationService.firestore
+            .collection(declinesPath)
+            .where('requestId', isEqualTo: widget.requestId)
+            .where('userId', isEqualTo: widget.currentUserId)
+            .limit(1)
+            .get();
+
+        if (declineSnapshot.docs.isNotEmpty) {
+          canAccept = false;
+          cannotAcceptReason = 'Vous avez déjà refusé cette demande de remplacement.';
+        }
+      }
+      // 4. Vérifier que l'utilisateur n'a pas déjà une acceptation en attente
+      if (canAccept) {
+        final acceptancesPath = EnvironmentConfig.useStationSubcollections && widget.stationId.isNotEmpty
+            ? (SDISContext().currentSDISId != null && SDISContext().currentSDISId!.isNotEmpty
+                ? 'sdis/${SDISContext().currentSDISId}/stations/${widget.stationId}/manualReplacementAcceptances'
+                : 'stations/${widget.stationId}/manualReplacementAcceptances')
+            : 'manualReplacementAcceptances';
+
+        final acceptanceSnapshot = await _notificationService.firestore
+            .collection(acceptancesPath)
+            .where('requestId', isEqualTo: widget.requestId)
+            .where('userId', isEqualTo: widget.currentUserId)
+            .where('status', isEqualTo: 'pending')
+            .limit(1)
+            .get();
+
+        if (acceptanceSnapshot.docs.isNotEmpty) {
+          canAccept = false;
+          cannotAcceptReason = 'Votre acceptation de cette demande est en attente de validation par le chef d\'équipe.';
+        }
+      }
       // 3. Vérifier la disponibilité sur la période
       else {
         try {
@@ -117,7 +178,7 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
 
           // 2b. Vérifier si l'utilisateur a déjà un remplacement qui chevauche cette période
           if (canAccept) {
-            final existingSubshifts = await _subshiftRepository.getAll();
+            final existingSubshifts = await _subshiftRepository.getAll(stationId: widget.stationId);
             final hasConflict = existingSubshifts.any((subshift) {
               // Vérifier si l'utilisateur est le remplaçant ou le remplacé
               final isInvolved =
@@ -169,7 +230,7 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
     try {
       // Re-vérifier que la demande est toujours pending (protection contre race condition)
       final freshRequestDoc = await _notificationService.firestore
-          .collection('replacementRequests')
+          .collection(_getReplacementRequestsPath())
           .doc(widget.requestId)
           .get();
 
@@ -181,12 +242,26 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
         return;
       }
 
-      final freshStatus = freshRequestDoc.data()?['status'] as String?;
+      final freshRequestData = freshRequestDoc.data()!;
+      final freshStatus = freshRequestData['status'] as String?;
       if (freshStatus != 'pending') {
         setState(() {
           _error = 'Cette demande a déjà été acceptée par quelqu\'un d\'autre';
           _isResponding = false;
         });
+        return;
+      }
+
+      // 🔒 SÉCURITÉ CRITIQUE : Vérifier que l'utilisateur est bien notifié
+      final notifiedUserIds = List<String>.from(
+        freshRequestData['notifiedUserIds'] ?? [],
+      );
+      if (!notifiedUserIds.contains(widget.currentUserId)) {
+        setState(() {
+          _error = 'ERREUR: Vous n\'êtes pas autorisé à accepter cette demande.\nVous n\'avez pas encore été notifié.';
+          _isResponding = false;
+        });
+        debugPrint('❌ SECURITY VIOLATION: User ${widget.currentUserId} attempted to accept request ${widget.requestId} without being notified!');
         return;
       }
 
@@ -212,7 +287,7 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
       }
 
       // Vérifier les conflits avec les subshifts existants
-      final existingSubshifts = await _subshiftRepository.getAll();
+      final existingSubshifts = await _subshiftRepository.getAll(stationId: widget.stationId);
       final hasConflict = existingSubshifts.any((subshift) {
         final isInvolved =
             subshift.replacerId == widget.currentUserId ||
@@ -236,13 +311,14 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
         await _notificationService.acceptReplacementRequest(
           requestId: widget.requestId,
           replacerId: widget.currentUserId,
+          stationId: widget.stationId,
           acceptedStartTime: _selectedStartTime,
           acceptedEndTime: _selectedEndTime,
         );
 
         // Mettre à jour le statut de la demande
         await _notificationService.firestore
-            .collection('replacementRequests')
+            .collection(_getReplacementRequestsPath())
             .doc(widget.requestId)
             .update({
               'status': ReplacementRequestStatus.accepted
@@ -286,35 +362,48 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
           return;
         }
 
-        // Créer le subshift avec la plage sélectionnée
-        final subshift = Subshift(
-          id: const Uuid().v4(),
-          planningId: _request!.planningId,
-          start: _selectedStartTime!,
-          end: _selectedEndTime!,
-          replacedId: _request!.requesterId,
-          replacerId: widget.currentUserId,
-        );
-
-        await SubshiftRepository().save(subshift);
-
-        // Accepter la demande (met à jour le statut et envoie les notifications)
-        // Passer les heures sélectionnées pour gérer les remplacements partiels
+        // Phase 4: Appeler acceptReplacementRequest qui gère la validation conditionnelle
+        // Le service déterminera si un Subshift doit être créé immédiatement
+        // ou si une acceptation en attente de validation doit être créée
         await _notificationService.acceptReplacementRequest(
           requestId: widget.requestId,
           replacerId: widget.currentUserId,
+          stationId: widget.stationId,
           acceptedStartTime: _selectedStartTime,
           acceptedEndTime: _selectedEndTime,
         );
 
+        // Vérifier si la demande a été acceptée ou est en attente de validation
+        final updatedRequestDoc = await _notificationService.firestore
+            .collection(_getReplacementRequestsPath())
+            .doc(widget.requestId)
+            .get();
+
+        final updatedStatus = updatedRequestDoc.data()?['status'] as String?;
+
         if (mounted) {
           Navigator.of(context).pop(true);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('✅ Remplacement accepté'),
-              backgroundColor: Colors.green,
-            ),
-          );
+
+          // Phase 4: Afficher le message approprié selon le statut
+          if (updatedStatus == 'accepted') {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('✅ Remplacement accepté'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          } else {
+            // La demande reste en "pending" car une validation est requise
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Text(
+                  '⏳ Acceptation en attente de validation par votre chef d\'équipe',
+                ),
+                backgroundColor: Colors.orange,
+                duration: const Duration(seconds: 4),
+              ),
+            );
+          }
         }
       }
     } catch (e) {
@@ -333,7 +422,7 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
 
       // Enregistrer le refus dans Firestore
       final docRef = await FirebaseFirestore.instance
-          .collection('replacementRequestDeclines')
+          .collection(_getReplacementRequestDeclinesPath())
           .add({
         'requestId': _request!.id,
         'userId': widget.currentUserId,
@@ -353,6 +442,38 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
       // Même en cas d'erreur, on ferme le dialog
       if (mounted) {
         Navigator.of(context).pop(false);
+      }
+    }
+  }
+
+  /// Marque la demande comme "vue" sans y répondre
+  /// Phase 2 - État "Vu"
+  Future<void> _markAsSeen() async {
+    if (_request == null) return;
+
+    try {
+      setState(() => _isResponding = true);
+
+      // Ajouter l'userId à seenByUserIds dans Firestore
+      await FirebaseFirestore.instance
+          .collection(_getReplacementRequestsPath())
+          .doc(widget.requestId)
+          .update({
+        'seenByUserIds': FieldValue.arrayUnion([widget.currentUserId]),
+      });
+
+      debugPrint(
+        '👁️ Request ${_request!.id} marked as seen by user ${widget.currentUserId}',
+      );
+
+      if (mounted) {
+        Navigator.of(context).pop(null); // null indique "Vu" sans réponse
+      }
+    } catch (e) {
+      debugPrint('❌ Error marking request as seen: $e');
+      // En cas d'erreur, on ferme quand même le dialog
+      if (mounted) {
+        Navigator.of(context).pop(null);
       }
     }
   }
@@ -456,62 +577,145 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
     final isAvailabilityRequest =
         _request?.requestType == RequestType.availability;
 
-    return AlertDialog(
-      title: Text(
-        isAvailabilityRequest
-            ? 'Demande de disponibilité'
-            : 'Demande de remplacement',
-      ),
-      content: _isLoading
-          ? const SizedBox(
-              height: 100,
-              child: Center(child: CircularProgressIndicator()),
-            )
-          : _error != null
-          ? Column(
-              mainAxisSize: MainAxisSize.min,
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // AppBar avec BackButton
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(16),
+                topRight: Radius.circular(16),
+              ),
+            ),
+            child: Row(
               children: [
-                Icon(Icons.error_outline, size: 48, color: Colors.red.shade300),
-                const SizedBox(height: 16),
-                Text(
-                  _error!,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.red.shade700),
+                IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: () {
+                    // Marquer comme "Vu" automatiquement au retour
+                    _markAsSeen();
+                  },
+                  tooltip: 'Retour',
                 ),
-              ],
-            )
-          : _request == null
-          ? const Text('Aucune information disponible')
-          : Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Demandeur
-                Row(
-                  children: [
-                    const Icon(Icons.person, size: 20, color: Colors.blue),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        _requesterName ?? 'Inconnu',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
+                Expanded(
+                  child: Text(
+                    isAvailabilityRequest
+                        ? 'Demande de disponibilité'
+                        : 'Demande de remplacement',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
                     ),
-                  ],
+                    textAlign: TextAlign.center,
+                  ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  isAvailabilityRequest
-                      ? 'recherche un agent disponible'
-                      : 'recherche un remplaçant',
-                  style: const TextStyle(color: Colors.grey),
-                ),
-                const SizedBox(height: 16),
+                const SizedBox(width: 48), // Équilibre visuel
+              ],
+            ),
+          ),
+          // Contenu scrollable
+          Flexible(
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: _buildDialogContent(context, isAvailabilityRequest),
+              ),
+            ),
+          ),
+          // Boutons d'action en bas
+          if (!_isLoading && _error == null && _request != null)
+            _buildActionButtons(context),
+        ],
+      ),
+    );
+  }
 
-                // Période
+  Widget _buildDialogContent(
+    BuildContext context,
+    bool isAvailabilityRequest,
+  ) {
+    if (_isLoading) {
+      return const SizedBox(
+        height: 100,
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_error != null) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.error_outline, size: 48, color: Colors.red.shade300),
+          const SizedBox(height: 16),
+          Text(
+            _error!,
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.red.shade700),
+          ),
+          const SizedBox(height: 24),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Fermer'),
+            ),
+          ),
+        ],
+      );
+    }
+
+    if (_request == null) {
+      return const Text('Aucune information disponible');
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Demandeur
+        Row(
+          children: [
+            const Icon(Icons.person, size: 20, color: Colors.blue),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                _requesterName ?? 'Inconnu',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          isAvailabilityRequest
+              ? 'recherche un agent disponible'
+              : 'recherche un remplaçant',
+          style: const TextStyle(color: Colors.grey),
+        ),
+        const SizedBox(height: 16),
+        // Le reste du contenu (périodes, etc.) suit ici
+        _buildContentDetails(context, isAvailabilityRequest),
+      ],
+    );
+  }
+
+  Widget _buildContentDetails(
+    BuildContext context,
+    bool isAvailabilityRequest,
+  ) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Période
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
@@ -740,39 +944,74 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
                   ),
                 ],
               ],
-            ),
-      actions: _error != null
-          ? [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Fermer'),
-              ),
-            ]
-          : _isResponding
-          ? [
-              const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(16.0),
-                  child: CircularProgressIndicator(),
-                ),
-              ),
-            ]
-          : [
-              // Bouton Indisponible
-              TextButton(
-                onPressed: _declineRequest,
-                child: const Text('Indisponible'),
-              ),
+            );
+  }
 
-              // Bouton Je suis disponible
-              FilledButton(
-                onPressed: _canAccept ? _acceptRequest : null,
-                style: FilledButton.styleFrom(
-                  backgroundColor: _canAccept ? Colors.green : Colors.grey,
+  /// Construit les boutons d'action en pleine largeur
+  Widget _buildActionButtons(BuildContext context) {
+    if (_isResponding) {
+      return const Padding(
+        padding: EdgeInsets.all(24.0),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(16.0),
+      decoration: BoxDecoration(
+        color: Theme.of(context).brightness == Brightness.dark
+            ? Colors.grey.shade900
+            : Colors.grey.shade50,
+        border: Border(
+          top: BorderSide(
+            color: Theme.of(context).brightness == Brightness.dark
+                ? Colors.grey.shade800
+                : Colors.grey.shade200,
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          // Bouton "Je ne suis pas disponible" - Style outlined rouge discret
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: _declineRequest,
+              icon: const Icon(Icons.close, size: 20),
+              label: const Text('Non disponible'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.red.shade700,
+                side: BorderSide(color: Colors.red.shade300),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Text('Je suis disponible !'),
               ),
-            ],
+            ),
+          ),
+          const SizedBox(width: 12),
+
+          // Bouton "Je suis disponible" - Style filled avec couleur primaire
+          Expanded(
+            child: FilledButton.icon(
+              onPressed: _canAccept ? _acceptRequest : null,
+              icon: const Icon(Icons.check, size: 20),
+              label: const Text('Disponible'),
+              style: FilledButton.styleFrom(
+                backgroundColor: _canAccept
+                    ? Theme.of(context).colorScheme.primary
+                    : Colors.grey.shade300,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                disabledBackgroundColor: Colors.grey.shade300,
+                disabledForegroundColor: Colors.grey.shade600,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -782,6 +1021,7 @@ Future<bool?> showReplacementRequestDialog(
   BuildContext context, {
   required String requestId,
   required String currentUserId,
+  required String stationId,
 }) {
   return showDialog<bool>(
     context: context,
@@ -789,6 +1029,7 @@ Future<bool?> showReplacementRequestDialog(
     builder: (context) => ReplacementRequestDialog(
       requestId: requestId,
       currentUserId: currentUserId,
+      stationId: stationId,
     ),
   );
 }

@@ -148,10 +148,18 @@ void _handleNotificationTap(Map<String, dynamic> data) {
         return;
       }
 
+      // Récupérer le stationId depuis les données de notification ou depuis l'utilisateur courant
+      final stationId = data['station'] ?? userNotifier.value?.station;
+      if (stationId == null) {
+        debugPrint('⚠️ No station available for replacement request');
+        return;
+      }
+
       showReplacementRequestDialog(
         context,
         requestId: requestId,
         currentUserId: currentUserId,
+        stationId: stationId,
       );
       break;
 

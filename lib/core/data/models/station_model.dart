@@ -1,6 +1,8 @@
+/// Mode de remplacement
 enum ReplacementMode {
   similarity, // Mode par similarité (système actuel)
-  position, // Mode par poste (nouveau système hiérarchique)
+  manual, // Mode manuel (sélection directe)
+  availability, // Demande de disponibilité (recherche par compétences)
 }
 
 class Station {
@@ -17,8 +19,12 @@ class Station {
   // Mode de remplacement automatique
   final ReplacementMode replacementMode;
 
-  // Autoriser la recherche d'agents sous-qualifiés (en mode position)
-  final bool allowUnderQualifiedReplacement;
+  // Autoriser l'acceptation automatique d'agents sous-qualifiés
+  final bool allowUnderQualifiedAutoAcceptance;
+
+  // Pondération des compétences pour le calcul de similarité
+  // Map<skillName, weight> - Par défaut, toutes les compétences ont un poids de 1.0
+  final Map<String, double> skillWeights;
 
   const Station({
     required this.id,
@@ -26,7 +32,8 @@ class Station {
     this.notificationWaveDelayMinutes = 30, // Délai par défaut: 30 minutes
     this.maxAgentsPerShift = 6, // Valeur par défaut: 6 agents
     this.replacementMode = ReplacementMode.similarity, // Mode par défaut: similarité
-    this.allowUnderQualifiedReplacement = false, // Par défaut: désactivé
+    this.allowUnderQualifiedAutoAcceptance = false, // Par défaut: désactivé
+    this.skillWeights = const {}, // Par défaut : vide (toutes à 1.0)
   });
 
   Station copyWith({
@@ -35,7 +42,8 @@ class Station {
     int? notificationWaveDelayMinutes,
     int? maxAgentsPerShift,
     ReplacementMode? replacementMode,
-    bool? allowUnderQualifiedReplacement,
+    bool? allowUnderQualifiedAutoAcceptance,
+    Map<String, double>? skillWeights,
   }) =>
       Station(
         id: id ?? this.id,
@@ -43,7 +51,8 @@ class Station {
         notificationWaveDelayMinutes: notificationWaveDelayMinutes ?? this.notificationWaveDelayMinutes,
         maxAgentsPerShift: maxAgentsPerShift ?? this.maxAgentsPerShift,
         replacementMode: replacementMode ?? this.replacementMode,
-        allowUnderQualifiedReplacement: allowUnderQualifiedReplacement ?? this.allowUnderQualifiedReplacement,
+        allowUnderQualifiedAutoAcceptance: allowUnderQualifiedAutoAcceptance ?? this.allowUnderQualifiedAutoAcceptance,
+        skillWeights: skillWeights ?? this.skillWeights,
       );
 
   Map<String, dynamic> toJson() => {
@@ -52,7 +61,8 @@ class Station {
         'notificationWaveDelayMinutes': notificationWaveDelayMinutes,
         'maxAgentsPerShift': maxAgentsPerShift,
         'replacementMode': replacementMode.name,
-        'allowUnderQualifiedReplacement': allowUnderQualifiedReplacement,
+        'allowUnderQualifiedAutoAcceptance': allowUnderQualifiedAutoAcceptance,
+        'skillWeights': skillWeights,
       };
 
   factory Station.fromJson(Map<String, dynamic> json) => Station(
@@ -66,6 +76,10 @@ class Station {
                 orElse: () => ReplacementMode.similarity,
               )
             : ReplacementMode.similarity,
-        allowUnderQualifiedReplacement: json['allowUnderQualifiedReplacement'] as bool? ?? false,
+        allowUnderQualifiedAutoAcceptance: json['allowUnderQualifiedAutoAcceptance'] as bool? ??
+            json['allowUnderQualifiedReplacement'] as bool? ?? false, // Fallback pour compatibilité
+        skillWeights: json['skillWeights'] != null
+            ? Map<String, double>.from(json['skillWeights'])
+            : {},
       );
 }

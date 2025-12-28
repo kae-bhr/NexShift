@@ -10,6 +10,8 @@ import 'package:nexshift_app/core/data/models/subshift_model.dart';
 import 'package:nexshift_app/features/replacement/services/replacement_search_service.dart';
 import 'package:nexshift_app/features/replacement/presentation/widgets/planning_tile.dart';
 import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
+import 'package:nexshift_app/core/config/environment_config.dart';
+import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 
 class ReplacementPage extends StatefulWidget {
   final Planning planning;
@@ -37,6 +39,7 @@ class _ReplacementPageState extends State<ReplacementPage> {
   final repo = SubshiftRepository();
   List<User> allUsers = [];
   List<Subshift> existingSubshifts = [];
+  List<Map<String, DateTime>> activeRequestPeriods = []; // Périodes avec demandes actives
   String? replacedId;
   String? replacerId;
   DateTime? startDateTime;
@@ -76,6 +79,20 @@ class _ReplacementPageState extends State<ReplacementPage> {
     return luminance > 0.5 ? Colors.black87 : Colors.white;
   }
 
+  /// Retourne le chemin de collection pour les triggers de notification
+  /// En dev avec SDIS: /sdis/{sdisId}/stations/{stationId}/replacements/automatic/notificationTriggers
+  /// En prod: /notificationTriggers
+  String _getNotificationTriggersPath(String stationId) {
+    if (EnvironmentConfig.useStationSubcollections && stationId.isNotEmpty) {
+      final sdisId = SDISContext().currentSDISId;
+      if (sdisId != null && sdisId.isNotEmpty) {
+        return 'sdis/$sdisId/stations/$stationId/replacements/automatic/notificationTriggers';
+      }
+      return 'stations/$stationId/replacements/automatic/notificationTriggers';
+    }
+    return 'notificationTriggers';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -98,10 +115,51 @@ class _ReplacementPageState extends State<ReplacementPage> {
   Future<void> _loadUsers() async {
     final users = await LocalRepository().getAllUsers();
     final subshifts = await repo.getByPlanningId(widget.planning.id);
+    await _loadActiveRequests();
     setState(() {
       allUsers = users;
       existingSubshifts = subshifts;
     });
+  }
+
+  /// Charge les périodes couvertes par des demandes de remplacement actives
+  Future<void> _loadActiveRequests() async {
+    try {
+      if (widget.currentUser == null) return;
+
+      final stationId = widget.currentUser!.station;
+      final requestsPath = EnvironmentConfig.useStationSubcollections && stationId.isNotEmpty
+          ? (SDISContext().currentSDISId != null && SDISContext().currentSDISId!.isNotEmpty
+              ? 'sdis/${SDISContext().currentSDISId}/stations/$stationId/replacements/automatic/replacementRequests'
+              : 'stations/$stationId/replacements/automatic/replacementRequests')
+          : 'replacementRequests';
+
+      // Chercher les demandes actives pour ce planning
+      final snapshot = await FirebaseFirestore.instance
+          .collection(requestsPath)
+          .where('planningId', isEqualTo: widget.planning.id)
+          .where('status', whereIn: ['pending', 'accepted'])
+          .get();
+
+      final periods = <Map<String, DateTime>>[];
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final start = (data['startTime'] as Timestamp).toDate();
+        final end = (data['endTime'] as Timestamp).toDate();
+        final requesterId = data['requesterId'] as String;
+
+        // Ajouter la période seulement si c'est pour l'utilisateur sélectionné
+        if (requesterId == replacedId) {
+          periods.add({'start': start, 'end': end});
+        }
+      }
+
+      setState(() {
+        activeRequestPeriods = periods;
+      });
+    } catch (e) {
+      debugPrint('Error loading active requests: $e');
+    }
   }
 
   void _validate() {
@@ -112,13 +170,15 @@ class _ReplacementPageState extends State<ReplacementPage> {
     } else if (endDateTime!.isBefore(startDateTime!)) {
       err = "L'heure de fin ne peut pas être antérieure à l'heure de début.";
     } else if (startDateTime!.isBefore(widget.planning.startTime)) {
-      err = "La date de début ne peut pas précéder celle de l’astreinte.";
+      err = "La date de début ne peut pas précéder celle de l'astreinte.";
     } else if (endDateTime!.isAfter(widget.planning.endTime)) {
-      err = "La date de fin ne peut pas dépasser celle de l’astreinte.";
+      err = "La date de fin ne peut pas dépasser celle de l'astreinte.";
     } else if (replacedId != null &&
         replacerId != null &&
         replacedId == replacerId) {
       err = "Un agent ne peut pas se remplacer lui-même.";
+    } else if (replacedId != null && _isFullyCoveredByActiveRequests(replacedId!)) {
+      err = "Cette période est déjà totalement couverte par des demandes de remplacement en cours.";
     } else if (_hasConflict(
       replacedId,
       replacerId,
@@ -146,6 +206,12 @@ class _ReplacementPageState extends State<ReplacementPage> {
     }
 
     setState(() => error = err);
+  }
+
+  /// Vérifie si la période de l'astreinte est totalement couverte par des demandes actives
+  bool _isFullyCoveredByActiveRequests(String userId) {
+    final gaps = _uncoveredPeriodsFor(userId);
+    return gaps.isEmpty;
   }
 
   bool _hasConflict(
@@ -225,7 +291,16 @@ class _ReplacementPageState extends State<ReplacementPage> {
         )
         .toList();
 
-    if (covered.isEmpty) {
+    // Ajouter les périodes avec demandes de remplacement actives comme "couvertes"
+    final List<Map<String, DateTime>> coveredPeriods = covered.map((s) => {
+      'start': s.start,
+      'end': s.end,
+    }).toList();
+
+    // Ajouter les périodes des demandes actives
+    coveredPeriods.addAll(activeRequestPeriods);
+
+    if (coveredPeriods.isEmpty) {
       return [
         {'start': planningStart, 'end': planningEnd},
       ];
@@ -233,13 +308,13 @@ class _ReplacementPageState extends State<ReplacementPage> {
 
     // normalize to planning bounds and sort by start
     final normalized =
-        covered
+        coveredPeriods
             .map(
-              (s) => {
-                'start': s.start.isBefore(planningStart)
+              (period) => {
+                'start': period['start']!.isBefore(planningStart)
                     ? planningStart
-                    : s.start,
-                'end': s.end.isAfter(planningEnd) ? planningEnd : s.end,
+                    : period['start']!,
+                'end': period['end']!.isAfter(planningEnd) ? planningEnd : period['end']!,
               },
             )
             .toList()
@@ -596,7 +671,8 @@ class _ReplacementPageState extends State<ReplacementPage> {
       });
 
       // Send notification to the replacer via notificationTriggers
-      await FirebaseFirestore.instance.collection('notificationTriggers').add({
+      final notificationTriggersPath = _getNotificationTriggersPath(widget.planning.station);
+      await FirebaseFirestore.instance.collection(notificationTriggersPath).add({
         'type': 'manual_replacement_proposal',
         'proposalId': proposalRef.id,
         'proposerId': proposerUser.id,
@@ -708,10 +784,11 @@ class _ReplacementPageState extends State<ReplacementPage> {
                         ),
                       )
                       .toList(),
-                  onChanged: (v) {
+                  onChanged: (v) async {
                     setState(() {
                       replacedId = v;
                     });
+                    await _loadActiveRequests();
                     _validate();
                   },
                 )

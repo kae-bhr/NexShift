@@ -456,7 +456,7 @@ class _PlanningCardState extends State<PlanningCard> {
     final user = await UserStorageHelper.loadUser();
     if (user == null) return [];
     final repo = LocalRepository();
-    final rawSubshifts = await repo.getSubshifts();
+    final rawSubshifts = await repo.getSubshifts(stationId: user.station);
     final availabilities = await repo.getAvailabilities();
     // Résoudre les cascades de remplacements
     final subshifts = resolveReplacementCascades(rawSubshifts);
@@ -588,7 +588,7 @@ class _VehicleIcon extends StatelessWidget {
     // Get all users and subshifts
     final repo = LocalRepository();
     final allUsers = await repo.getAllUsers();
-    final allSubshifts = await repo.getSubshifts();
+    final allSubshifts = await repo.getSubshifts(stationId: planning.station);
 
     final baseAgents = allUsers
         .where((u) => planning.agentsId.contains(u.id))

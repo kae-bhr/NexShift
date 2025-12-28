@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lottie/lottie.dart';
 import 'package:nexshift_app/core/data/datasources/notifiers.dart';
+import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:nexshift_app/core/config/environment_config.dart';
 import 'package:nexshift_app/features/home/presentation/pages/home_page.dart';
 import 'package:nexshift_app/features/planning/presentation/pages/planning_page.dart';
 import 'package:nexshift_app/features/planning/presentation/pages/my_shifts_page.dart';
@@ -407,11 +409,18 @@ class _WidgetTreeState extends State<WidgetTree> {
                           );
                         },
                         child: StreamBuilder<QuerySnapshot>(
-                          stream: user != null ? FirebaseFirestore.instance
-                              .collection('replacementRequests')
+                          stream: user != null ? (() {
+                            final requestsPath = EnvironmentConfig.useStationSubcollections && user.station.isNotEmpty
+                                ? (SDISContext().currentSDISId != null && SDISContext().currentSDISId!.isNotEmpty
+                                    ? 'sdis/${SDISContext().currentSDISId}/stations/${user.station}/replacements/automatic/replacementRequests'
+                                    : 'stations/${user.station}/replacements/automatic/replacementRequests')
+                                : 'replacementRequests';
+                            return FirebaseFirestore.instance
+                              .collection(requestsPath)
                               .where('status', isEqualTo: 'pending')
                               .where('station', isEqualTo: user.station)
-                              .snapshots() : Stream.empty(),
+                              .snapshots();
+                          })() : Stream.empty(),
                           builder: (context, requestsSnapshot) {
                             if (!requestsSnapshot.hasData) {
                               return ListTile(
@@ -440,15 +449,51 @@ class _WidgetTreeState extends State<WidgetTree> {
                               );
                             }
 
+                            // Ajouter un StreamBuilder pour les acceptances en attente de validation (chefs uniquement)
+                            debugPrint('🔔 [DRAWER] Checking if user is chief/leader: status=${user?.status}, isChief=${user?.status == 'chief'}, isLeader=${user?.status == 'leader'}');
                             return StreamBuilder<QuerySnapshot>(
-                              stream: user != null ? FirebaseFirestore.instance
-                                  .collection('replacementRequestDeclines')
-                                  .where('userId', isEqualTo: user.id)
-                                  .snapshots() : Stream.empty(),
-                              builder: (context, declinesSnapshot) {
-                                // Compter les demandes où l'utilisateur est demandeur OU notifié
-                                // ET n'a PAS refusé
-                                int pendingCount = 0;
+                              stream: user != null && (user.status == 'chief' || user.status == 'leader') ? (() {
+                                final acceptancesPath = EnvironmentConfig.useStationSubcollections && user.station.isNotEmpty
+                                    ? (SDISContext().currentSDISId != null && SDISContext().currentSDISId!.isNotEmpty
+                                        ? 'sdis/${SDISContext().currentSDISId}/stations/${user.station}/replacements/automatic/replacementAcceptances'
+                                        : 'stations/${user.station}/replacements/automatic/replacementAcceptances')
+                                    : 'replacementAcceptances';
+                                debugPrint('🔔 [DRAWER] Watching acceptances at: $acceptancesPath for chiefTeamId: ${user.team}');
+                                return FirebaseFirestore.instance
+                                    .collection(acceptancesPath)
+                                    .where('status', isEqualTo: 'pendingValidation')
+                                    .where('chiefTeamId', isEqualTo: user.team)
+                                    .snapshots();
+                              })() : Stream.empty(),
+                              builder: (context, acceptancesSnapshot) {
+                                final pendingAcceptancesCount = acceptancesSnapshot.hasData ? acceptancesSnapshot.data!.docs.length : 0;
+                                debugPrint('🔔 [DRAWER] Pending acceptances count: $pendingAcceptancesCount (hasData: ${acceptancesSnapshot.hasData})');
+                                if (acceptancesSnapshot.hasData && acceptancesSnapshot.data!.docs.isNotEmpty) {
+                                  debugPrint('🔔 [DRAWER] Acceptance IDs: ${acceptancesSnapshot.data!.docs.map((d) => d.id).join(", ")}');
+                                  for (var doc in acceptancesSnapshot.data!.docs) {
+                                    final data = doc.data() as Map<String, dynamic>;
+                                    debugPrint('🔔 [DRAWER]   - ${doc.id}: chiefTeamId=${data['chiefTeamId']}, status=${data['status']}');
+                                  }
+                                } else if (acceptancesSnapshot.hasData) {
+                                  debugPrint('🔔 [DRAWER] No acceptances found - query returned empty result');
+                                }
+
+                                return StreamBuilder<QuerySnapshot>(
+                                  stream: user != null ? (() {
+                                    final declinesPath = EnvironmentConfig.useStationSubcollections && user.station.isNotEmpty
+                                        ? (SDISContext().currentSDISId != null && SDISContext().currentSDISId!.isNotEmpty
+                                            ? 'sdis/${SDISContext().currentSDISId}/stations/${user.station}/replacements/automatic/replacementRequestDeclines'
+                                            : 'stations/${user.station}/replacements/automatic/replacementRequestDeclines')
+                                        : 'replacementRequestDeclines';
+                                    return FirebaseFirestore.instance
+                                        .collection(declinesPath)
+                                        .where('userId', isEqualTo: user.id)
+                                        .snapshots();
+                                  })() : Stream.empty(),
+                                  builder: (context, declinesSnapshot) {
+                                    // Compter les demandes où l'utilisateur est demandeur OU notifié
+                                    // ET n'a PAS refusé ET n'a PAS marqué comme "Vu"
+                                    int pendingCount = 0;
 
                                 if (declinesSnapshot.hasData) {
                                   final declinedRequestIds = declinesSnapshot
@@ -472,6 +517,12 @@ class _WidgetTreeState extends State<WidgetTree> {
                                     final notifiedUserIds = List<String>.from(
                                       data['notifiedUserIds'] ?? [],
                                     );
+                                    final seenByUserIds = List<String>.from(
+                                      data['seenByUserIds'] ?? [],
+                                    );
+                                    final pendingValidationUserIds = List<String>.from(
+                                      data['pendingValidationUserIds'] ?? [],
+                                    );
 
                                     // Exclure les demandes refusées par l'utilisateur
                                     if (declinedRequestIds.contains(
@@ -480,11 +531,22 @@ class _WidgetTreeState extends State<WidgetTree> {
                                       return false;
                                     }
 
+                                    // Exclure les demandes marquées comme "Vues" par l'utilisateur
+                                    if (user != null && seenByUserIds.contains(user.id)) {
+                                      return false;
+                                    }
+
+                                    // Exclure les demandes où l'utilisateur a une acceptation en attente de validation
+                                    if (user != null && pendingValidationUserIds.contains(user.id)) {
+                                      return false;
+                                    }
+
                                     return user != null && (requesterId == user.id ||
                                         notifiedUserIds.contains(user.id));
                                   }).length;
                                 } else {
                                   // Si pas encore de données sur les refus, compter toutes les demandes
+                                  // mais exclure quand même les demandes "vues"
                                   pendingCount = requestsSnapshot.data!.docs
                                       .where((doc) {
                                         final data =
@@ -495,6 +557,23 @@ class _WidgetTreeState extends State<WidgetTree> {
                                             List<String>.from(
                                               data['notifiedUserIds'] ?? [],
                                             );
+                                        final seenByUserIds = List<String>.from(
+                                          data['seenByUserIds'] ?? [],
+                                        );
+                                        final pendingValidationUserIds = List<String>.from(
+                                          data['pendingValidationUserIds'] ?? [],
+                                        );
+
+                                        // Exclure les demandes marquées comme "Vues"
+                                        if (user != null && seenByUserIds.contains(user.id)) {
+                                          return false;
+                                        }
+
+                                        // Exclure les demandes où l'utilisateur a une acceptation en attente de validation
+                                        if (user != null && pendingValidationUserIds.contains(user.id)) {
+                                          return false;
+                                        }
+
                                         return user != null && (requesterId == user.id ||
                                             notifiedUserIds.contains(user.id));
                                       })
@@ -526,32 +605,58 @@ class _WidgetTreeState extends State<WidgetTree> {
                                           .fontWeight,
                                     ),
                                   ),
-                                  trailing: pendingCount > 0
-                                      ? Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 8,
-                                            vertical: 4,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.primary,
-                                            borderRadius: BorderRadius.circular(
-                                              12,
-                                            ),
-                                          ),
-                                          child: Text(
-                                            pendingCount.toString(),
-                                            style: TextStyle(
-                                              color: Theme.of(
-                                                context,
-                                              ).colorScheme.onPrimary,
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
+                                  trailing: (pendingCount > 0 || pendingAcceptancesCount > 0)
+                                      ? Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            // Badge pour les demandes en attente
+                                            if (pendingCount > 0)
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(
+                                                  horizontal: 8,
+                                                  vertical: 4,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: Theme.of(context).colorScheme.primary,
+                                                  borderRadius: BorderRadius.circular(12),
+                                                ),
+                                                child: Text(
+                                                  pendingCount.toString(),
+                                                  style: TextStyle(
+                                                    color: Theme.of(context).colorScheme.onPrimary,
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
+                                              ),
+                                            // Espacement entre les badges
+                                            if (pendingCount > 0 && pendingAcceptancesCount > 0)
+                                              const SizedBox(width: 4),
+                                            // Badge vert pour les validations en attente
+                                            if (pendingAcceptancesCount > 0)
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(
+                                                  horizontal: 8,
+                                                  vertical: 4,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.green,
+                                                  borderRadius: BorderRadius.circular(12),
+                                                ),
+                                                child: Text(
+                                                  pendingAcceptancesCount.toString(),
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
+                                              ),
+                                          ],
                                         )
                                       : null,
+                                );
+                                  },
                                 );
                               },
                             );

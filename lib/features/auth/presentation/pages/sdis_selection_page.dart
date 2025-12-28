@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:nexshift_app/core/data/models/sdis_model.dart';
 import 'package:nexshift_app/core/repositories/sdis_repository.dart';
+import 'package:nexshift_app/core/services/preferences_service.dart';
 import 'package:nexshift_app/features/auth/presentation/pages/login_page.dart';
 import 'package:nexshift_app/core/presentation/widgets/hero_widget.dart';
 
@@ -15,9 +16,11 @@ class SDISSelectionPage extends StatefulWidget {
 
 class _SDISSelectionPageState extends State<SDISSelectionPage> {
   final SDISRepository _sdisRepository = SDISRepository();
+  final PreferencesService _preferencesService = PreferencesService();
   List<SDIS> _sdisList = [];
   bool _isLoading = true;
   String? _error;
+  String? _lastSdisId;
 
   @override
   void initState() {
@@ -32,10 +35,32 @@ class _SDISSelectionPageState extends State<SDISSelectionPage> {
         _error = null;
       });
 
-      final sdisList = await _sdisRepository.getAllSDIS();
+      // Charger le dernier SDIS sélectionné et la liste des SDIS en parallèle
+      final results = await Future.wait([
+        _preferencesService.getLastSdisId(),
+        _sdisRepository.getAllSDIS(),
+      ]);
+
+      final lastSdisId = results[0] as String?;
+      final sdisList = results[1] as List<SDIS>;
+
+      // Réorganiser la liste pour mettre le dernier SDIS en tête
+      List<SDIS> reorderedList = [];
+      if (lastSdisId != null) {
+        final lastSdis = sdisList.where((s) => s.id == lastSdisId).firstOrNull;
+        if (lastSdis != null) {
+          reorderedList.add(lastSdis);
+          reorderedList.addAll(sdisList.where((s) => s.id != lastSdisId));
+        } else {
+          reorderedList = sdisList;
+        }
+      } else {
+        reorderedList = sdisList;
+      }
 
       setState(() {
-        _sdisList = sdisList;
+        _lastSdisId = lastSdisId;
+        _sdisList = reorderedList;
         _isLoading = false;
       });
     } catch (e) {
@@ -46,14 +71,69 @@ class _SDISSelectionPageState extends State<SDISSelectionPage> {
     }
   }
 
-  void _onSDISSelected(SDIS sdis) {
+  void _onSDISSelected(SDIS sdis) async {
+    // Sauvegarder le SDIS sélectionné
+    await _preferencesService.saveLastSdisId(sdis.id);
+
     // Naviguer vers la page de login avec le SDIS sélectionné
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => LoginPage(chgtPw: false, sdisId: sdis.id),
-      ),
-    );
+    if (mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => LoginPage(chgtPw: false, sdisId: sdis.id),
+        ),
+      );
+    }
+  }
+
+  /// Construit la liste des SDIS avec le dernier en tête si disponible
+  List<Widget> _buildSDISList() {
+    List<Widget> widgets = [];
+
+    for (int i = 0; i < _sdisList.length; i++) {
+      final sdis = _sdisList[i];
+      final isLastSelected = _lastSdisId != null && sdis.id == _lastSdisId;
+
+      // Ajouter la carte SDIS
+      widgets.add(
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12.0),
+          child: _SDISCard(
+            sdis: sdis,
+            onTap: () => _onSDISSelected(sdis),
+            isLastSelected: isLastSelected,
+          ),
+        ),
+      );
+
+      // Ajouter un divider après le premier élément si c'est le dernier sélectionné
+      if (i == 0 && isLastSelected && _sdisList.length > 1) {
+        widgets.add(
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8.0),
+            child: Row(
+              children: [
+                Expanded(child: Divider(color: Colors.grey[300])),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                  child: Text(
+                    'Autres SDIS',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[600],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                Expanded(child: Divider(color: Colors.grey[300])),
+              ],
+            ),
+          ),
+        );
+      }
+    }
+
+    return widgets;
   }
 
   @override
@@ -113,15 +193,7 @@ class _SDISSelectionPageState extends State<SDISSelectionPage> {
                     )
                   else
                     Column(
-                      children: _sdisList.map((sdis) {
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 12.0),
-                          child: _SDISCard(
-                            sdis: sdis,
-                            onTap: () => _onSDISSelected(sdis),
-                          ),
-                        );
-                      }).toList(),
+                      children: _buildSDISList(),
                     ),
                 ],
               ),
@@ -136,14 +208,27 @@ class _SDISSelectionPageState extends State<SDISSelectionPage> {
 class _SDISCard extends StatelessWidget {
   final SDIS sdis;
   final VoidCallback onTap;
+  final bool isLastSelected;
 
-  const _SDISCard({required this.sdis, required this.onTap});
+  const _SDISCard({
+    required this.sdis,
+    required this.onTap,
+    this.isLastSelected = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      elevation: isLastSelected ? 6 : 4,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: isLastSelected
+            ? BorderSide(
+                color: Theme.of(context).primaryColor.withValues(alpha: 0.3),
+                width: 2,
+              )
+            : BorderSide.none,
+      ),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
@@ -176,12 +261,41 @@ class _SDISCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      sdis.fullName,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                      ),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            sdis.fullName,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        if (isLastSelected) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Theme.of(context)
+                                  .primaryColor
+                                  .withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              'Récent',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: Theme.of(context).primaryColor,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 4),
                     Text(

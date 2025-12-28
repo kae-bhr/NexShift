@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/core/data/models/auth_model.dart';
 import 'package:nexshift_app/core/data/models/station_model.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
+import 'package:nexshift_app/core/data/models/user_stations_model.dart';
 import 'package:nexshift_app/core/presentation/widgets/hero_widget.dart';
 import 'package:nexshift_app/core/repositories/auth_repository.dart';
 import 'package:nexshift_app/core/repositories/local_repositories.dart';
 import 'package:nexshift_app/core/repositories/station_repository.dart';
 import 'package:nexshift_app/core/repositories/user_repository.dart';
+import 'package:nexshift_app/core/repositories/user_stations_repository.dart';
 import 'package:nexshift_app/core/services/firebase_auth_service.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:nexshift_app/features/auth/presentation/widgets/enter_app_widget.dart';
@@ -177,7 +180,22 @@ class _LicenceConfirmationPageState extends State<LicenceConfirmationPage> {
     setState(() => _isLoading = true);
 
     try {
-      // 1. Créer la station
+      final sdisId = widget.auth.sdisId;
+
+      // 1. Créer l'authentification Firebase d'abord (pour avoir les permissions)
+      final authService = FirebaseAuthService();
+      await authService.createUser(
+        matricule: widget.auth.id,
+        password: pw,
+        sdisId: sdisId,
+      );
+
+      // 2. Définir le contexte SDIS si disponible
+      if (sdisId != null && sdisId.isNotEmpty) {
+        SDISContext().setCurrentSDISId(sdisId);
+      }
+
+      // 3. Créer la station (maintenant que l'utilisateur est authentifié)
       final stationRepo = StationRepository();
       final station = Station(
         id: widget.auth.station,
@@ -186,7 +204,7 @@ class _LicenceConfirmationPageState extends State<LicenceConfirmationPage> {
       );
       await stationRepo.upsert(station);
 
-      // 2. Créer l'utilisateur admin
+      // 4. Créer l'utilisateur admin dans la station
       final userRepo = UserRepository();
       final user = User(
         id: widget.auth.id,
@@ -200,14 +218,21 @@ class _LicenceConfirmationPageState extends State<LicenceConfirmationPage> {
       );
       await userRepo.upsert(user);
 
-      // 3. Créer l'authentification Firebase
-      final authService = FirebaseAuthService();
-      await authService.createUser(
-        matricule: widget.auth.id,
-        password: pw,
+      // 5. Créer l'entrée user_stations pour permettre le login multi-stations
+      final userStationsRepo = UserStationsRepository();
+      final userStations = UserStations(
+        userId: widget.auth.id,
+        stations: [widget.auth.station],
+        firstName: '', // Sera complété lors du premier login
+        lastName: '', // Sera complété lors du premier login
+        fcmToken: null,
+      );
+      await userStationsRepo.createOrUpdateUserStations(
+        userStations,
+        sdisId: sdisId,
       );
 
-      // 4. Marquer la licence comme consommée
+      // 6. Marquer la licence comme consommée
       final authRepo = AuthRepository();
       final consumedAuth = widget.auth.copyWith(
         consumed: true,
@@ -215,7 +240,7 @@ class _LicenceConfirmationPageState extends State<LicenceConfirmationPage> {
       );
       await authRepo.updateLicence(consumedAuth);
 
-      // 5. Mettre à jour le mot de passe dans LocalRepository (si utilisé)
+      // 7. Mettre à jour le mot de passe dans LocalRepository (si utilisé)
       final localRepo = LocalRepository();
       try {
         await localRepo.updatePassword(widget.auth.id, pw);
@@ -223,19 +248,32 @@ class _LicenceConfirmationPageState extends State<LicenceConfirmationPage> {
         // Ignore si LocalRepository n'a pas encore l'utilisateur
       }
 
+      // 8. Authentifier l'utilisateur
+      if (!mounted) return;
+      await EnterApp.build(context, widget.auth.id);
+
       setState(() => _isLoading = false);
 
-      // 6. Rediriger vers l'application
+      // 9. Fermer toutes les pages et retourner à la racine
+      // Le MaterialApp détectera que isUserAuthentified=true et affichera WidgetTree
       if (!mounted) return;
 
+      // Afficher un message de succès puis naviguer
       SnakebarWidget.showSnackBar(
         context,
         'Compte créé avec succès ! Bienvenue sur NexShift.',
         colorScheme.primary,
       );
 
-      // Connexion automatique
-      EnterApp.build(context, widget.auth.id);
+      // Attendre un court instant pour que l'utilisateur voie le message
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      if (!mounted) return;
+
+      // Fermer toutes les pages de navigation et retourner à la racine
+      // Cela permettra au MaterialApp de détecter isUserAuthentified=true
+      // et d'afficher automatiquement WidgetTree ou ProfileCompletionPage
+      Navigator.of(context).popUntil((route) => route.isFirst);
     } catch (e) {
       setState(() => _isLoading = false);
       if (!mounted) return;

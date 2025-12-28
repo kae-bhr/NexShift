@@ -8,16 +8,40 @@ import 'package:nexshift_app/core/data/datasources/notifiers.dart';
 /// Gère la persistance locale de l'utilisateur connecté
 /// et synchronise avec le ValueNotifier [userNotifier].
 class UserStorageHelper {
+  static const String _sdisIdKey = 'sdis_id';
+
   // ---- Sauvegarde ----
   /// Sauvegarde l'utilisateur dans SharedPreferences
   /// NOTE: Ne met PAS à jour userNotifier - cela doit être fait par l'appelant
   /// pour contrôler l'ordre des mises à jour avec isUserAuthentifiedNotifier
-  static Future<void> saveUser(User user) async {
+  static Future<void> saveUser(User user, {String? sdisId}) async {
     debugPrint('💾 [USER_STORAGE] saveUser() called for: ${user.firstName} ${user.lastName} (${user.station})');
     final prefs = await SharedPreferences.getInstance();
     final jsonString = jsonEncode(user.toJson());
     await prefs.setString(KConstants.userKey, jsonString);
+
+    // Sauvegarder aussi le SDIS ID si fourni
+    if (sdisId != null && sdisId.isNotEmpty) {
+      await prefs.setString(_sdisIdKey, sdisId);
+      debugPrint('💾 [USER_STORAGE] saveUser() - SDIS ID saved: $sdisId');
+    }
+
     debugPrint('💾 [USER_STORAGE] saveUser() - user saved to storage');
+  }
+
+  /// Sauvegarde uniquement le SDIS ID
+  static Future<void> saveSdisId(String sdisId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_sdisIdKey, sdisId);
+    debugPrint('💾 [USER_STORAGE] saveSdisId() - SDIS ID saved: $sdisId');
+  }
+
+  /// Récupère le SDIS ID stocké
+  static Future<String?> loadSdisId() async {
+    final prefs = await SharedPreferences.getInstance();
+    final sdisId = prefs.getString(_sdisIdKey);
+    debugPrint('💾 [USER_STORAGE] loadSdisId() - SDIS ID: $sdisId');
+    return sdisId;
   }
 
   // ---- Chargement ----

@@ -3,6 +3,13 @@ import 'package:nexshift_app/core/data/models/trucks_model.dart';
 import 'package:nexshift_app/core/services/skill_criticality_service.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
 
+/// Sous-catégories pour les agents non-notifiés (vague 0)
+enum NonNotifiedCategory {
+  onDuty,          // En astreinte
+  replacing,       // Remplaçant sur la période
+  underQualified,  // Sous-qualifié (manque keySkills)
+}
+
 /// Service pour calculer les vagues de notifications
 /// en fonction des compétences et pondérations
 class WaveCalculationService {
@@ -10,11 +17,11 @@ class WaveCalculationService {
   /// Calcule la vague d'un utilisateur pour une demande de remplacement
   ///
   /// Logique des vagues :
-  /// - Vague 0 (jamais notifiés) : Agents présents sur l'astreinte
+  /// - Vague 0 (jamais notifiés) : Agents en astreinte, agents remplaçants, agents sous-qualifiés
   /// - Vague 1 : Agents de la même équipe (hors astreinte)
   /// - Vague 2 : Agents avec exactement les mêmes compétences
-  /// - Vague 3 : Agents avec compétences très proches
-  /// - Vague 4 : Agents avec compétences relativement proches
+  /// - Vague 3 : Agents avec compétences très proches (80%+)
+  /// - Vague 4 : Agents avec compétences relativement proches (60%+)
   /// - Vague 5 : Tous les autres agents
   int calculateWave({
     required User requester,
@@ -22,10 +29,22 @@ class WaveCalculationService {
     required String planningTeam,
     required List<String> agentsInPlanning,
     required Map<String, int> skillRarityWeights,
+    Map<String, double>? stationSkillWeights, // Pondération configurable par station
   }) {
     // Vague 0 : Agents en astreinte (jamais notifiés)
     if (agentsInPlanning.contains(candidate.id)) {
       return 0;
+    }
+
+    // Vague 0 : Agents ne possédant pas toutes les keySkills (jamais notifiés, anciennement vague 6)
+    // Exception : les agents de la même équipe (vague 1) ne sont pas concernés
+    if (candidate.team != planningTeam && requester.keySkills.isNotEmpty) {
+      final hasAllKeySkills = requester.keySkills.every(
+        (keySkill) => candidate.skills.contains(keySkill),
+      );
+      if (!hasAllKeySkills) {
+        return 0; // Regroupé avec la vague 0 au lieu de 6
+      }
     }
 
     // Vague 1 : Même équipe que l'astreinte (hors astreinte)
@@ -39,7 +58,36 @@ class WaveCalculationService {
       requester,
       candidate,
       skillRarityWeights,
+      stationSkillWeights,
     );
+  }
+
+  /// Détermine la sous-catégorie d'un agent non-notifié (vague 0)
+  ///
+  /// Retourne null si l'agent n'est pas dans la vague 0
+  NonNotifiedCategory? getNonNotifiedCategory({
+    required User requester,
+    required User candidate,
+    required String planningTeam,
+    required List<String> agentsInPlanning,
+  }) {
+    // Vérifier si l'agent est en astreinte
+    if (agentsInPlanning.contains(candidate.id)) {
+      return NonNotifiedCategory.onDuty;
+    }
+
+    // Vérifier si l'agent est sous-qualifié (manque keySkills)
+    if (candidate.team != planningTeam && requester.keySkills.isNotEmpty) {
+      final hasAllKeySkills = requester.keySkills.every(
+        (keySkill) => candidate.skills.contains(keySkill),
+      );
+      if (!hasAllKeySkills) {
+        return NonNotifiedCategory.underQualified;
+      }
+    }
+
+    // L'agent n'est pas dans la vague 0
+    return null;
   }
 
   /// Calcule la vague basée sur les compétences
@@ -47,6 +95,7 @@ class WaveCalculationService {
     User requester,
     User candidate,
     Map<String, int> skillRarityWeights,
+    Map<String, double>? stationSkillWeights,
   ) {
     // Vérifier si les compétences sont exactement les mêmes
     if (_hasExactSameSkills(requester, candidate)) {
@@ -58,18 +107,40 @@ class WaveCalculationService {
       requester,
       candidate,
       skillRarityWeights,
+      stationSkillWeights,
     );
 
     // Définir les seuils pour chaque vague
     // similarity = 1.0 signifie identique
     // similarity = 0.0 signifie complètement différent
+    int baseWave;
     if (similarity >= 0.8) {
-      return 3; // Vague 3 : Très similaire (80%+ de match)
+      baseWave = 3; // Vague 3 : Très similaire (80%+ de match)
     } else if (similarity >= 0.6) {
-      return 4; // Vague 4 : Relativement similaire (60%+ de match)
+      baseWave = 4; // Vague 4 : Relativement similaire (60%+ de match)
     } else {
-      return 5; // Vague 5 : Tous les autres
+      baseWave = 5; // Vague 5 : Tous les autres
     }
+
+    // Vérifier les compétences-clés : si une manque, descendre d'une vague (max vague 5)
+    if (_missingKeySkills(requester, candidate) && baseWave < 5) {
+      baseWave++;
+    }
+
+    return baseWave;
+  }
+
+  /// Vérifie si le candidat manque des compétences-clés du requester
+  bool _missingKeySkills(User requester, User candidate) {
+    if (requester.keySkills.isEmpty) return false;
+
+    final candidateSkills = Set<String>.from(candidate.skills);
+    for (final keySkill in requester.keySkills) {
+      if (!candidateSkills.contains(keySkill)) {
+        return true; // Au moins une keySkill manque
+      }
+    }
+    return false;
   }
 
   /// Vérifie si deux utilisateurs ont exactement les mêmes compétences
@@ -92,10 +163,12 @@ class WaveCalculationService {
   /// - La similarité reflète la capacité de remplacement opérationnel
   /// - Pénalité de surqualification pour préserver les agents très qualifiés
   ///   pour des remplacements futurs plus critiques
+  /// - Pondération configurable par station (skillWeights) si fournie
   double _calculateSkillSimilarity(
     User requester,
     User candidate,
     Map<String, int> skillRarityWeights,
+    Map<String, double>? stationSkillWeights,
   ) {
     final requesterSkills = Set<String>.from(requester.skills);
     final candidateSkills = Set<String>.from(candidate.skills);
@@ -103,9 +176,12 @@ class WaveCalculationService {
     if (requesterSkills.isEmpty) return 0.0;
 
     // Calculer le poids total des compétences du demandeur
+    // En combinant la rareté ET la pondération de la station
     double totalRequiredWeight = 0.0;
     for (final skill in requesterSkills) {
-      totalRequiredWeight += (skillRarityWeights[skill] ?? 0).toDouble();
+      final rarityWeight = (skillRarityWeights[skill] ?? 0).toDouble();
+      final stationWeight = stationSkillWeights?[skill] ?? 1.0; // Défaut 1.0
+      totalRequiredWeight += rarityWeight * stationWeight;
     }
 
     // Si le demandeur n'a que des compétences non requises (poids 0),
@@ -115,10 +191,13 @@ class WaveCalculationService {
     }
 
     // Calculer le poids des compétences en commun
+    // En combinant rareté ET pondération station
     double matchedWeight = 0.0;
     for (final skill in requesterSkills) {
       if (candidateSkills.contains(skill)) {
-        matchedWeight += (skillRarityWeights[skill] ?? 0).toDouble();
+        final rarityWeight = (skillRarityWeights[skill] ?? 0).toDouble();
+        final stationWeight = stationSkillWeights?[skill] ?? 1.0;
+        matchedWeight += rarityWeight * stationWeight;
       }
     }
 
@@ -126,7 +205,9 @@ class WaveCalculationService {
     double extraWeight = 0.0;
     final extraSkills = candidateSkills.difference(requesterSkills);
     for (final skill in extraSkills) {
-      extraWeight += (skillRarityWeights[skill] ?? 0).toDouble();
+      final rarityWeight = (skillRarityWeights[skill] ?? 0).toDouble();
+      final stationWeight = stationSkillWeights?[skill] ?? 1.0;
+      extraWeight += rarityWeight * stationWeight;
     }
 
     // Calculer le poids total du candidat

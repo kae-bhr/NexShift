@@ -666,6 +666,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                                       context,
                                     )
                                   : Theme.of(context).colorScheme.primary;
+                              final isKeySkill = user.keySkills.contains(skill);
                               return Container(
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 6,
@@ -675,13 +676,27 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                                   color: color.withOpacity(0.15),
                                   borderRadius: BorderRadius.circular(4),
                                 ),
-                                child: Text(
-                                  skill,
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: color,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (isKeySkill)
+                                      const Padding(
+                                        padding: EdgeInsets.only(right: 2),
+                                        child: Icon(
+                                          Icons.star,
+                                          size: 10,
+                                          color: Colors.amber,
+                                        ),
+                                      ),
+                                    Text(
+                                      skill,
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: color,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               );
                             })

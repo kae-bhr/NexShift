@@ -3,11 +3,17 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:nexshift_app/core/services/replacement_notification_service.dart';
 import 'package:nexshift_app/core/services/wave_calculation_service.dart';
 import 'package:nexshift_app/core/repositories/user_repository.dart';
+import 'package:nexshift_app/core/repositories/subshift_repositories.dart';
 import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
+import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
+import 'package:nexshift_app/core/data/models/station_model.dart';
+import 'package:nexshift_app/core/data/models/subshift_model.dart';
 import 'package:nexshift_app/features/replacement/presentation/pages/replacement_request_dialog.dart';
+import 'package:nexshift_app/features/replacement/presentation/widgets/pending_acceptances_tab.dart';
 import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:nexshift_app/core/config/environment_config.dart';
 
 /// Classe pour représenter une proposition de remplacement manuel
 class ManualReplacementProposal {
@@ -79,11 +85,13 @@ class ReplacementRequestsListPage extends StatefulWidget {
 }
 
 class _ReplacementRequestsListPageState
-    extends State<ReplacementRequestsListPage> {
+    extends State<ReplacementRequestsListPage> with SingleTickerProviderStateMixin {
   final _notificationService = ReplacementNotificationService();
   final _userRepository = UserRepository();
   String? _currentUserId;
   DateTime _selectedDate = DateTime.now();
+  TabController? _tabController;
+  bool _isChief = false;
 
   @override
   void initState() {
@@ -91,11 +99,21 @@ class _ReplacementRequestsListPageState
     _loadCurrentUser();
   }
 
+  @override
+  void dispose() {
+    _tabController?.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadCurrentUser() async {
     final user = await UserStorageHelper.loadUser();
     if (mounted) {
       setState(() {
         _currentUserId = user?.id;
+        _isChief = user?.status == 'chief' || user?.status == 'leader';
+        // Initialiser le TabController avec le bon nombre d'onglets
+        final tabCount = _isChief ? 2 : 1;
+        _tabController = TabController(length: tabCount, vsync: this);
       });
     }
   }
@@ -141,7 +159,7 @@ class _ReplacementRequestsListPageState
 
   @override
   Widget build(BuildContext context) {
-    if (_currentUserId == null) {
+    if (_currentUserId == null || _tabController == null) {
       return Scaffold(
         appBar: CustomAppBar(
           title: 'Demandes de remplacement',
@@ -155,13 +173,46 @@ class _ReplacementRequestsListPageState
       appBar: CustomAppBar(
         title: 'Demandes de remplacement',
         bottomColor: KColors.appNameColor,
+        bottom: _isChief
+            ? TabBar(
+                controller: _tabController,
+                labelColor: Theme.of(context).brightness == Brightness.dark
+                    ? Colors.white
+                    : KColors.appNameColor,
+                unselectedLabelColor: Theme.of(context).brightness == Brightness.dark
+                    ? Colors.white70
+                    : KColors.appNameColor.withValues(alpha: 0.7),
+                indicatorColor: Theme.of(context).brightness == Brightness.dark
+                    ? Colors.white
+                    : KColors.appNameColor,
+                tabs: const [
+                  Tab(text: 'Demandes'),
+                  Tab(text: 'Validations'),
+                ],
+              )
+            : null,
       ),
-      body: Column(
-        children: [
+      body: _isChief
+          ? TabBarView(
+              controller: _tabController,
+              children: [
+                _buildRequestsTab(),
+                const PendingAcceptancesTab(),
+              ],
+            )
+          : _buildRequestsTab(),
+    );
+  }
+
+  Widget _buildRequestsTab() {
+    return Column(
+      children: [
           // Sélecteur de mois/année
           Container(
             padding: const EdgeInsets.all(16),
-            color: Colors.grey.shade100,
+            color: Theme.of(context).brightness == Brightness.dark
+                ? Colors.grey.shade900
+                : Colors.grey.shade100,
             child: Row(
               children: [
                 IconButton(
@@ -186,24 +237,35 @@ class _ReplacementRequestsListPageState
                         horizontal: 16,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: Theme.of(context).brightness == Brightness.dark
+                            ? Colors.grey.shade800
+                            : Colors.white,
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.grey.shade300),
+                        border: Border.all(
+                          color: Theme.of(context).brightness == Brightness.dark
+                              ? Colors.grey.shade700
+                              : Colors.grey.shade300,
+                        ),
                       ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Icon(
+                          Icon(
                             Icons.calendar_month,
                             size: 20,
-                            color: Colors.blue,
+                            color: Theme.of(context).brightness == Brightness.dark
+                                ? Colors.blue.shade300
+                                : Colors.blue,
                           ),
                           const SizedBox(width: 8),
                           Text(
                             _formatMonthYear(_selectedDate),
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
+                              color: Theme.of(context).brightness == Brightness.dark
+                                  ? Colors.white
+                                  : Colors.black,
                             ),
                           ),
                         ],
@@ -229,52 +291,67 @@ class _ReplacementRequestsListPageState
           ),
           // Liste des demandes
           Expanded(
-            child: StreamBuilder<List<ReplacementRequest>>(
-              stream: _notificationService.firestore
-                  .collection('replacementRequests')
-                  .where('status', whereIn: ['pending', 'accepted'])
-                  .snapshots()
-                  .asyncMap((snapshot) async {
-                    final startOfMonth = DateTime(
-                      _selectedDate.year,
-                      _selectedDate.month,
-                      1,
-                    );
-                    final endOfMonth = DateTime(
-                      _selectedDate.year,
-                      _selectedDate.month + 1,
-                      1,
-                    );
+            child: FutureBuilder<User?>(
+              future: UserStorageHelper.loadUser(),
+              builder: (context, userSnapshot) {
+                if (!userSnapshot.hasData || userSnapshot.data == null) {
+                  return const Center(child: CircularProgressIndicator());
+                }
 
-                    final allRequests = snapshot.docs
-                        .map((doc) => ReplacementRequest.fromJson(doc.data()))
-                        .where((request) {
-                          return request.startTime.isAfter(
-                                startOfMonth.subtract(const Duration(days: 1)),
-                              ) &&
-                              request.startTime.isBefore(endOfMonth);
-                        })
-                        .toList();
+                final currentUser = userSnapshot.data!;
+                // Utiliser le même chemin que dans ReplacementNotificationService
+                final requestsPath = EnvironmentConfig.useStationSubcollections && currentUser.station.isNotEmpty
+                    ? (SDISContext().currentSDISId != null && SDISContext().currentSDISId!.isNotEmpty
+                        ? 'sdis/${SDISContext().currentSDISId}/stations/${currentUser.station}/replacements/automatic/replacementRequests'
+                        : 'stations/${currentUser.station}/replacements/automatic/replacementRequests')
+                    : 'replacementRequests';
 
-                    final visibleRequests = <ReplacementRequest>[];
-                    for (final request in allRequests) {
-                      if (request.status == ReplacementRequestStatus.accepted) {
-                        visibleRequests.add(request);
-                        continue;
-                      }
-                      final canView = await _canViewRequest(request);
-                      if (canView) {
-                        visibleRequests.add(request);
-                      }
-                    }
+                return StreamBuilder<List<ReplacementRequest>>(
+                  stream: _notificationService.firestore
+                      .collection(requestsPath)
+                      .where('status', whereIn: ['pending', 'accepted'])
+                      .snapshots()
+                      .asyncMap((snapshot) async {
+                        final startOfMonth = DateTime(
+                          _selectedDate.year,
+                          _selectedDate.month,
+                          1,
+                        );
+                        final endOfMonth = DateTime(
+                          _selectedDate.year,
+                          _selectedDate.month + 1,
+                          1,
+                        );
 
-                    visibleRequests.sort(
-                      (a, b) => a.startTime.compareTo(b.startTime),
-                    );
+                        final allRequests = snapshot.docs
+                            .map((doc) => ReplacementRequest.fromJson(doc.data()))
+                            .where((request) {
+                              return request.startTime.isAfter(
+                                    startOfMonth.subtract(const Duration(days: 1)),
+                                  ) &&
+                                  request.startTime.isBefore(endOfMonth);
+                            })
+                            .toList();
 
-                    return visibleRequests;
-                  }),
-              builder: (context, requestsSnapshot) {
+                        final visibleRequests = <ReplacementRequest>[];
+                        for (final request in allRequests) {
+                          if (request.status == ReplacementRequestStatus.accepted) {
+                            visibleRequests.add(request);
+                            continue;
+                          }
+                          final canView = await _canViewRequest(request);
+                          if (canView) {
+                            visibleRequests.add(request);
+                          }
+                        }
+
+                        visibleRequests.sort(
+                          (a, b) => a.startTime.compareTo(b.startTime),
+                        );
+
+                        return visibleRequests;
+                      }),
+                  builder: (context, requestsSnapshot) {
                 if (requestsSnapshot.connectionState ==
                     ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
@@ -412,10 +489,11 @@ class _ReplacementRequestsListPageState
                   },
                 );
               },
-            ),
-          ),
-        ],
-      ),
+            );
+          },
+        ),
+        ),
+      ],
     );
   }
 
@@ -443,7 +521,10 @@ class _ReplacementRequestsListPageState
 
     if (confirm == true) {
       try {
-        await _notificationService.cancelReplacementRequest(request.id);
+        await _notificationService.cancelReplacementRequest(
+          request.id,
+          stationId: request.station,
+        );
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -474,12 +555,14 @@ class _ReplacementRequestsListPageState
             UserStorageHelper.loadUser().then((user) => user),
             _canAcceptRequest(request),
             _hasUserDeclined(request.id),
+            _hasUserPendingAcceptance(request.id),
           ]).then(
             (results) => {
               'requesterName': results[0] as String,
               'currentUser': results[1],
               'canAccept': results[2] as bool,
               'hasDeclined': results[3] as bool,
+              'hasPendingAcceptance': results[4] as bool,
             },
           ),
       builder: (context, snapshot) {
@@ -488,15 +571,25 @@ class _ReplacementRequestsListPageState
         final currentUser = snapshot.data?['currentUser'] as User?;
         final canAccept = snapshot.data?['canAccept'] as bool? ?? false;
         final hasDeclined = snapshot.data?['hasDeclined'] as bool? ?? false;
+        final hasPendingAcceptance = snapshot.data?['hasPendingAcceptance'] as bool? ?? false;
+        // Permettre la suppression si admin/leader OU si c'est sa propre demande
         final canDelete =
             currentUser != null &&
-            (currentUser.admin || currentUser.status == 'leader');
+            (currentUser.admin ||
+             currentUser.status == 'leader' ||
+             currentUser.id == request.requesterId);
+
+        // Phase 3 - Vérifier si l'utilisateur est notifié
+        final isNotified = currentUser != null &&
+            request.notifiedUserIds.contains(currentUser.id);
 
         return Card(
           margin: const EdgeInsets.only(bottom: 12),
           elevation: 2,
           child: InkWell(
-            onTap: request.status == ReplacementRequestStatus.pending
+            // Phase 3 FIX: Seuls les utilisateurs notifiés peuvent ouvrir le dialog
+            // ET pas d'acceptation en attente de validation
+            onTap: request.status == ReplacementRequestStatus.pending && isNotified && !hasPendingAcceptance
                 ? () => _handleRequestTap(request)
                 : null,
             borderRadius: BorderRadius.circular(12),
@@ -542,10 +635,12 @@ class _ReplacementRequestsListPageState
                                   decoration: BoxDecoration(
                                     color: hasDeclined
                                         ? Colors.red.shade100
-                                        : (request.status ==
-                                                ReplacementRequestStatus.accepted
+                                        : (hasPendingAcceptance
                                             ? Colors.green.shade100
-                                            : Colors.orange.shade100),
+                                            : (request.status ==
+                                                    ReplacementRequestStatus.accepted
+                                                ? Colors.green.shade100
+                                                : Colors.orange.shade100)),
                                     borderRadius: BorderRadius.circular(12),
                                   ),
                                   child: Row(
@@ -554,37 +649,45 @@ class _ReplacementRequestsListPageState
                                       Icon(
                                         hasDeclined
                                             ? Icons.cancel
-                                            : (request.status ==
-                                                    ReplacementRequestStatus
-                                                        .accepted
-                                                ? Icons.check_circle
-                                                : Icons.access_time),
+                                            : (hasPendingAcceptance
+                                                ? Icons.schedule
+                                                : (request.status ==
+                                                        ReplacementRequestStatus
+                                                            .accepted
+                                                    ? Icons.check_circle
+                                                    : Icons.access_time)),
                                         size: 14,
                                         color: hasDeclined
                                             ? Colors.red.shade700
-                                            : (request.status ==
-                                                    ReplacementRequestStatus
-                                                        .accepted
+                                            : (hasPendingAcceptance
                                                 ? Colors.green.shade700
-                                                : Colors.orange.shade700),
+                                                : (request.status ==
+                                                        ReplacementRequestStatus
+                                                            .accepted
+                                                    ? Colors.green.shade700
+                                                    : Colors.orange.shade700)),
                                       ),
                                       const SizedBox(width: 4),
                                       Text(
                                         hasDeclined
                                             ? 'Refusé'
-                                            : (request.status ==
-                                                    ReplacementRequestStatus
-                                                        .accepted
-                                                ? 'Accepté'
-                                                : 'En attente'),
+                                            : (hasPendingAcceptance
+                                                ? 'En attente de validation'
+                                                : (request.status ==
+                                                        ReplacementRequestStatus
+                                                            .accepted
+                                                    ? 'Accepté'
+                                                    : 'En attente')),
                                         style: TextStyle(
                                           color: hasDeclined
                                               ? Colors.red.shade700
-                                              : (request.status ==
-                                                      ReplacementRequestStatus
-                                                          .accepted
+                                              : (hasPendingAcceptance
                                                   ? Colors.green.shade700
-                                                  : Colors.orange.shade700),
+                                                  : (request.status ==
+                                                          ReplacementRequestStatus
+                                                              .accepted
+                                                      ? Colors.green.shade700
+                                                      : Colors.orange.shade700)),
                                           fontSize: 12,
                                           fontWeight: FontWeight.w600,
                                         ),
@@ -592,9 +695,62 @@ class _ReplacementRequestsListPageState
                                     ],
                                   ),
                                 ),
-                                // Indicateur de vague/personnes notifiées (si en attente)
+                                // Phase 3 - Badge "Non notifié" si visible mais pas notifié (cliquable)
                                 if (request.status ==
-                                    ReplacementRequestStatus.pending) ...[
+                                        ReplacementRequestStatus.pending &&
+                                    !isNotified) ...[
+                                  const SizedBox(width: 8),
+                                  GestureDetector(
+                                    onTap: () =>
+                                        request.requestType ==
+                                            RequestType.availability
+                                        ? _showNotifiedUsersDialog(request)
+                                        : _showWaveDetailsDialog(request),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey.shade100,
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: Colors.grey.shade300,
+                                        ),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            Icons.visibility_off,
+                                            size: 14,
+                                            color: Colors.grey.shade600,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            'Non notifié',
+                                            style: TextStyle(
+                                              color: Colors.grey.shade700,
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 2),
+                                          Icon(
+                                            Icons.info_outline,
+                                            size: 14,
+                                            color: Colors.grey.shade600,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                                // Indicateur de vague/personnes notifiées (afficher pour toutes les demandes)
+                                if ((request.status ==
+                                        ReplacementRequestStatus.pending &&
+                                    isNotified) ||
+                                    request.status == ReplacementRequestStatus.accepted) ...[
                                   const SizedBox(width: 8),
                                   GestureDetector(
                                     onTap: () =>
@@ -708,11 +864,11 @@ class _ReplacementRequestsListPageState
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Du ${_formatDateTime(request.startTime)}',
+                              'Du ${_formatDateTime(request.status == ReplacementRequestStatus.accepted && request.acceptedStartTime != null ? request.acceptedStartTime! : request.startTime)}',
                               style: const TextStyle(fontSize: 14),
                             ),
                             Text(
-                              'Au ${_formatDateTime(request.endTime)}',
+                              'Au ${_formatDateTime(request.status == ReplacementRequestStatus.accepted && request.acceptedEndTime != null ? request.acceptedEndTime! : request.endTime)}',
                               style: const TextStyle(fontSize: 14),
                             ),
                           ],
@@ -846,6 +1002,39 @@ class _ReplacementRequestsListPageState
                     ),
                   ],
 
+                  // Mention si l'utilisateur a une acceptation en attente de validation
+                  if (hasPendingAcceptance) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.green.shade200),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.schedule,
+                            size: 16,
+                            color: Colors.green.shade700,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Votre acceptation est en attente de validation par le chef d\'équipe',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.green.shade700,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+
                   // Mention si l'utilisateur a déjà refusé
                   if (hasDeclined) ...[
                     const SizedBox(height: 12),
@@ -879,7 +1068,62 @@ class _ReplacementRequestsListPageState
                     ),
                   ],
 
+                  // Phase 3 - Mention si l'utilisateur n'est pas notifié
+                  if (!isNotified &&
+                      request.status == ReplacementRequestStatus.pending &&
+                      currentUser?.id != request.requesterId) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.blue.shade200),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.info_outline,
+                            size: 16,
+                            color: Colors.blue.shade700,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Vous pouvez voir cette demande mais vous n\'êtes pas encore notifié pour y répondre',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.blue.shade700,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+
                   const SizedBox(height: 12),
+
+                  // Bouton DEV uniquement : Passer à la vague suivante
+                  if (EnvironmentConfig.isDev &&
+                      request.status == ReplacementRequestStatus.pending &&
+                      request.requestType == RequestType.replacement) ...[
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _skipToNextWave(request),
+                        icon: const Icon(Icons.fast_forward, size: 18),
+                        label: const Text('DEV: Passer à la vague suivante'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.orange,
+                          side: const BorderSide(color: Colors.orange),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+
                   // Bouton d'action
                   SizedBox(
                     width: double.infinity,
@@ -897,30 +1141,39 @@ class _ReplacementRequestsListPageState
                               disabledBackgroundColor: Colors.grey.shade300,
                             ),
                           )
-                        : FilledButton.icon(
-                            onPressed: (canAccept && !hasDeclined)
-                                ? () => _handleRequestTap(request)
-                                : (hasDeclined
+                        : hasPendingAcceptance
+                            ? FilledButton.icon(
+                                onPressed: null,
+                                icon: const Icon(Icons.schedule, size: 18),
+                                label: const Text('En attente de validation'),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: Colors.green,
+                                  disabledBackgroundColor: Colors.green.shade300,
+                                ),
+                              )
+                            : OutlinedButton.icon(
+                                onPressed: (canAccept && !hasDeclined)
                                     ? () => _handleRequestTap(request)
-                                    : null),
-                            icon: Icon(
-                              (canAccept && !hasDeclined)
-                                  ? Icons.check
-                                  : Icons.visibility,
-                              size: 18,
-                            ),
-                            label: Text(
-                              (canAccept && !hasDeclined)
-                                  ? 'Je suis disponible !'
-                                  : 'Voir la demande',
-                            ),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: (canAccept && !hasDeclined)
-                                  ? Colors.green
-                                  : Colors.grey,
-                              disabledBackgroundColor: Colors.grey.shade300,
-                            ),
-                          ),
+                                    : (hasDeclined
+                                        ? () => _handleRequestTap(request)
+                                        : null),
+                                icon: const Icon(
+                                  Icons.visibility_outlined,
+                                  size: 18,
+                                ),
+                                label: const Text('Voir le remplacement'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: (canAccept && !hasDeclined)
+                                      ? Theme.of(context).colorScheme.primary
+                                      : Colors.grey,
+                                  side: BorderSide(
+                                    color: (canAccept && !hasDeclined)
+                                        ? Theme.of(context).colorScheme.primary
+                                        : Colors.grey.shade400,
+                                  ),
+                                  disabledForegroundColor: Colors.grey.shade400,
+                                ),
+                              ),
                   ),
                 ],
               ),
@@ -1212,42 +1465,18 @@ class _ReplacementRequestsListPageState
   }
 
   /// Vérifie si l'utilisateur courant peut voir cette demande
+  /// Phase 3 - Visibilité étendue : Tous les agents de la station peuvent voir toutes les demandes
   Future<bool> _canViewRequest(ReplacementRequest request) async {
     if (_currentUserId == null) return false;
 
     try {
-      // 1. L'auteur de la demande peut toujours voir
-      if (request.requesterId == _currentUserId) return true;
+      // Récupérer l'utilisateur courant
+      final currentUser = await UserStorageHelper.loadUser();
+      if (currentUser == null) return false;
 
-      // 2. Récupérer le planning pour connaître le chef de garde
-      final planningDoc = await _notificationService.firestore
-          .collection('plannings')
-          .doc(request.planningId)
-          .get();
-
-      if (planningDoc.exists) {
-        final planningData = planningDoc.data();
-        final planningTeam = planningData?['team'] as String?;
-        final planningStation = planningData?['station'] as String?;
-
-        if (planningTeam != null && planningStation != null) {
-          // Vérifier si l'utilisateur est chef de garde de cette équipe ou admin de la station
-          final currentUser = await UserStorageHelper.loadUser();
-          if ((currentUser != null &&
-                  currentUser.station == planningStation &&
-                  currentUser.team == planningTeam &&
-                  currentUser.status == 'chief') ||
-              (currentUser != null &&
-                  currentUser.station == planningStation &&
-                  (currentUser.admin || currentUser.status == 'leader'))) {
-            return true;
-          }
-        }
-      }
-
-      // 3. Les utilisateurs de la vague en cours ou d'une vague passée peuvent voir
-      final notifiedUserIds = request.notifiedUserIds;
-      if (notifiedUserIds.contains(_currentUserId)) {
+      // Phase 3 : TOUS les agents de la même station peuvent voir la demande
+      // La station est stockée directement dans la demande
+      if (request.station == currentUser.station) {
         return true;
       }
 
@@ -1278,8 +1507,18 @@ class _ReplacementRequestsListPageState
     if (_currentUserId == null) return false;
 
     try {
+      final currentUser = await UserStorageHelper.loadUser();
+      if (currentUser == null) return false;
+
+      // Utiliser le bon chemin pour les declines
+      final declinesPath = EnvironmentConfig.useStationSubcollections && currentUser.station.isNotEmpty
+          ? (SDISContext().currentSDISId != null && SDISContext().currentSDISId!.isNotEmpty
+              ? 'sdis/${SDISContext().currentSDISId}/stations/${currentUser.station}/replacements/automatic/replacementRequestDeclines'
+              : 'stations/${currentUser.station}/replacements/automatic/replacementRequestDeclines')
+          : 'replacementRequestDeclines';
+
       final snapshot = await FirebaseFirestore.instance
-          .collection('replacementRequestDeclines')
+          .collection(declinesPath)
           .where('requestId', isEqualTo: requestId)
           .where('userId', isEqualTo: _currentUserId)
           .limit(1)
@@ -1292,6 +1531,85 @@ class _ReplacementRequestsListPageState
     }
   }
 
+  /// Vérifie si l'utilisateur a une acceptation en attente de validation pour cette demande
+  Future<bool> _hasUserPendingAcceptance(String requestId) async {
+    if (_currentUserId == null) return false;
+
+    try {
+      final currentUser = await UserStorageHelper.loadUser();
+      if (currentUser == null) return false;
+
+      // Utiliser le bon chemin pour les acceptances
+      final acceptancesPath = EnvironmentConfig.useStationSubcollections && currentUser.station.isNotEmpty
+          ? (SDISContext().currentSDISId != null && SDISContext().currentSDISId!.isNotEmpty
+              ? 'sdis/${SDISContext().currentSDISId}/stations/${currentUser.station}/replacements/automatic/replacementAcceptances'
+              : 'stations/${currentUser.station}/replacements/automatic/replacementAcceptances')
+          : 'replacementAcceptances';
+
+      debugPrint('🔍 [PENDING_ACCEPTANCE] Checking for user $_currentUserId on request $requestId at path: $acceptancesPath');
+
+      final snapshot = await FirebaseFirestore.instance
+          .collection(acceptancesPath)
+          .where('requestId', isEqualTo: requestId)
+          .where('userId', isEqualTo: _currentUserId)
+          .where('status', isEqualTo: 'pendingValidation')
+          .limit(1)
+          .get();
+
+      final hasPending = snapshot.docs.isNotEmpty;
+      debugPrint('🔍 [PENDING_ACCEPTANCE] Found ${snapshot.docs.length} pending acceptance(s): $hasPending');
+
+      return hasPending;
+    } catch (e) {
+      debugPrint('Error checking pending acceptance: $e');
+      return false;
+    }
+  }
+
+  /// DEV uniquement : Passe à la vague suivante en simulant les Cloud Functions
+  Future<void> _skipToNextWave(ReplacementRequest request) async {
+    try {
+      final currentUser = await UserStorageHelper.loadUser();
+      if (currentUser == null) return;
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('⏳ Passage à la vague suivante...'),
+            backgroundColor: Colors.blue,
+            duration: Duration(seconds: 1),
+          ),
+        );
+      }
+
+      // Simuler le passage à la vague suivante (DEV uniquement)
+      await _notificationService.simulateNextWave(
+        request.id,
+        request.station,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Vague suivante traitée !'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error skipping to next wave: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _handleRequestTap(ReplacementRequest request) async {
     if (_currentUserId == null) return;
 
@@ -1300,6 +1618,7 @@ class _ReplacementRequestsListPageState
       context,
       requestId: request.id,
       currentUserId: _currentUserId!,
+      stationId: request.station,
     );
 
     // Rafraîchir si nécessaire
@@ -1317,20 +1636,21 @@ class _ReplacementRequestsListPageState
   Future<void> _showWaveDetailsDialog(ReplacementRequest request) async {
     try {
       // Récupérer le demandeur pour connaître ses compétences
-      final requester = await _userRepository.getById(request.requesterId);
+      final requester = await _userRepository.getById(request.requesterId, stationId: request.station);
       if (requester == null) return;
 
-      // Récupérer tous les utilisateurs de la station
-      final allUsers = await _userRepository.getAll();
+      // Récupérer tous les utilisateurs de la station (utiliser getByStation pour multi-SDIS)
+      final allUsers = await _userRepository.getByStation(request.station);
       final stationUsers = allUsers
           .where(
-            (u) => u.station == request.station && u.id != request.requesterId,
+            (u) => u.id != request.requesterId,
           )
           .toList();
 
       // Récupérer le planning pour exclure les agents en astreinte et connaître l'équipe
+      final planningsPath = EnvironmentConfig.getCollectionPath('plannings', request.station);
       final planningDoc = await _notificationService.firestore
-          .collection('plannings')
+          .collection(planningsPath)
           .doc(request.planningId)
           .get();
 
@@ -1342,7 +1662,28 @@ class _ReplacementRequestsListPageState
         planningTeam = data?['team'] as String? ?? request.team ?? '';
       }
 
-      // Utiliser le WaveCalculationService pour calculer les vagues
+      // Récupérer la configuration de la station pour déterminer le mode
+      final stationsPath = EnvironmentConfig.stationsCollectionPath;
+      final stationDoc = await _notificationService.firestore
+          .collection(stationsPath)
+          .doc(request.station)
+          .get();
+
+      ReplacementMode replacementMode = ReplacementMode.similarity;
+      bool allowUnderQualified = false;
+      if (stationDoc.exists) {
+        final station = Station.fromJson({
+          'id': stationDoc.id,
+          ...stationDoc.data()!,
+        });
+        replacementMode = station.replacementMode;
+        allowUnderQualified = station.allowUnderQualifiedAutoAcceptance;
+      }
+
+      final Map<int, List<User>> waveGroups = {};
+      int maxWave = 5; // Par défaut pour le mode similarité
+
+      // MODE SIMILARITÉ : Calculer les vagues selon les compétences
       final waveCalculationService = WaveCalculationService();
 
       // Calculer les poids de rareté des compétences
@@ -1352,8 +1693,8 @@ class _ReplacementRequestsListPageState
             requesterSkills: requester.skills,
           );
 
-      // Calculer la vague de chaque candidat avec le nouveau système
-      final candidatesWithWave = stationUsers.map((user) {
+      // Calculer la vague de chaque candidat
+      for (final user in stationUsers) {
         final wave = waveCalculationService.calculateWave(
           requester: requester,
           candidate: user,
@@ -1361,14 +1702,6 @@ class _ReplacementRequestsListPageState
           agentsInPlanning: agentsInPlanning,
           skillRarityWeights: skillRarityWeights,
         );
-        return {'user': user, 'wave': wave};
-      }).toList();
-
-      // Grouper par vague
-      final Map<int, List<User>> waveGroups = {};
-      for (final item in candidatesWithWave) {
-        final wave = item['wave'] as int;
-        final user = item['user'] as User;
         waveGroups.putIfAbsent(wave, () => []).add(user);
       }
 
@@ -1384,6 +1717,11 @@ class _ReplacementRequestsListPageState
         });
       });
 
+      // Ajouter les vagues vides pour afficher toutes les vagues possibles
+      for (int i = 0; i <= maxWave; i++) {
+        waveGroups.putIfAbsent(i, () => []);
+      }
+
       if (!mounted) return;
 
       showDialog(
@@ -1392,6 +1730,11 @@ class _ReplacementRequestsListPageState
           request: request,
           waveGroups: waveGroups,
           notifiedUserIds: request.notifiedUserIds,
+          replacementMode: replacementMode,
+          allowUnderQualified: allowUnderQualified,
+          requester: requester,
+          planningTeam: planningTeam,
+          agentsInPlanning: agentsInPlanning,
         ),
       );
     } catch (e) {
@@ -1520,11 +1863,21 @@ class _WaveDetailsDialog extends StatefulWidget {
   final ReplacementRequest request;
   final Map<int, List<User>> waveGroups;
   final List<String> notifiedUserIds;
+  final ReplacementMode replacementMode;
+  final bool allowUnderQualified;
+  final User requester;
+  final String planningTeam;
+  final List<String> agentsInPlanning;
 
   const _WaveDetailsDialog({
     required this.request,
     required this.waveGroups,
     required this.notifiedUserIds,
+    required this.replacementMode,
+    required this.allowUnderQualified,
+    required this.requester,
+    required this.planningTeam,
+    required this.agentsInPlanning,
   });
 
   @override
@@ -1534,17 +1887,29 @@ class _WaveDetailsDialog extends StatefulWidget {
 class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
   final Set<int> _expandedWaves = {};
   Set<String> _declinedUserIds = {};
+  Set<String> _validatedUserIds = {};
 
   @override
   void initState() {
     super.initState();
     _loadDeclines();
+    _loadValidatedAcceptances();
   }
 
   Future<void> _loadDeclines() async {
     try {
+      final currentUser = await UserStorageHelper.loadUser();
+      if (currentUser == null) return;
+
+      // Utiliser le bon chemin pour les declines
+      final declinesPath = EnvironmentConfig.useStationSubcollections && currentUser.station.isNotEmpty
+          ? (SDISContext().currentSDISId != null && SDISContext().currentSDISId!.isNotEmpty
+              ? 'sdis/${SDISContext().currentSDISId}/stations/${currentUser.station}/replacements/automatic/replacementRequestDeclines'
+              : 'stations/${currentUser.station}/replacements/automatic/replacementRequestDeclines')
+          : 'replacementRequestDeclines';
+
       final snapshot = await FirebaseFirestore.instance
-          .collection('replacementRequestDeclines')
+          .collection(declinesPath)
           .where('requestId', isEqualTo: widget.request.id)
           .get();
 
@@ -1560,10 +1925,81 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
     }
   }
 
+  Future<void> _loadValidatedAcceptances() async {
+    try {
+      final currentUser = await UserStorageHelper.loadUser();
+      if (currentUser == null) return;
+
+      // Charger les acceptations validées (validation manuelle par chef)
+      final acceptancesPath = EnvironmentConfig.useStationSubcollections && currentUser.station.isNotEmpty
+          ? (SDISContext().currentSDISId != null && SDISContext().currentSDISId!.isNotEmpty
+              ? 'sdis/${SDISContext().currentSDISId}/stations/${currentUser.station}/replacements/automatic/replacementAcceptances'
+              : 'stations/${currentUser.station}/replacements/automatic/replacementAcceptances')
+          : 'replacementAcceptances';
+
+      final acceptancesSnapshot = await FirebaseFirestore.instance
+          .collection(acceptancesPath)
+          .where('requestId', isEqualTo: widget.request.id)
+          .where('status', isEqualTo: 'validated')
+          .get();
+
+      final validatedFromAcceptances = acceptancesSnapshot.docs
+          .map((doc) => doc.data()['userId'] as String)
+          .toSet();
+
+      // Charger les Subshifts pour trouver les acceptations automatiques
+      final subshiftRepo = SubshiftRepository();
+      final subshifts = await subshiftRepo.getByPlanningId(widget.request.planningId);
+
+      debugPrint(
+        '🔍 [WaveDialog] Loading validated acceptances for request ${widget.request.id}',
+      );
+      debugPrint('  Request period: ${widget.request.startTime} - ${widget.request.endTime}');
+      debugPrint('  Request requesterId: ${widget.request.requesterId}');
+      debugPrint('  Found ${subshifts.length} subshifts for planning');
+
+      // Identifier les utilisateurs qui ont accepté automatiquement pour cette demande
+      final validatedFromSubshifts = <String>{};
+      for (final subshift in subshifts) {
+        debugPrint(
+          '  Checking subshift: replacedId=${subshift.replacedId}, replacerId=${subshift.replacerId}, period=${subshift.start} - ${subshift.end}',
+        );
+
+        // Vérifier si le Subshift correspond à cette demande de remplacement
+        // Le Subshift peut couvrir toute ou partie de la demande (acceptation partielle)
+        final matchesReplacer = subshift.replacedId == widget.request.requesterId;
+        final overlapsTime = subshift.start.isBefore(widget.request.endTime) &&
+            subshift.end.isAfter(widget.request.startTime);
+
+        debugPrint(
+          '    matchesReplacer=$matchesReplacer, overlapsTime=$overlapsTime',
+        );
+
+        if (matchesReplacer && overlapsTime) {
+          validatedFromSubshifts.add(subshift.replacerId);
+          debugPrint('    ✅ Added to validated: ${subshift.replacerId}');
+        }
+      }
+
+      debugPrint('  Total validated from subshifts: ${validatedFromSubshifts.length}');
+      debugPrint('  Validated user IDs: $validatedFromSubshifts');
+
+      if (mounted) {
+        setState(() {
+          // Combiner les deux sources de validation
+          _validatedUserIds = {...validatedFromAcceptances, ...validatedFromSubshifts};
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading validated acceptances: $e');
+    }
+  }
+
   String _getWaveLabel(int wave) {
+    // Mode similarité : utiliser les descriptions basées sur les compétences
     switch (wave) {
       case 0:
-        return "Agents en astreinte (jamais notifiés)";
+        return "Agents non-notifiés";
       case 1:
         return "Vague 1 : Équipe (hors astreinte)";
       case 2:
@@ -1576,6 +2012,18 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
         return "Vague 5 : Autres agents";
       default:
         return "Vague $wave";
+    }
+  }
+
+  /// Retourne le label de la sous-catégorie pour les agents non-notifiés
+  String _getNonNotifiedCategoryLabel(NonNotifiedCategory category) {
+    switch (category) {
+      case NonNotifiedCategory.onDuty:
+        return "Agents en astreinte";
+      case NonNotifiedCategory.replacing:
+        return "Agents remplaçants";
+      case NonNotifiedCategory.underQualified:
+        return "Agents sous-qualifiés";
     }
   }
 
@@ -1736,18 +2184,32 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
                   ),
                 ),
                 if (isExpanded)
-                  Container(
-                    color: Colors.grey.shade50,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 24,
-                      vertical: 8,
-                    ),
-                    child: Column(
-                      children: users.map((user) {
+                  wave == 0
+                      ? _buildNonNotifiedUsersSection(users)
+                      : Container(
+                          color: Colors.grey.shade50,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 24,
+                            vertical: 8,
+                          ),
+                          child: Column(
+                            children: users.map((user) {
                         final isNotified = widget.notifiedUserIds.contains(
                           user.id,
                         );
                         final hasDeclined = _declinedUserIds.contains(user.id);
+
+                        // Vérifier si l'utilisateur a marqué comme "Vu"
+                        final hasSeen = widget.request.seenByUserIds.contains(user.id);
+
+                        // Vérifier si l'utilisateur a été validé
+                        // Soit via Subshift/ReplacementAcceptance validée, soit en tant que replacerId de la demande acceptée
+                        final isValidated = _validatedUserIds.contains(user.id) ||
+                            (widget.request.status == ReplacementRequestStatus.accepted &&
+                             widget.request.replacerId == user.id);
+
+                        // Vérifier si l'utilisateur est en attente de validation
+                        final isPendingValidation = widget.request.pendingValidationUserIds.contains(user.id);
 
                         // Déterminer le statut
                         String statusLabel;
@@ -1760,6 +2222,21 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
                           statusColor = Colors.red.shade700;
                           statusBgColor = Colors.red.shade100;
                           statusIcon = Icons.cancel;
+                        } else if (isValidated) {
+                          statusLabel = 'Validé';
+                          statusColor = Colors.green.shade700;
+                          statusBgColor = Colors.green.shade100;
+                          statusIcon = Icons.check_circle;
+                        } else if (isPendingValidation) {
+                          statusLabel = 'En attente de validation';
+                          statusColor = Colors.green.shade700;
+                          statusBgColor = Colors.green.shade100;
+                          statusIcon = Icons.schedule;
+                        } else if (hasSeen) {
+                          statusLabel = 'Vu';
+                          statusColor = Colors.grey.shade700;
+                          statusBgColor = Colors.grey.shade200;
+                          statusIcon = Icons.visibility;
                         } else if (isNotified) {
                           statusLabel = 'En attente';
                           statusColor = Colors.orange.shade700;
@@ -1789,10 +2266,16 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
                                     fontSize: 14,
                                     color: hasDeclined
                                         ? Colors.grey.shade600
-                                        : (isNotified
-                                            ? Colors.black
-                                            : Colors.grey.shade700),
-                                    fontWeight: isNotified || hasDeclined
+                                        : (isValidated
+                                            ? Colors.green.shade900
+                                            : (isPendingValidation
+                                                ? Colors.green.shade900
+                                                : (hasSeen
+                                                    ? Colors.grey.shade700
+                                                    : (isNotified
+                                                        ? Colors.black
+                                                        : Colors.grey.shade700)))),
+                                    fontWeight: isNotified || hasDeclined || hasSeen || isPendingValidation || isValidated
                                         ? FontWeight.w600
                                         : FontWeight.normal,
                                     decoration: hasDeclined
@@ -1823,12 +2306,113 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
                           ),
                         );
                       }).toList(),
-                    ),
-                  ),
+                            ),
+                          ),
               ],
             );
           },
         ),
+      ),
+    );
+  }
+
+  /// Construit la section des agents non-notifiés avec sous-catégories
+  Widget _buildNonNotifiedUsersSection(List<User> users) {
+    final waveCalculationService = WaveCalculationService();
+
+    // Grouper les utilisateurs par sous-catégorie
+    final Map<NonNotifiedCategory, List<User>> categorizedUsers = {};
+
+    for (final user in users) {
+      final category = waveCalculationService.getNonNotifiedCategory(
+        requester: widget.requester,
+        candidate: user,
+        planningTeam: widget.planningTeam,
+        agentsInPlanning: widget.agentsInPlanning,
+      );
+
+      if (category != null) {
+        categorizedUsers.putIfAbsent(category, () => []).add(user);
+      }
+    }
+
+    // Trier les catégories par ordre : onDuty, replacing, underQualified
+    final orderedCategories = [
+      NonNotifiedCategory.onDuty,
+      NonNotifiedCategory.replacing,
+      NonNotifiedCategory.underQualified,
+    ];
+
+    return Container(
+      color: Colors.grey.shade50,
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: orderedCategories.where((category) {
+          return categorizedUsers.containsKey(category) &&
+              categorizedUsers[category]!.isNotEmpty;
+        }).map((category) {
+          final categoryUsers = categorizedUsers[category]!;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 8, bottom: 4),
+                child: Text(
+                  _getNonNotifiedCategoryLabel(category),
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade700,
+                  ),
+                ),
+              ),
+              ...categoryUsers.map((user) {
+                return Padding(
+                  padding: const EdgeInsets.only(left: 16, top: 4, bottom: 4),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.person,
+                        size: 16,
+                        color: Colors.grey.shade600,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '${user.firstName} ${user.lastName}',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey.shade700,
+                            fontWeight: FontWeight.normal,
+                          ),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          'Non notifié',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade600,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
+          );
+        }).toList(),
       ),
     );
   }

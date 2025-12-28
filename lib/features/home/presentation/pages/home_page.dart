@@ -21,6 +21,7 @@ import 'package:nexshift_app/core/data/models/crew_mode_model.dart';
 import 'package:nexshift_app/features/replacement/presentation/pages/replacement_page.dart';
 import 'package:nexshift_app/features/subshift/presentation/widgets/subshift_item.dart';
 import 'package:nexshift_app/features/planning/presentation/widgets/planning_header_widget.dart';
+import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -104,6 +105,20 @@ class _HomePageState extends State<HomePage> {
     final user = userNotifier.value ?? await UserStorageHelper.loadUser();
     debugPrint('🏠 [HOME_PAGE] _loadData() - user=${user != null ? '${user.firstName} ${user.lastName} (${user.station})' : 'NULL'}');
     if (user != null) {
+      // Initialiser le SDIS Context avec le SDIS ID de l'utilisateur
+      // pour que tous les repositories utilisent les bons chemins
+      var sdisId = await UserStorageHelper.loadSdisId();
+      if (sdisId == null || sdisId.isEmpty) {
+        // Par défaut, utiliser "50" (SDIS de la Manche)
+        // TODO: Récupérer le SDIS ID depuis les custom claims Firebase
+        sdisId = '50';
+        // Sauvegarder pour les prochains lancements
+        await UserStorageHelper.saveSdisId(sdisId);
+        debugPrint('🏠 [HOME_PAGE] No SDIS ID in storage, using default: $sdisId');
+      }
+      SDISContext().setCurrentSDISId(sdisId);
+      debugPrint('🏠 [HOME_PAGE] SDIS Context initialized with SDIS ID: $sdisId');
+
       final repo = LocalRepository();
       // Charger les plannings de la semaine courante (on filtrera ensuite côté client)
       final weekEnd = _currentWeekStart.add(const Duration(days: 7));
@@ -116,7 +131,7 @@ class _HomePageState extends State<HomePage> {
 
       final userRepo = UserRepository();
       final allUsers = await userRepo.getByStation(user.station);
-      final shifts = await SubshiftRepository().getAll();
+      final shifts = await SubshiftRepository().getAll(stationId: user.station);
       final availabilities = await repo.getAvailabilities();
 
       // Charger la couleur de l'équipe de l'utilisateur

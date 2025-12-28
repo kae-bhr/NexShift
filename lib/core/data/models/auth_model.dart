@@ -4,6 +4,7 @@ class Auth {
   final String licence;
   final String id;
   final String station;
+  final String? sdisId;
   final bool consumed;
   final DateTime? consumedAt;
 
@@ -11,6 +12,7 @@ class Auth {
     required this.licence,
     required this.id,
     required this.station,
+    this.sdisId,
     this.consumed = false,
     this.consumedAt,
   });
@@ -20,6 +22,7 @@ class Auth {
     String? licence,
     String? id,
     String? station,
+    String? sdisId,
     bool? consumed,
     DateTime? consumedAt,
   }) {
@@ -27,6 +30,7 @@ class Auth {
       licence: licence ?? this.licence,
       id: id ?? this.id,
       station: station ?? this.station,
+      sdisId: sdisId ?? this.sdisId,
       consumed: consumed ?? this.consumed,
       consumedAt: consumedAt ?? this.consumedAt,
     );
@@ -36,6 +40,7 @@ class Auth {
         'licence': licence,
         'id': id,
         'station': station,
+        if (sdisId != null) 'sdisId': sdisId,
         'consumed': consumed,
         'consumedAt': consumedAt != null ? Timestamp.fromDate(consumedAt!) : null,
       };
@@ -44,6 +49,7 @@ class Auth {
         licence: json['licence'] as String,
         id: json['id'] as String,
         station: json['station'] as String,
+        sdisId: json['sdisId'] as String?,
         consumed: json['consumed'] as bool? ?? false,
         consumedAt: json['consumedAt'] != null
             ? (json['consumedAt'] as Timestamp).toDate()

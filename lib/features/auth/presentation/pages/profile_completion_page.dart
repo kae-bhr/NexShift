@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:nexshift_app/core/data/datasources/notifiers.dart';
+import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
 import 'package:nexshift_app/core/presentation/widgets/hero_widget.dart';
 import 'package:nexshift_app/core/repositories/user_repository.dart';
+import 'package:nexshift_app/core/repositories/user_stations_repository.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:nexshift_app/features/app_shell/presentation/widgets/widget_tree.dart';
 import 'package:nexshift_app/features/auth/presentation/widgets/snake_bar_widget.dart';
@@ -180,7 +182,7 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage> {
     setState(() => _isLoading = true);
 
     try {
-      // Mettre à jour l'utilisateur
+      // Mettre à jour l'utilisateur dans la station
       final userRepo = UserRepository();
       final updatedUser = widget.user.copyWith(
         firstName: firstName,
@@ -188,10 +190,31 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage> {
       );
       await userRepo.upsert(updatedUser);
 
+      // Mettre à jour le document user_stations avec firstName/lastName
+      final userStationsRepo = UserStationsRepository();
+      final sdisId = SDISContext().currentSDISId;
+      final existingUserStations = await userStationsRepo.getUserStations(
+        widget.user.id,
+        sdisId: sdisId,
+      );
+
+      if (existingUserStations != null) {
+        // Mettre à jour avec les nouvelles données
+        final updatedUserStations = existingUserStations.copyWith(
+          firstName: firstName,
+          lastName: lastName,
+        );
+        await userStationsRepo.createOrUpdateUserStations(
+          updatedUserStations,
+          sdisId: sdisId,
+        );
+      }
+
       // Mettre à jour les notifiers locaux
       userNotifier.value = updatedUser;
       await UserStorageHelper.saveUser(updatedUser);
 
+      if (!mounted) return;
       setState(() => _isLoading = false);
 
       if (!mounted) return;

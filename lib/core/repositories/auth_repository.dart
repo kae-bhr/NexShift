@@ -14,22 +14,20 @@ class AuthRepository {
       debugPrint('🔍 [AuthRepository] Searching for licence: $licenceNumber');
       debugPrint('🔍 [AuthRepository] Collection: $_collectionName');
 
-      // Use Firestore directly to avoid FirestoreService overwriting 'id' field
-      final doc = await FirebaseFirestore.instance
+      // Query by the 'licence' field instead of document ID
+      final querySnapshot = await FirebaseFirestore.instance
           .collection(_collectionName)
-          .doc(licenceNumber)
+          .where('licence', isEqualTo: licenceNumber)
+          .limit(1)
           .get();
 
-      if (!doc.exists) {
+      if (querySnapshot.docs.isEmpty) {
         debugPrint('❌ [AuthRepository] No data found for licence: $licenceNumber');
         return null;
       }
 
+      final doc = querySnapshot.docs.first;
       final data = doc.data();
-      if (data == null) {
-        debugPrint('❌ [AuthRepository] Document exists but has no data: $licenceNumber');
-        return null;
-      }
 
       debugPrint('🔍 [AuthRepository] Data received: $data');
 

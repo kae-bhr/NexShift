@@ -3,7 +3,7 @@ import 'package:nexshift_app/core/data/datasources/notifiers.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/repositories/user_repository.dart';
 import 'package:nexshift_app/core/repositories/team_repository.dart';
-import 'package:nexshift_app/core/repositories/truck_repository.dart';
+import 'package:nexshift_app/core/repositories/station_repository.dart';
 import 'package:nexshift_app/core/services/wave_calculation_service.dart';
 import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
@@ -13,7 +13,7 @@ class AgentWithSimilarity {
   final User user;
   final int wave;
   final double similarity;
-  final int totalPoints; // Points totaux de criticité
+  final double totalPoints; // Points totaux de criticité
 
   AgentWithSimilarity({
     required this.user,
@@ -40,8 +40,9 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
   bool _isLoading = true;
   User? _currentUser;
   List<AgentWithSimilarity> _agents = [];
-  Map<String, int> _skillWeights = {}; // Poids de chaque compétence
-  int _currentUserTotalPoints = 0; // Points totaux de l'utilisateur courant
+  Map<String, double> _skillWeights = {}; // Poids de chaque compétence
+  double _currentUserTotalPoints =
+      0.0; // Points totaux de l'utilisateur courant
   final _waveCalculationService = WaveCalculationService();
 
   @override
@@ -64,26 +65,42 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
     final allUsers = await userRepo.getByStation(currentUser.station);
 
     // Filtrer pour exclure l'utilisateur courant
-    final stationUsers = allUsers
-        .where((u) => u.id != currentUser.id)
-        .toList();
+    final stationUsers = allUsers.where((u) => u.id != currentUser.id).toList();
 
-    // Charger les véhicules de la station pour le calcul contextuel
-    final truckRepo = TruckRepository();
-    final stationVehicles = await truckRepo.getByStation(currentUser.station);
+    // Charger la configuration de la station pour obtenir les skillWeights
+    final stationRepo = StationRepository();
+    final station = await stationRepo.getById(currentUser.station);
+    final stationSkillWeights = station?.skillWeights ?? {};
 
-    // Calculer les poids de rareté avec contexte opérationnel
-    final skillWeights = await _waveCalculationService.calculateSkillRarityWeightsWithContext(
-      requester: currentUser,
-      teamMembers: allUsers,
-      stationVehicles: stationVehicles,
-      stationId: currentUser.station,
-    );
+    // Convertir les skillWeights en Map<String, double> pour compatibilité
+    // Utilisation UNIQUEMENT des poids configurés dans l'AdminPage (poids de base = 1.0)
+    final skillWeights = <String, double>{};
+
+    // Récupérer toutes les compétences possibles
+    final allPossibleSkills = <String>{};
+    for (final user in allUsers) {
+      allPossibleSkills.addAll(user.skills);
+    }
+
+    // Appliquer la pondération de la station (poids de base × pondération)
+    for (final skill in allPossibleSkills) {
+      final baseWeight =
+          1.0; // Poids de base standard pour toutes les compétences
+      final stationMultiplier = stationSkillWeights[skill] ?? 1.0;
+      skillWeights[skill] = baseWeight * stationMultiplier;
+    }
 
     // Calculer les points totaux de l'utilisateur courant
-    int currentUserPoints = 0;
+    double currentUserPoints = 0.0;
     for (final skill in currentUser.skills) {
-      currentUserPoints += skillWeights[skill] ?? 0;
+      currentUserPoints += skillWeights[skill] ?? 0.0;
+    }
+
+    // Convertir skillWeights en Map<String, int> pour compatibilité avec calculateWave
+    // (multiplication par 100 pour conserver la précision)
+    final skillWeightsInt = <String, int>{};
+    for (final entry in skillWeights.entries) {
+      skillWeightsInt[entry.key] = (entry.value * 100).round();
     }
 
     // Calculer la vague et la similarité pour chaque agent
@@ -94,10 +111,11 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
         candidate: user,
         planningTeam: currentUser.team,
         agentsInPlanning: [], // On simule sans planning actif
-        skillRarityWeights: skillWeights,
+        skillRarityWeights: skillWeightsInt,
+        stationSkillWeights: stationSkillWeights,
       );
 
-      // Calculer la similarité
+      // Calculer la similarité avec les poids configurés
       final similarity = _calculateSkillSimilarity(
         currentUser,
         user,
@@ -105,17 +123,19 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
       );
 
       // Calculer les points totaux de cet agent
-      int agentTotalPoints = 0;
+      double agentTotalPoints = 0.0;
       for (final skill in user.skills) {
-        agentTotalPoints += skillWeights[skill] ?? 0;
+        agentTotalPoints += skillWeights[skill] ?? 0.0;
       }
 
-      agentsWithSimilarity.add(AgentWithSimilarity(
-        user: user,
-        wave: wave,
-        similarity: similarity,
-        totalPoints: agentTotalPoints,
-      ));
+      agentsWithSimilarity.add(
+        AgentWithSimilarity(
+          user: user,
+          wave: wave,
+          similarity: similarity,
+          totalPoints: agentTotalPoints,
+        ),
+      );
     }
 
     // Trier par vague, puis par similarité décroissante
@@ -133,27 +153,33 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
     });
   }
 
-  /// Détails du calcul de similarité pour affichage dans les tooltips
+  /// Détails du calcul de compatibilité pour affichage dans les tooltips
   String _getSimilarityExplanation(
     User user1,
     User user2,
-    Map<String, int> skillWeights,
-    double similarity,
+    Map<String, double> skillWeights,
+    double compatibility,
   ) {
     final skills1 = Set<String>.from(user1.skills);
     final skills2 = Set<String>.from(user2.skills);
 
     if (skills1.isEmpty) return 'Aucune compétence à comparer';
 
-    // Calculer le poids total des compétences de user1
-    double totalWeight = 0.0;
+    // Calculer le poids total des compétences de user1 (requises)
+    double totalWeightUser1 = 0.0;
     for (final skill in skills1) {
-      totalWeight += (skillWeights[skill] ?? 0).toDouble();
+      totalWeightUser1 += skillWeights[skill] ?? 0.0;
     }
 
-    if (totalWeight == 0) {
+    // Calculer le poids total des compétences de user2 (candidat)
+    double totalWeightUser2 = 0.0;
+    for (final skill in skills2) {
+      totalWeightUser2 += skillWeights[skill] ?? 0.0;
+    }
+
+    if (totalWeightUser1 == 0) {
       return skills2.containsAll(skills1)
-          ? 'Compétences identiques (non requises pour les véhicules)'
+          ? 'Compétences identiques (non requises)'
           : 'Aucune compétence en commun';
     }
 
@@ -161,70 +187,63 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
     double matchedWeight = 0.0;
     for (final skill in skills1) {
       if (skills2.contains(skill)) {
-        matchedWeight += (skillWeights[skill] ?? 0).toDouble();
+        matchedWeight += skillWeights[skill] ?? 0.0;
       }
     }
 
-    // Calculer le poids des compétences supplémentaires
-    double extraWeight = 0.0;
-    final extraSkills = skills2.difference(skills1);
-    for (final skill in extraSkills) {
-      extraWeight += (skillWeights[skill] ?? 0).toDouble();
-    }
-
-    // Calculer la pénalité
-    final overqualificationRatio = totalWeight > 0 ? extraWeight / totalWeight : 0.0;
-    final overqualificationPenalty = (overqualificationRatio * 0.1).clamp(0.0, 0.3);
-    final baseSimilarity = matchedWeight / totalWeight;
+    // Calculer les ratios
+    final coverage = matchedWeight / totalWeightUser1;
+    final precision = totalWeightUser2 > 0 ? matchedWeight / totalWeightUser2 : 0.0;
 
     // Formater l'explication
     final buffer = StringBuffer();
-    buffer.writeln('📊 Détails du calcul de similarité\n');
-    buffer.writeln('Points en commun : ${matchedWeight.round()} pts');
-    buffer.writeln('Points requis : ${totalWeight.round()} pts');
-    buffer.writeln('Similarité de base : ${(baseSimilarity * 100).round()}%\n');
-
-    if (extraWeight > 0) {
-      buffer.writeln('Points supplémentaires : ${extraWeight.round()} pts');
-      buffer.writeln('Ratio de surqualification : ${(overqualificationRatio * 100).round()}%');
-      buffer.writeln('Pénalité appliquée : -${(overqualificationPenalty * 100).round()}%\n');
-    }
-
+    buffer.writeln('📊 Détails du calcul de compatibilité\n');
+    buffer.writeln('Points requis : ${totalWeightUser1.toStringAsFixed(1)} pts');
+    buffer.writeln('Points de l\'agent : ${totalWeightUser2.toStringAsFixed(1)} pts');
+    buffer.writeln('Points en commun : ${matchedWeight.toStringAsFixed(1)} pts\n');
+    buffer.writeln('Couverture des besoins : ${(coverage * 100).round()}%');
+    buffer.writeln('Précision du profil : ${(precision * 100).round()}%');
     buffer.writeln('═══════════════════');
-    buffer.write('Similarité finale : ${(similarity * 100).round()}%');
+    buffer.write('Compatibilité finale : ${(compatibility * 100).round()}%');
 
     return buffer.toString();
   }
 
   /// Calcule la similarité entre deux utilisateurs basée sur leurs compétences
   ///
-  /// La similarité mesure à quel point user2 peut remplacer user1 :
+  /// La compatibilité mesure à quel point user2 peut remplacer user1 :
   /// - 100% = match parfait (user2 a exactement les compétences de user1)
-  /// - 0% = aucune compétence en commun
+  /// - 0% = aucune compatibilité
   ///
-  /// Avec le nouveau système de points (0-100) :
-  /// - Les compétences rares et critiques ont des poids élevés
-  /// - La similarité reflète la capacité de remplacement opérationnel
-  /// - Pénalité de surqualification pour préserver les agents très qualifiés
+  /// Système bidirectionnel qui pénalise autant la surqualification que la sous-qualification :
+  /// - Couverture : user2 possède-t-il ce que user1 demande ?
+  /// - Précision : user2 ne possède-t-il que ce que user1 demande ?
+  /// - Compatibilité : moyenne des deux ratios
   double _calculateSkillSimilarity(
     User user1,
     User user2,
-    Map<String, int> skillWeights,
+    Map<String, double> skillWeights,
   ) {
     final skills1 = Set<String>.from(user1.skills);
     final skills2 = Set<String>.from(user2.skills);
 
     if (skills1.isEmpty) return 0.0;
 
-    // Calculer le poids total des compétences de user1
-    double totalWeight = 0.0;
+    // Calculer le poids total des compétences de user1 (compétences requises)
+    double totalWeightUser1 = 0.0;
     for (final skill in skills1) {
-      totalWeight += (skillWeights[skill] ?? 0).toDouble();
+      totalWeightUser1 += skillWeights[skill] ?? 0.0;
+    }
+
+    // Calculer le poids total des compétences de user2 (compétences du candidat)
+    double totalWeightUser2 = 0.0;
+    for (final skill in skills2) {
+      totalWeightUser2 += skillWeights[skill] ?? 0.0;
     }
 
     // Si user1 n'a que des compétences non requises (poids 0),
     // retourner 100% si user2 les a aussi, 0% sinon
-    if (totalWeight == 0) {
+    if (totalWeightUser1 == 0) {
       return skills2.containsAll(skills1) ? 1.0 : 0.0;
     }
 
@@ -232,37 +251,21 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
     double matchedWeight = 0.0;
     for (final skill in skills1) {
       if (skills2.contains(skill)) {
-        matchedWeight += (skillWeights[skill] ?? 0).toDouble();
+        matchedWeight += skillWeights[skill] ?? 0.0;
       }
     }
 
-    // Calculer le poids des compétences supplémentaires (surqualification)
-    double extraWeight = 0.0;
-    final extraSkills = skills2.difference(skills1);
-    for (final skill in extraSkills) {
-      extraWeight += (skillWeights[skill] ?? 0).toDouble();
-    }
+    // Ratio 1 : Couverture des besoins (user2 a-t-il ce que user1 demande ?)
+    final coverage = matchedWeight / totalWeightUser1;
 
-    // Pénalité de surqualification basée sur le ratio de compétences supplémentaires
-    // Si le candidat a beaucoup de compétences rares supplémentaires,
-    // il devrait être réservé pour des remplacements plus critiques
-    double overqualificationPenalty = 0.0;
-    if (totalWeight > 0) {
-      // Ratio de surqualification : combien de points supplémentaires vs requis
-      final overqualificationRatio = extraWeight / totalWeight;
+    // Ratio 2 : Précision du profil (user2 n'a-t-il que ce que user1 demande ?)
+    // Si user2 n'a aucune compétence pondérée, précision = 0
+    final precision = totalWeightUser2 > 0 ? matchedWeight / totalWeightUser2 : 0.0;
 
-      // Pénalité progressive :
-      // - Si candidat a 50% de points en plus : -5% de similarité
-      // - Si candidat a 100% de points en plus : -10% de similarité
-      // - Si candidat a 200% de points en plus : -20% de similarité
-      // - Plafonné à -30% maximum
-      overqualificationPenalty = (overqualificationRatio * 0.1).clamp(0.0, 0.3);
-    }
+    // Compatibilité finale : moyenne des deux ratios
+    final compatibility = (coverage + precision) / 2;
 
-    final baseSimilarity = matchedWeight / totalWeight;
-    final adjustedSimilarity = baseSimilarity - overqualificationPenalty;
-
-    return adjustedSimilarity.clamp(0.0, 1.0);
+    return compatibility.clamp(0.0, 1.0);
   }
 
   @override
@@ -275,32 +278,35 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _currentUser == null
-              ? const Center(child: Text('Utilisateur non connecté'))
-              : RefreshIndicator(
-                  onRefresh: _loadData,
-                  child: ListView(
-                    padding: const EdgeInsets.all(16),
-                    children: [
-                      // En-tête avec info utilisateur courant
-                      _buildCurrentUserHeader(),
-                      const SizedBox(height: 24),
+          ? const Center(child: Text('Utilisateur non connecté'))
+          : RefreshIndicator(
+              onRefresh: _loadData,
+              child: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  // En-tête avec info utilisateur courant
+                  _buildCurrentUserHeader(),
+                  const SizedBox(height: 24),
 
-                      // Légende des vagues
-                      _buildWaveLegend(),
-                      const SizedBox(height: 24),
+                  // Légende des vagues
+                  _buildWaveLegend(),
+                  const SizedBox(height: 24),
 
-                      // Liste des agents par vague
-                      ..._buildAgentsByWave(),
-                    ],
-                  ),
-                ),
+                  // Liste des agents par vague
+                  ..._buildAgentsByWave(),
+                ],
+              ),
+            ),
     );
   }
 
   Widget _buildCurrentUserHeader() {
     return FutureBuilder(
       future: _currentUser!.team.isNotEmpty
-          ? TeamRepository().getById(_currentUser!.team, stationId: _currentUser!.station)
+          ? TeamRepository().getById(
+              _currentUser!.team,
+              stationId: _currentUser!.station,
+            )
           : Future.value(null),
       builder: (context, snapshot) {
         final team = snapshot.data;
@@ -341,14 +347,11 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
                           const SizedBox(height: 4),
                           Text(
                             'Équipe ${_currentUser!.team}',
-                            style: TextStyle(
-                              color: teamColor,
-                              fontSize: 14,
-                            ),
+                            style: TextStyle(color: teamColor, fontSize: 14),
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            '${_currentUser!.skills.length} compétence(s) - $_currentUserTotalPoints points',
+                            '${_currentUser!.skills.length} compétence(s) - ${_currentUserTotalPoints.toStringAsFixed(1)} points',
                             style: TextStyle(
                               color: Colors.grey[600],
                               fontSize: 12,
@@ -392,10 +395,7 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
                 const SizedBox(width: 8),
                 const Text(
                   'Vagues de notification',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
               ],
             ),
@@ -404,7 +404,7 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
               1,
               'Même équipe',
               Colors.purple,
-              'Agents de votre équipe (hors astreinte)',
+              'Agents de votre équipe',
             ),
             _buildWaveLegendItem(
               2,
@@ -427,8 +427,14 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
             _buildWaveLegendItem(
               5,
               'Autres agents',
-              Colors.grey,
+              Colors.brown,
               'Tous les autres agents disponibles',
+            ),
+            _buildWaveLegendItem(
+              6,
+              'Agents non notifiés',
+              Colors.grey,
+              'Ne possèdent pas la ou les compétences clés',
             ),
           ],
         ),
@@ -479,10 +485,7 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
                 ),
                 Text(
                   description,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Colors.grey[600],
-                  ),
+                  style: TextStyle(fontSize: 11, color: Colors.grey[600]),
                 ),
               ],
             ),
@@ -498,7 +501,7 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
     // Grouper les agents par vague
     final agentsByWave = <int, List<AgentWithSimilarity>>{};
     for (final agent in _agents) {
-      if (agent.wave == 0) continue; // Ignorer la vague 0 (agents en astreinte)
+      // Inclure toutes les vagues, y compris la vague 0 (agents non-notifiés)
       agentsByWave.putIfAbsent(agent.wave, () => []).add(agent);
     }
 
@@ -529,14 +532,16 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
 
   Widget _buildWaveSection(int wave, List<AgentWithSimilarity> agents) {
     final waveColors = {
+      0: Colors.grey,
       1: Colors.purple,
       2: Colors.green,
       3: Colors.blue,
       4: Colors.orange,
-      5: Colors.grey,
+      5: Colors.brown,
     };
 
     final waveTitles = {
+      0: 'Agents non-notifiés',
       1: 'Vague 1 - Même équipe',
       2: 'Vague 2 - Compétences identiques',
       3: 'Vague 3 - Très similaires (80%+)',
@@ -544,8 +549,13 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
       5: 'Vague 5 - Autres agents',
     };
 
+    final waveDescriptions = {
+      0: 'Agents en astreinte, remplaçants ou ne possédant pas toutes les compétences clés.',
+    };
+
     final color = waveColors[wave] ?? Colors.grey;
     final title = waveTitles[wave] ?? 'Vague $wave';
+    final description = waveDescriptions[wave];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -562,10 +572,7 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
               Container(
                 width: 28,
                 height: 28,
-                decoration: BoxDecoration(
-                  color: color,
-                  shape: BoxShape.circle,
-                ),
+                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
                 child: Center(
                   child: Text(
                     '$wave',
@@ -579,13 +586,28 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: color,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: color,
+                      ),
+                    ),
+                    if (description != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        description,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
               Container(
@@ -664,10 +686,7 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
                             const SizedBox(width: 4),
                             Text(
                               'Équipe ${agent.team}',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: teamColor,
-                              ),
+                              style: TextStyle(fontSize: 11, color: teamColor),
                             ),
                             const SizedBox(width: 8),
                             Icon(
@@ -743,9 +762,17 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
 
     final currentSkills = Set<String>.from(_currentUser!.skills);
     final agentSkills = Set<String>.from(agent.skills);
-    final commonSkills = currentSkills.intersection(agentSkills).toList()..sort();
-    final onlyCurrentSkills = currentSkills.difference(agentSkills).toList()..sort();
-    final onlyAgentSkills = agentSkills.difference(currentSkills).toList()..sort();
+    final commonSkills = currentSkills.intersection(agentSkills).toList()
+      ..sort();
+    // Filtrer les compétences à pondération 0 des listes "manquantes" et "supplémentaires"
+    final onlyCurrentSkills = currentSkills.difference(agentSkills)
+        .where((skill) => (_skillWeights[skill] ?? 1.0) > 0.0)
+        .toList()
+      ..sort();
+    final onlyAgentSkills = agentSkills.difference(currentSkills)
+        .where((skill) => (_skillWeights[skill] ?? 1.0) > 0.0)
+        .toList()
+      ..sort();
 
     showModalBottomSheet(
       context: context,
@@ -762,7 +789,10 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
           builder: (context, scrollController) {
             return FutureBuilder(
               future: agent.team.isNotEmpty
-                  ? TeamRepository().getById(agent.team, stationId: agent.station)
+                  ? TeamRepository().getById(
+                      agent.team,
+                      stationId: agent.station,
+                    )
                   : Future.value(null),
               builder: (context, snapshot) {
                 final team = snapshot.data;
@@ -821,7 +851,7 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                '${agentSimilarity.totalPoints} points',
+                                '${agentSimilarity.totalPoints.toStringAsFixed(1)} points',
                                 style: TextStyle(
                                   fontSize: 12,
                                   color: Colors.grey[600],
@@ -875,7 +905,7 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
                                   ),
                                 ),
                                 const Text(
-                                  'Similarité',
+                                  'Compatibilité',
                                   style: TextStyle(fontSize: 12),
                                 ),
                               ],
@@ -912,7 +942,11 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
                     if (commonSkills.isNotEmpty) ...[
                       Row(
                         children: [
-                          Icon(Icons.check_circle, color: Colors.green[600], size: 20),
+                          Icon(
+                            Icons.check_circle,
+                            color: Colors.green[600],
+                            size: 20,
+                          ),
                           const SizedBox(width: 8),
                           Text(
                             'Compétences en commun (${commonSkills.length})',
@@ -930,12 +964,15 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
                         children: commonSkills.map((skill) {
                           final skillLevelColor = KSkills.skillColors[skill];
                           final skillColor = skillLevelColor != null
-                              ? KSkills.getColorForSkillLevel(skillLevelColor, context)
+                              ? KSkills.getColorForSkillLevel(
+                                  skillLevelColor,
+                                  context,
+                                )
                               : Colors.grey;
-                          final skillPoints = _skillWeights[skill] ?? 0;
+                          final skillPoints = _skillWeights[skill] ?? 0.0;
 
                           return Tooltip(
-                            message: '$skill : $skillPoints points',
+                            message: '$skill : ${skillPoints.toStringAsFixed(1)} points',
                             child: Chip(
                               label: Text(
                                 skill,
@@ -943,8 +980,11 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
                               ),
                               backgroundColor: skillColor.withOpacity(0.2),
                               side: BorderSide(color: skillColor),
-                              padding: const EdgeInsets.symmetric(horizontal: 4),
-                              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 4,
+                              ),
+                              materialTapTargetSize:
+                                  MaterialTapTargetSize.shrinkWrap,
                             ),
                           );
                         }).toList(),
@@ -956,7 +996,11 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
                     if (onlyCurrentSkills.isNotEmpty) ...[
                       Row(
                         children: [
-                          Icon(Icons.remove_circle, color: Colors.red[600], size: 20),
+                          Icon(
+                            Icons.remove_circle,
+                            color: Colors.red[600],
+                            size: 20,
+                          ),
                           const SizedBox(width: 8),
                           Text(
                             'Compétences manquantes (${onlyCurrentSkills.length})',
@@ -974,31 +1018,29 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
                         children: onlyCurrentSkills.map((skill) {
                           final skillLevelColor = KSkills.skillColors[skill];
                           final skillColor = skillLevelColor != null
-                              ? KSkills.getColorForSkillLevel(skillLevelColor, context)
+                              ? KSkills.getColorForSkillLevel(
+                                  skillLevelColor,
+                                  context,
+                                )
                               : Colors.grey;
-                          final skillPoints = _skillWeights[skill] ?? 0;
+                          final skillPoints = _skillWeights[skill] ?? 0.0;
 
-                          return GestureDetector(
-                            onTap: () {
-                              // Afficher une info-bulle avec les points
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('$skill : $skillPoints points'),
-                                  duration: const Duration(seconds: 2),
-                                  behavior: SnackBarBehavior.floating,
-                                  width: 200,
-                                ),
-                              );
-                            },
+                          return Tooltip(
+                            message: '$skill : ${skillPoints.toStringAsFixed(1)} points',
                             child: Chip(
                               label: Text(
                                 skill,
                                 style: const TextStyle(fontSize: 11),
                               ),
                               backgroundColor: skillColor.withOpacity(0.1),
-                              side: BorderSide(color: skillColor.withOpacity(0.3)),
-                              padding: const EdgeInsets.symmetric(horizontal: 4),
-                              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              side: BorderSide(
+                                color: skillColor.withOpacity(0.3),
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 4,
+                              ),
+                              materialTapTargetSize:
+                                  MaterialTapTargetSize.shrinkWrap,
                             ),
                           );
                         }).toList(),
@@ -1010,7 +1052,11 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
                     if (onlyAgentSkills.isNotEmpty) ...[
                       Row(
                         children: [
-                          Icon(Icons.add_circle, color: Colors.blue[600], size: 20),
+                          Icon(
+                            Icons.add_circle,
+                            color: Colors.blue[600],
+                            size: 20,
+                          ),
                           const SizedBox(width: 8),
                           Text(
                             'Compétences supplémentaires (${onlyAgentSkills.length})',
@@ -1028,12 +1074,15 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
                         children: onlyAgentSkills.map((skill) {
                           final skillLevelColor = KSkills.skillColors[skill];
                           final skillColor = skillLevelColor != null
-                              ? KSkills.getColorForSkillLevel(skillLevelColor, context)
+                              ? KSkills.getColorForSkillLevel(
+                                  skillLevelColor,
+                                  context,
+                                )
                               : Colors.grey;
-                          final skillPoints = _skillWeights[skill] ?? 0;
+                          final skillPoints = _skillWeights[skill] ?? 0.0;
 
                           return Tooltip(
-                            message: '$skill : $skillPoints points',
+                            message: '$skill : ${skillPoints.toStringAsFixed(1)} points',
                             child: Chip(
                               label: Text(
                                 skill,
@@ -1041,8 +1090,11 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
                               ),
                               backgroundColor: skillColor.withOpacity(0.2),
                               side: BorderSide(color: skillColor),
-                              padding: const EdgeInsets.symmetric(horizontal: 4),
-                              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 4,
+                              ),
+                              materialTapTargetSize:
+                                  MaterialTapTargetSize.shrinkWrap,
                             ),
                           );
                         }).toList(),
@@ -1060,9 +1112,8 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
                           Navigator.pushReplacement(
                             context,
                             MaterialPageRoute(
-                              builder: (context) => SimilarAgentsPage(
-                                targetUser: agent,
-                              ),
+                              builder: (context) =>
+                                  SimilarAgentsPage(targetUser: agent),
                             ),
                           );
                         },
@@ -1089,17 +1140,19 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
 
   Color _getWaveColor(int wave) {
     const waveColors = {
+      0: Colors.grey,
       1: Colors.purple,
       2: Colors.green,
       3: Colors.blue,
       4: Colors.orange,
-      5: Colors.grey,
+      5: Colors.brown,
     };
     return waveColors[wave] ?? Colors.grey;
   }
 
   String _getWaveTitle(int wave) {
     const waveTitles = {
+      0: 'Non notifiés',
       1: 'Même équipe',
       2: 'Identiques',
       3: 'Très similaires',

@@ -200,17 +200,26 @@ class PlanningRepository {
   }
 
   /// Récupère un planning par ID
-  Future<Planning?> getById(String id) async {
+  /// En mode subcollections, nécessite le stationId pour construire le bon chemin
+  Future<Planning?> getById(String id, {String? stationId}) async {
     try {
-      // Mode test
-      if (_directFirestore != null) {
-        final doc = await _directFirestore.collection(_collectionName).doc(id).get();
-        if (!doc.exists) return null;
+      final collectionPath = _getCollectionPath(stationId);
+
+      // Mode test OU mode subcollections : utiliser FirebaseFirestore directement
+      if (_directFirestore != null || EnvironmentConfig.useStationSubcollections) {
+        final firestore = _directFirestore ?? FirebaseFirestore.instance;
+        final doc = await firestore.collection(collectionPath).doc(id).get();
+        if (!doc.exists) {
+          debugPrint('❌ [PlanningRepository] getById($id) - Document not found at path: $collectionPath');
+          return null;
+        }
         final data = doc.data()!;
         data['id'] = doc.id;
+        debugPrint('✅ [PlanningRepository] getById($id) - Found at path: $collectionPath');
         return Planning.fromJson(data);
       }
-      // Mode production
+
+      // Mode production sans subcollections
       final data = await _firestoreService.getById(_collectionName, id);
       if (data != null) {
         return Planning.fromJson(data);

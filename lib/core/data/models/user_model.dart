@@ -8,6 +8,7 @@ class User {
   final String team;
   final List<String> skills;
   final String? positionId; // ID du poste occupé par l'agent
+  final List<String> keySkills; // Compétences-clés critiques
 
   User({
     required this.id,
@@ -19,6 +20,7 @@ class User {
     required this.team,
     required this.skills,
     this.positionId,
+    this.keySkills = const [], // Par défaut : liste vide
   });
 
   /// Permet de dupliquer l'objet avec des champs modifiés
@@ -32,6 +34,7 @@ class User {
     String? team,
     List<String>? skills,
     String? positionId,
+    List<String>? keySkills,
   }) {
     return User(
       id: id ?? this.id,
@@ -43,6 +46,7 @@ class User {
       team: team ?? this.team,
       skills: skills ?? this.skills,
       positionId: positionId ?? this.positionId,
+      keySkills: keySkills ?? this.keySkills,
     );
   }
 
@@ -56,6 +60,7 @@ class User {
     'team': team,
     'skills': skills,
     if (positionId != null) 'positionId': positionId,
+    'keySkills': keySkills,
   };
 
   factory User.fromJson(Map<String, dynamic> json) => User(
@@ -68,6 +73,9 @@ class User {
     team: json['team'],
     skills: List<String>.from(json['skills']),
     positionId: json['positionId'] as String?,
+    keySkills: json['keySkills'] != null
+        ? List<String>.from(json['keySkills'])
+        : [],
   );
 
   static User empty() => User(

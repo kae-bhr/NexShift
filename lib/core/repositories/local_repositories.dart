@@ -194,13 +194,14 @@ class LocalRepository {
   }
 
   // --- Subshifts management ---
-  Future<List<Subshift>> getSubshifts() async {
-    return await _subshiftRepository.getAll();
+  Future<List<Subshift>> getSubshifts({String? stationId}) async {
+    return await _subshiftRepository.getAll(stationId: stationId);
   }
 
   /// Retourne un planning par identifiant s'il existe.
-  Future<Planning?> getPlanningById(String id) async {
-    return await _planningRepository.getById(id);
+  /// En mode subcollections, nécessite le stationId pour construire le bon chemin
+  Future<Planning?> getPlanningById(String id, {String? stationId}) async {
+    return await _planningRepository.getById(id, stationId: stationId);
   }
 
   Future<void> saveSubshifts(List<Subshift> subshifts) async {

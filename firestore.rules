@@ -159,7 +159,30 @@ service cloud.firestore {
           allow write: if belongsToStation(sdisId, stationId) && isAdmin();
         }
 
-        // Sous-collection: replacementRequests
+        // Sous-collection: replacements (demandes de remplacement individuelles)
+        match /replacements/{requestId} {
+          allow read: if belongsToStation(sdisId, stationId);
+          allow write: if belongsToStation(sdisId, stationId);
+        }
+
+        // Sous-collection: replacements/all/subshifts (tous les subshifts de la station)
+        match /replacements/all/subshifts/{subshiftId} {
+          allow read: if belongsToStation(sdisId, stationId);
+          allow write: if belongsToStation(sdisId, stationId);
+        }
+
+        // Sous-collection: replacements/automatic (pour les triggers automatiques)
+        match /replacements/automatic/notificationTriggers/{triggerId} {
+          allow read: if belongsToStation(sdisId, stationId);
+          allow write: if belongsToStation(sdisId, stationId);
+        }
+
+        match /replacements/automatic/waveStateTriggers/{triggerId} {
+          allow read: if belongsToStation(sdisId, stationId);
+          allow write: if belongsToStation(sdisId, stationId);
+        }
+
+        // Sous-collection: replacementRequests (LEGACY - à migrer vers replacements)
         match /replacementRequests/{requestId} {
           allow read: if belongsToStation(sdisId, stationId);
           allow write: if belongsToStation(sdisId, stationId);
@@ -229,6 +252,14 @@ service cloud.firestore {
         // Seuls les admins peuvent supprimer
         allow delete: if belongsToSDIS(sdisId) && isAdmin();
       }
+    }
+
+    // Collection auth (racine) - Validation des licences avant authentification
+    match /auth/{licenceId} {
+      // Lecture publique pour permettre la validation de licence avant authentification
+      allow read: if true;
+      // Seuls les admins peuvent créer/modifier/supprimer des licences
+      allow write: if isAdmin();
     }
 
     // Collection licences (racine) - Gestion multi-tenant
