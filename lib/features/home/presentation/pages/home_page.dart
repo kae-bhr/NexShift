@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/data/models/trucks_model.dart';
@@ -22,6 +23,16 @@ import 'package:nexshift_app/features/replacement/presentation/pages/replacement
 import 'package:nexshift_app/features/subshift/presentation/widgets/subshift_item.dart';
 import 'package:nexshift_app/features/planning/presentation/widgets/planning_header_widget.dart';
 import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
+import 'package:nexshift_app/features/app_shell/presentation/widgets/absence_menu_overlay.dart';
+import 'package:nexshift_app/core/services/replacement_notification_service.dart';
+import 'package:nexshift_app/core/data/models/shift_exchange_request_model.dart';
+import 'package:nexshift_app/core/repositories/shift_exchange_repository.dart';
+import 'package:intl/intl.dart';
+import 'package:nexshift_app/core/data/models/station_model.dart';
+import 'package:nexshift_app/features/replacement/presentation/widgets/filtered_requests_view.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:nexshift_app/core/presentation/widgets/request_actions_bottom_sheet.dart';
+import 'package:nexshift_app/core/presentation/widgets/unified_request_tile/unified_tile_enums.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -38,6 +49,9 @@ class _HomePageState extends State<HomePage> {
   List<Planning> _allPlannings = [];
   List<Subshift> _allSubshifts = [];
   List<Availability> _allAvailabilities = [];
+  List<ReplacementRequest> _pendingRequests = [];
+  List<ShiftExchangeRequest> _pendingExchanges = [];
+  List<ManualReplacementProposal> _pendingManualProposals = [];
   final Map<String, bool> _expanded = {};
   DateTime _currentWeekStart = _getStartOfWeek(DateTime.now());
   Color? _userTeamColor;
@@ -82,7 +96,9 @@ class _HomePageState extends State<HomePage> {
 
   void _onUserChanged() {
     final u = userNotifier.value;
-    debugPrint('🏠 [HOME_PAGE] _onUserChanged() - user=${u != null ? '${u.firstName} ${u.lastName} (${u.id})' : 'NULL'}');
+    debugPrint(
+      '🏠 [HOME_PAGE] _onUserChanged() - user=${u != null ? '${u.firstName} ${u.lastName} (${u.id})' : 'NULL'}',
+    );
     // Only reload if the user actually changed
     if (u == null) {
       debugPrint('🏠 [HOME_PAGE] _onUserChanged() - user is null, returning');
@@ -103,21 +119,45 @@ class _HomePageState extends State<HomePage> {
     // Prefer the notifier to avoid re-setting it during loadUser, which can
     // cause a reload loop. Fallback to storage only if not available.
     final user = userNotifier.value ?? await UserStorageHelper.loadUser();
-    debugPrint('🏠 [HOME_PAGE] _loadData() - user=${user != null ? '${user.firstName} ${user.lastName} (${user.station})' : 'NULL'}');
+    debugPrint(
+      '🏠 [HOME_PAGE] _loadData() - user=${user != null ? '${user.firstName} ${user.lastName} (${user.station})' : 'NULL'}',
+    );
     if (user != null) {
       // Initialiser le SDIS Context avec le SDIS ID de l'utilisateur
       // pour que tous les repositories utilisent les bons chemins
+      // IMPORTANT: Charger le SDIS ID du storage local (sauvegardé lors de la connexion)
       var sdisId = await UserStorageHelper.loadSdisId();
       if (sdisId == null || sdisId.isEmpty) {
-        // Par défaut, utiliser "50" (SDIS de la Manche)
-        // TODO: Récupérer le SDIS ID depuis les custom claims Firebase
-        sdisId = '50';
-        // Sauvegarder pour les prochains lancements
-        await UserStorageHelper.saveSdisId(sdisId);
-        debugPrint('🏠 [HOME_PAGE] No SDIS ID in storage, using default: $sdisId');
+        // Fallback: extraire le SDIS ID de l'email Firebase
+        final firebaseUser = firebase_auth.FirebaseAuth.instance.currentUser;
+        if (firebaseUser != null && firebaseUser.email != null) {
+          final email = firebaseUser.email!;
+          if (email.endsWith('@nexshift.app')) {
+            final parts = email.split('@')[0].split('_');
+            if (parts.isNotEmpty) {
+              sdisId = parts[0];
+              debugPrint(
+                '🏠 [HOME_PAGE] Extracted SDIS ID from Firebase email: $sdisId',
+              );
+              // Sauvegarder pour éviter cette extraction au prochain chargement
+              await UserStorageHelper.saveSdisId(sdisId);
+            }
+          }
+        }
+
+        // Si toujours null, utiliser une valeur par défaut (ne devrait jamais arriver)
+        if (sdisId == null || sdisId.isEmpty) {
+          sdisId = '50';
+          debugPrint(
+            '⚠️ [HOME_PAGE] Could not extract SDIS ID, using default: $sdisId',
+          );
+          await UserStorageHelper.saveSdisId(sdisId);
+        }
       }
       SDISContext().setCurrentSDISId(sdisId);
-      debugPrint('🏠 [HOME_PAGE] SDIS Context initialized with SDIS ID: $sdisId');
+      debugPrint(
+        '🏠 [HOME_PAGE] SDIS Context initialized with SDIS ID: $sdisId',
+      );
 
       final repo = LocalRepository();
       // Charger les plannings de la semaine courante (on filtrera ensuite côté client)
@@ -137,10 +177,59 @@ class _HomePageState extends State<HomePage> {
       // Charger la couleur de l'équipe de l'utilisateur
       Color? teamColor;
       try {
-        final team = await TeamRepository().getById(user.team, stationId: user.station);
+        final team = await TeamRepository().getById(
+          user.team,
+          stationId: user.station,
+        );
         teamColor = team?.color;
       } catch (_) {
         teamColor = null;
+      }
+
+      // Charger les demandes de remplacement en attente
+      List<ReplacementRequest> pendingRequests = [];
+      try {
+        final notificationService = ReplacementNotificationService();
+        pendingRequests = await notificationService
+            .getPendingRequestsForStation(user.station)
+            .first;
+      } catch (e) {
+        debugPrint('⚠️ [HOME_PAGE] Error loading pending requests: $e');
+      }
+
+      // Charger les demandes d'échange en attente
+      List<ShiftExchangeRequest> pendingExchanges = [];
+      try {
+        final exchangeRepo = ShiftExchangeRepository();
+        pendingExchanges = await exchangeRepo.getOpenRequests(
+          stationId: user.station,
+        );
+      } catch (e) {
+        debugPrint('⚠️ [HOME_PAGE] Error loading pending exchanges: $e');
+      }
+
+      // Charger les propositions de remplacement manuel en attente
+      List<ManualReplacementProposal> pendingManualProposals = [];
+      try {
+        final sdisId = SDISContext().currentSDISId;
+        // Chemin correct : replacements/manual/proposals
+        final proposalsPath =
+            'sdis/$sdisId/stations/${user.station}/replacements/manual/proposals';
+        debugPrint(
+          '🔍 [HOME_PAGE] Loading manual proposals from: $proposalsPath',
+        );
+        final snapshot = await FirebaseFirestore.instance
+            .collection(proposalsPath)
+            .where('status', isEqualTo: 'pending')
+            .get();
+        pendingManualProposals = snapshot.docs
+            .map((doc) => ManualReplacementProposal.fromJson(doc.data()))
+            .toList();
+        debugPrint(
+          '🔍 [HOME_PAGE] Found ${pendingManualProposals.length} pending manual proposals',
+        );
+      } catch (e) {
+        debugPrint('⚠️ [HOME_PAGE] Error loading pending manual proposals: $e');
       }
 
       if (!mounted) return;
@@ -149,6 +238,9 @@ class _HomePageState extends State<HomePage> {
         _allSubshifts = shifts;
         _allAvailabilities = availabilities;
         _allUsers = allUsers;
+        _pendingRequests = pendingRequests;
+        _pendingExchanges = pendingExchanges;
+        _pendingManualProposals = pendingManualProposals;
         _user = user;
         _userTeamColor = teamColor;
         _lastUserId = user.id;
@@ -289,7 +381,8 @@ class _HomePageState extends State<HomePage> {
         final availEnd = availability.end.toUtc();
 
         // Check if availability is active at this time point
-        if ((availStart.isBefore(sampleUtc) || availStart.isAtSameMomentAs(sampleUtc)) &&
+        if ((availStart.isBefore(sampleUtc) ||
+                availStart.isAtSameMomentAs(sampleUtc)) &&
             availEnd.isAfter(sampleUtc)) {
           // Add the available agent if not already in the crew
           final agentId = availability.agentId;
@@ -824,6 +917,559 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  /// Compte le nombre de demandes en attente pour un planning
+  int _getPendingRequestCount(Planning planning) {
+    final planningRequests = _pendingRequests
+        .where(
+          (r) =>
+              r.planningId == planning.id &&
+              r.status == ReplacementRequestStatus.pending,
+        )
+        .length;
+
+    final planningExchanges = _pendingExchanges
+        .where(
+          (e) =>
+              e.initiatorPlanningId == planning.id &&
+              (e.status == ShiftExchangeRequestStatus.open ||
+                  e.status == ShiftExchangeRequestStatus.proposalSelected),
+        )
+        .length;
+
+    final planningManualProposals = _pendingManualProposals
+        .where((p) => p.planningId == planning.id && p.status == 'pending')
+        .length;
+
+    return planningRequests + planningExchanges + planningManualProposals;
+  }
+
+  /// Filtre et retourne les demandes en cours liées à un planning
+  List<Widget> _buildPendingRequestsSection(Planning planning) {
+    // Filtrer les demandes de remplacement pour ce planning
+    final planningRequests = _pendingRequests
+        .where(
+          (r) =>
+              r.planningId == planning.id &&
+              r.status == ReplacementRequestStatus.pending,
+        )
+        .toList();
+
+    // Filtrer les demandes d'échange pour ce planning
+    final planningExchanges = _pendingExchanges
+        .where(
+          (e) =>
+              e.initiatorPlanningId == planning.id &&
+              (e.status == ShiftExchangeRequestStatus.open ||
+                  e.status == ShiftExchangeRequestStatus.proposalSelected),
+        )
+        .toList();
+
+    // Filtrer les propositions manuelles pour ce planning
+    final planningManualProposals = _pendingManualProposals
+        .where((p) => p.planningId == planning.id && p.status == 'pending')
+        .toList();
+
+    // Si aucune demande, ne rien afficher
+    if (planningRequests.isEmpty &&
+        planningExchanges.isEmpty &&
+        planningManualProposals.isEmpty) {
+      return [];
+    }
+
+    final List<Widget> widgets = [];
+
+    // Divider et titre
+    widgets.add(const Divider(height: 24));
+    widgets.add(
+      const Center(
+        child: Text(
+          "Demandes en cours :",
+          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+        ),
+      ),
+    );
+    widgets.add(const SizedBox(height: 8));
+
+    // Afficher les demandes de remplacement
+    for (final request in planningRequests) {
+      final requester = _allUsers.firstWhere(
+        (u) => u.id == request.requesterId,
+        orElse: () => noneUser,
+      );
+
+      // Déterminer l'icône selon le mode
+      IconData icon;
+      Color iconColor;
+      String? targetName;
+
+      if (request.isSOS) {
+        // Mode SOS
+        icon = Icons.warning;
+        iconColor = Colors.red;
+      } else if (request.mode == ReplacementMode.manual) {
+        // Remplacement manuel - chercher la cible si disponible
+        icon = Icons.person;
+        iconColor = Colors.purple;
+        // Pour le manuel, on pourrait avoir un replacerId déjà défini
+        if (request.replacerId != null) {
+          final target = _allUsers.firstWhere(
+            (u) => u.id == request.replacerId,
+            orElse: () => noneUser,
+          );
+          targetName = "${target.firstName} ${target.lastName}";
+        }
+      } else {
+        // Remplacement automatique (similarity)
+        icon = Icons.autorenew;
+        iconColor = Colors.blue;
+      }
+
+      final canDelete = _canDeleteRequest(request.requesterId, planning.team);
+
+      final item = _buildRequestItem(
+        icon: icon,
+        iconColor: iconColor,
+        requesterName: "${requester.firstName} ${requester.lastName}",
+        targetName: targetName,
+        startTime: request.startTime,
+        endTime: request.endTime,
+        onLongPress: canDelete
+            ? () => _showReplacementRequestActionsBottomSheet(request)
+            : null,
+      );
+
+      if (canDelete) {
+        widgets.add(
+          Dismissible(
+            key: ValueKey('request_${request.id}'),
+            direction: DismissDirection.endToStart,
+            background: Container(
+              alignment: Alignment.centerRight,
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              color: Colors.redAccent,
+              child: const Icon(Icons.delete, color: Colors.white),
+            ),
+            confirmDismiss: (_) => _cancelReplacementRequest(request),
+            child: item,
+          ),
+        );
+      } else {
+        widgets.add(item);
+      }
+    }
+
+    // Afficher les demandes d'échange
+    for (final exchange in planningExchanges) {
+      final initiator = _allUsers.firstWhere(
+        (u) => u.id == exchange.initiatorId,
+        orElse: () => noneUser,
+      );
+
+      final canDelete = _canDeleteRequest(exchange.initiatorId, planning.team);
+
+      final item = _buildRequestItem(
+        icon: Icons.swap_horiz,
+        iconColor: Colors.green,
+        requesterName: "${initiator.firstName} ${initiator.lastName}",
+        targetName: null,
+        startTime: exchange.initiatorStartTime,
+        endTime: exchange.initiatorEndTime,
+        onLongPress: canDelete
+            ? () => _showExchangeRequestActionsBottomSheet(exchange)
+            : null,
+      );
+
+      if (canDelete) {
+        widgets.add(
+          Dismissible(
+            key: ValueKey('exchange_${exchange.id}'),
+            direction: DismissDirection.endToStart,
+            background: Container(
+              alignment: Alignment.centerRight,
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              color: Colors.redAccent,
+              child: const Icon(Icons.delete, color: Colors.white),
+            ),
+            confirmDismiss: (_) => _cancelExchangeRequest(exchange),
+            child: item,
+          ),
+        );
+      } else {
+        widgets.add(item);
+      }
+    }
+
+    // Afficher les propositions manuelles
+    for (final proposal in planningManualProposals) {
+      // Pour les propositions manuelles, on utilise replacedId comme demandeur
+      // et replacerId comme cible
+      final canDelete = _canDeleteRequest(proposal.replacedId, planning.team);
+
+      final item = _buildRequestItem(
+        icon: Icons.person,
+        iconColor: Colors.purple,
+        requesterName: proposal.replacedName,
+        targetName: proposal.replacerName,
+        startTime: proposal.startTime,
+        endTime: proposal.endTime,
+        onLongPress: canDelete
+            ? () => _showManualProposalActionsBottomSheet(proposal)
+            : null,
+      );
+
+      if (canDelete) {
+        widgets.add(
+          Dismissible(
+            key: ValueKey('manual_${proposal.id}'),
+            direction: DismissDirection.endToStart,
+            background: Container(
+              alignment: Alignment.centerRight,
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              color: Colors.redAccent,
+              child: const Icon(Icons.delete, color: Colors.white),
+            ),
+            confirmDismiss: (_) => _cancelManualProposal(proposal),
+            child: item,
+          ),
+        );
+      } else {
+        widgets.add(item);
+      }
+    }
+
+    return widgets;
+  }
+
+  /// Vérifie si l'utilisateur peut supprimer une demande
+  bool _canDeleteRequest(String requesterId, String planningTeam) {
+    // L'initiateur peut supprimer sa propre demande
+    if (_user.id == requesterId) return true;
+    // Admin peut tout supprimer
+    if (_user.admin) return true;
+    // Chef de centre peut supprimer
+    if (_user.status == KConstants.statusLeader) return true;
+    // Chef d'équipe peut supprimer pour son équipe
+    if (_user.status == KConstants.statusChief && _user.team == planningTeam) {
+      return true;
+    }
+    return false;
+  }
+
+  /// Affiche le BottomSheet d'actions pour une demande de remplacement automatique
+  void _showReplacementRequestActionsBottomSheet(ReplacementRequest request) {
+    // Déterminer si le bouton de renotification doit être affiché
+    // Pour les remplacements automatiques : seulement à partir de la vague 5
+    final showResendButton = request.currentWave >= 5;
+
+    // Récupérer le nom du demandeur
+    final requester = _allUsers.firstWhere(
+      (u) => u.id == request.requesterId,
+      orElse: () => _allUsers.first,
+    );
+    final initiatorName = '${requester.firstName} ${requester.lastName}';
+
+    RequestActionsBottomSheet.show(
+      context: context,
+      requestType: request.isSOS
+          ? UnifiedRequestType.sosReplacement
+          : UnifiedRequestType.automaticReplacement,
+      initiatorName: initiatorName,
+      team: request.team,
+      station: request.station,
+      startTime: request.startTime,
+      endTime: request.endTime,
+      onResendNotifications: showResendButton
+          ? () => _resendReplacementNotifications(request)
+          : null,
+      onDelete: () => _cancelReplacementRequest(request),
+    );
+  }
+
+  /// Affiche le BottomSheet d'actions pour une demande d'échange
+  void _showExchangeRequestActionsBottomSheet(ShiftExchangeRequest exchange) {
+    RequestActionsBottomSheet.show(
+      context: context,
+      requestType: UnifiedRequestType.exchange,
+      initiatorName: exchange.initiatorName,
+      team: exchange.initiatorTeam,
+      station: exchange.station,
+      startTime: exchange.initiatorStartTime,
+      endTime: exchange.initiatorEndTime,
+      onResendNotifications: () => _resendExchangeNotifications(exchange),
+      onDelete: () => _cancelExchangeRequest(exchange),
+    );
+  }
+
+  /// Affiche le BottomSheet d'actions pour une proposition de remplacement manuel
+  void _showManualProposalActionsBottomSheet(
+    ManualReplacementProposal proposal,
+  ) {
+    RequestActionsBottomSheet.show(
+      context: context,
+      requestType: UnifiedRequestType.manualReplacement,
+      initiatorName: proposal.replacedName,
+      team: proposal.replacedTeam,
+      station: _user.station,
+      startTime: proposal.startTime,
+      endTime: proposal.endTime,
+      onResendNotifications: () => _resendManualProposalNotifications(proposal),
+      onDelete: () => _cancelManualProposal(proposal),
+    );
+  }
+
+  /// Relance les notifications pour une demande de remplacement automatique
+  Future<void> _resendReplacementNotifications(
+    ReplacementRequest request,
+  ) async {
+    // TODO: Implémenter la logique de renotification
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Notification de relance envoyée'),
+        backgroundColor: Colors.orange,
+      ),
+    );
+  }
+
+  /// Relance les notifications pour une demande d'échange
+  Future<void> _resendExchangeNotifications(
+    ShiftExchangeRequest exchange,
+  ) async {
+    // TODO: Implémenter la logique de renotification
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Notification de relance envoyée'),
+        backgroundColor: Colors.orange,
+      ),
+    );
+  }
+
+  /// Relance les notifications pour une proposition de remplacement manuel
+  Future<void> _resendManualProposalNotifications(
+    ManualReplacementProposal proposal,
+  ) async {
+    // TODO: Implémenter la logique de renotification
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Notification de relance envoyée'),
+        backgroundColor: Colors.orange,
+      ),
+    );
+  }
+
+  /// Construit un item de demande en cours
+  Widget _buildRequestItem({
+    required IconData icon,
+    required Color iconColor,
+    required String requesterName,
+    String? targetName,
+    required DateTime startTime,
+    required DateTime endTime,
+    VoidCallback? onLongPress,
+  }) {
+    final dateFormat = DateFormat('dd/MM HH:mm');
+
+    return GestureDetector(
+      onLongPress: onLongPress,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4.0),
+        child: Row(
+          children: [
+            Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: iconColor.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Icon(icon, color: iconColor, size: 18),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (targetName != null)
+                    RichText(
+                      text: TextSpan(
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: Colors.black87,
+                        ),
+                        children: [
+                          TextSpan(
+                            text: targetName,
+                            style: const TextStyle(
+                              color: Colors.purple,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const TextSpan(text: ' ← '),
+                          TextSpan(
+                            text: requesterName,
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.tertiary,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    Text(
+                      requesterName,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Theme.of(context).colorScheme.tertiary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${dateFormat.format(startTime)} → ${dateFormat.format(endTime)}',
+                    style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Annule une demande de remplacement
+  Future<bool> _cancelReplacementRequest(ReplacementRequest request) async {
+    final ctx = context;
+    final confirm = await showDialog<bool>(
+      context: ctx,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Annuler la demande ?"),
+        content: const Text(
+          "Voulez-vous vraiment annuler cette demande de remplacement ?",
+        ),
+        actions: [
+          TextButton(
+            child: const Text("Non"),
+            onPressed: () => Navigator.pop(ctx, false),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text("Annuler la demande"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        final notificationService = ReplacementNotificationService();
+        await notificationService.cancelReplacementRequest(
+          request.id,
+          stationId: _user.station,
+        );
+
+        if (!mounted) return false;
+        setState(() {
+          _pendingRequests.removeWhere((r) => r.id == request.id);
+        });
+        return true;
+      } catch (e) {
+        debugPrint('❌ [HOME_PAGE] Error cancelling request: $e');
+      }
+    }
+    return false;
+  }
+
+  /// Annule une demande d'échange
+  Future<bool> _cancelExchangeRequest(ShiftExchangeRequest exchange) async {
+    final ctx = context;
+    final confirm = await showDialog<bool>(
+      context: ctx,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Annuler la demande ?"),
+        content: const Text(
+          "Voulez-vous vraiment annuler cette demande d'échange ?",
+        ),
+        actions: [
+          TextButton(
+            child: const Text("Non"),
+            onPressed: () => Navigator.pop(ctx, false),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text("Annuler la demande"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        final exchangeRepo = ShiftExchangeRepository();
+        // Supprimer la demande d'échange (soft delete via status cancelled)
+        await exchangeRepo.deleteRequest(exchange.id, stationId: _user.station);
+
+        if (!mounted) return false;
+        setState(() {
+          _pendingExchanges.removeWhere((e) => e.id == exchange.id);
+        });
+        return true;
+      } catch (e) {
+        debugPrint('❌ [HOME_PAGE] Error cancelling exchange: $e');
+      }
+    }
+    return false;
+  }
+
+  /// Annule une proposition de remplacement manuel
+  Future<bool> _cancelManualProposal(ManualReplacementProposal proposal) async {
+    final ctx = context;
+    final confirm = await showDialog<bool>(
+      context: ctx,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Annuler la proposition ?"),
+        content: const Text(
+          "Voulez-vous vraiment annuler cette proposition de remplacement manuel ?",
+        ),
+        actions: [
+          TextButton(
+            child: const Text("Non"),
+            onPressed: () => Navigator.pop(ctx, false),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text("Oui, annuler la proposition"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        final sdisId = SDISContext().currentSDISId;
+        // Chemin correct : replacements/manual/proposals
+        final proposalsPath =
+            'sdis/$sdisId/stations/${_user.station}/replacements/manual/proposals';
+        await FirebaseFirestore.instance
+            .collection(proposalsPath)
+            .doc(proposal.id)
+            .update({'status': 'cancelled'});
+
+        if (!mounted) return false;
+        setState(() {
+          _pendingManualProposals.removeWhere((p) => p.id == proposal.id);
+        });
+        return true;
+      } catch (e) {
+        debugPrint('❌ [HOME_PAGE] Error cancelling manual proposal: $e');
+      }
+    }
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     // Avoid accessing _user (late) while loading — return a simple loading
@@ -927,6 +1573,8 @@ class _HomePageState extends State<HomePage> {
                                         onTap: () => _toggleExpanded(id),
                                         isExpanded: isExpanded,
                                         replacementCount: subList.length,
+                                        pendingRequestCount:
+                                            _getPendingRequestCount(planning),
                                         vehicleIconSpecs: specs,
                                         availabilityColor: _userTeamColor,
                                       );
@@ -964,71 +1612,13 @@ class _HomePageState extends State<HomePage> {
                                                   ((isOnGuard &&
                                                           !isReplacedFully) ||
                                                       replacerSubshift != null))
-                                                FilledButton(
-                                                  onPressed: () {
-                                                    Navigator.push(
-                                                      context,
-                                                      MaterialPageRoute(
-                                                        builder: (_) =>
-                                                            ReplacementPage(
-                                                              planning:
-                                                                  planning,
-                                                              currentUser:
-                                                                  _user,
-                                                              parentSubshift:
-                                                                  replacerSubshift,
-                                                            ),
-                                                      ),
-                                                    );
-                                                  },
-                                                  style: FilledButton.styleFrom(
-                                                    minimumSize: const Size(
-                                                      double.infinity,
-                                                      40.0,
-                                                    ),
-                                                  ),
-                                                  child: const Text(
-                                                    "Je souhaite m'absenter",
-                                                  ),
+                                                _AbsenceMenuButton(
+                                                  planning: planning,
+                                                  user: _user,
+                                                  replacerSubshift:
+                                                      replacerSubshift,
                                                 ),
-                                              if (!isAvailability &&
-                                                  (_user.admin ||
-                                                      _user.status ==
-                                                          KConstants
-                                                              .statusLeader ||
-                                                      (_user.status ==
-                                                              KConstants
-                                                                  .statusChief &&
-                                                          _user.team ==
-                                                              planning.team) ||
-                                                      ((isOnGuard &&
-                                                              !isReplacedFully) ||
-                                                          replacerSubshift !=
-                                                              null)))
-                                                TextButton(
-                                                  onPressed: () =>
-                                                      _openAddSubPlanningDialog(
-                                                        planning,
-                                                      ),
-                                                  style: FilledButton.styleFrom(
-                                                    minimumSize: const Size(
-                                                      double.infinity,
-                                                      40.0,
-                                                    ),
-                                                  ),
-                                                  child: const Text(
-                                                    "Effectuer un remplacement manuel",
-                                                  ),
-                                                ),
-                                              if (_user.admin ||
-                                                  (_user.status ==
-                                                          KConstants
-                                                              .statusChief &&
-                                                      _user.team ==
-                                                          planning.team) ||
-                                                  _user.status ==
-                                                      KConstants.statusLeader)
-                                                const SizedBox(height: 8),
+                                              const SizedBox(height: 8),
                                               if (!isAvailability)
                                                 Text(
                                                   subList.isNotEmpty
@@ -1120,11 +1710,18 @@ class _HomePageState extends State<HomePage> {
                                                     return itemWithOptionalReplaceButton;
                                                   }
                                                 }),
+                                              // Section des demandes en cours
+                                              ..._buildPendingRequestsSection(
+                                                planning,
+                                              ),
                                             ],
                                           ),
                                         ),
                                       ),
                                     ),
+                                  // Padding après le container étendu
+                                  if (!isAvailability && isExpanded)
+                                    const SizedBox(height: 60),
                                 ],
                               ),
                             );
@@ -1135,6 +1732,131 @@ class _HomePageState extends State<HomePage> {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+/// Widget pour le bouton "Je souhaite m'absenter" avec menu déroulant
+class _AbsenceMenuButton extends StatefulWidget {
+  final Planning planning;
+  final User user;
+  final Subshift? replacerSubshift;
+
+  const _AbsenceMenuButton({
+    required this.planning,
+    required this.user,
+    this.replacerSubshift,
+  });
+
+  @override
+  State<_AbsenceMenuButton> createState() => _AbsenceMenuButtonState();
+}
+
+class _AbsenceMenuButtonState extends State<_AbsenceMenuButton>
+    with SingleTickerProviderStateMixin {
+  OverlayEntry? _overlayEntry;
+  late AnimationController _animationController;
+  late Animation<double> _animation;
+  final LayerLink _layerLink = LayerLink();
+
+  @override
+  void initState() {
+    super.initState();
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 200),
+    );
+    _animation = CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeOut,
+    );
+  }
+
+  @override
+  void dispose() {
+    _removeOverlay();
+    _animationController.dispose();
+    super.dispose();
+  }
+
+  void _removeOverlay() {
+    _animationController.reverse().then((_) {
+      _overlayEntry?.remove();
+      _overlayEntry = null;
+    });
+  }
+
+  void _toggleMenu() {
+    if (_overlayEntry != null) {
+      _removeOverlay();
+    } else {
+      _showMenu();
+    }
+  }
+
+  void _showMenu() {
+    final overlay = Overlay.of(context);
+    final renderBox = context.findRenderObject() as RenderBox;
+    final size = renderBox.size;
+
+    _overlayEntry = OverlayEntry(
+      builder: (context) => GestureDetector(
+        onTap: _removeOverlay,
+        behavior: HitTestBehavior.translucent,
+        child: Stack(
+          children: [
+            // Semi-transparent background
+            Positioned.fill(
+              child: Container(color: Colors.black.withValues(alpha: 0.3)),
+            ),
+            // Menu options
+            Positioned(
+              width: size.width,
+              child: CompositedTransformFollower(
+                link: _layerLink,
+                showWhenUnlinked: false,
+                offset: Offset(0, size.height + 8),
+                child: FadeTransition(
+                  opacity: _animation,
+                  child: ScaleTransition(
+                    scale: _animation,
+                    alignment: Alignment.topCenter,
+                    child: Material(
+                      elevation: 8,
+                      borderRadius: BorderRadius.circular(12),
+                      child: AbsenceMenuOverlay.buildMenuContent(
+                        context: context,
+                        planning: widget.planning,
+                        user: widget.user,
+                        parentSubshift: widget.replacerSubshift,
+                        onOptionSelected: _removeOverlay,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    overlay.insert(_overlayEntry!);
+    _animationController.forward();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CompositedTransformTarget(
+      link: _layerLink,
+      child: FilledButton.icon(
+        onPressed: _toggleMenu,
+        icon: const Icon(Icons.event_busy),
+        label: const Text("Je souhaite m'absenter"),
+        style: FilledButton.styleFrom(
+          minimumSize: const Size(double.infinity, 40.0),
+        ),
       ),
     );
   }

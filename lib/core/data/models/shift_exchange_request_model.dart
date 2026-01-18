@@ -1,72 +1,81 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:nexshift_app/core/data/models/station_model.dart';
 
 /// Statut d'une demande d'échange de garde
 enum ShiftExchangeRequestStatus {
-  pending, // En attente de proposition
+  open, // En attente de proposition
+  proposalSelected, // Agent A a sélectionné une proposition
+  accepted, // Échange validé et effectué
   cancelled, // Annulée par le demandeur
-  completed, // Échange complété
 }
 
 /// Modèle pour une demande d'échange de garde
 class ShiftExchangeRequest {
   final String id;
-  final String requesterId; // ID de l'utilisateur demandant l'échange
-  final String requesterName; // Nom du demandeur (cache)
-  final String proposedPlanningId; // ID du planning que le demandeur souhaite échanger
-  final DateTime proposedStartTime; // Début de la garde à échanger
-  final DateTime proposedEndTime; // Fin de la garde à échanger
-  final String stationId; // ID de la caserne
-  final String teamId; // ID de l'équipe
+  final String initiatorId; // Agent A (équipe 1)
+  final String initiatorName; // Nom de l'initiateur (cache)
+  final String initiatorPlanningId; // Astreinte offerte par A
+  final DateTime initiatorStartTime;
+  final DateTime initiatorEndTime;
+  final String station;
+  final String? initiatorTeam; // Équipe de l'initiateur (pour filtrage)
+
+  // Compétences clés requises pour répondre
+  final List<String> requiredKeySkills; // keySkills de l'initiateur
+
   final ShiftExchangeRequestStatus status;
-  final int currentWave; // Vague de notification actuelle (comme pour remplacements)
-  final List<String> notifiedUserIds; // IDs des utilisateurs notifiés
-  final DateTime? lastWaveSentAt; // Date d'envoi de la dernière vague
-  final ReplacementMode mode; // Mode : similarity, position, ou manual
   final DateTime createdAt;
   final DateTime? completedAt;
-  final DateTime? cancelledAt;
+
+  // Liste des propositions reçues
+  final List<String> proposalIds; // FKs vers ShiftExchangeProposal
+
+  // ID de la proposition sélectionnée par l'initiateur
+  final String? selectedProposalId;
+
+  // Liste des utilisateurs ayant refusé cette demande
+  final List<String> refusedByUserIds;
+
+  // Liste des utilisateurs ayant déjà soumis une proposition
+  final List<String> proposedByUserIds;
 
   ShiftExchangeRequest({
     required this.id,
-    required this.requesterId,
-    required this.requesterName,
-    required this.proposedPlanningId,
-    required this.proposedStartTime,
-    required this.proposedEndTime,
-    required this.stationId,
-    required this.teamId,
+    required this.initiatorId,
+    required this.initiatorName,
+    required this.initiatorPlanningId,
+    required this.initiatorStartTime,
+    required this.initiatorEndTime,
+    required this.station,
+    this.initiatorTeam,
+    required this.requiredKeySkills,
     required this.status,
-    this.currentWave = 0,
-    this.notifiedUserIds = const [],
-    this.lastWaveSentAt,
-    required this.mode,
     required this.createdAt,
     this.completedAt,
-    this.cancelledAt,
+    this.proposalIds = const [],
+    this.selectedProposalId,
+    this.refusedByUserIds = const [],
+    this.proposedByUserIds = const [],
   });
 
   /// Conversion vers JSON pour Firestore
   Map<String, dynamic> toJson() {
     return {
       'id': id,
-      'requesterId': requesterId,
-      'requesterName': requesterName,
-      'proposedPlanningId': proposedPlanningId,
-      'proposedStartTime': Timestamp.fromDate(proposedStartTime),
-      'proposedEndTime': Timestamp.fromDate(proposedEndTime),
-      'stationId': stationId,
-      'teamId': teamId,
+      'initiatorId': initiatorId,
+      'initiatorName': initiatorName,
+      'initiatorPlanningId': initiatorPlanningId,
+      'initiatorStartTime': Timestamp.fromDate(initiatorStartTime),
+      'initiatorEndTime': Timestamp.fromDate(initiatorEndTime),
+      'station': station,
+      if (initiatorTeam != null) 'initiatorTeam': initiatorTeam,
+      'requiredKeySkills': requiredKeySkills,
       'status': status.toString().split('.').last,
-      'currentWave': currentWave,
-      'notifiedUserIds': notifiedUserIds,
-      if (lastWaveSentAt != null)
-        'lastWaveSentAt': Timestamp.fromDate(lastWaveSentAt!),
-      'mode': mode.toString().split('.').last,
       'createdAt': Timestamp.fromDate(createdAt),
       if (completedAt != null) 'completedAt': Timestamp.fromDate(completedAt!),
-      if (cancelledAt != null)
-        'cancelledAt': Timestamp.fromDate(cancelledAt!),
+      'proposalIds': proposalIds,
+      if (selectedProposalId != null) 'selectedProposalId': selectedProposalId,
+      'refusedByUserIds': refusedByUserIds,
+      'proposedByUserIds': proposedByUserIds,
     };
   }
 
@@ -74,74 +83,73 @@ class ShiftExchangeRequest {
   factory ShiftExchangeRequest.fromJson(Map<String, dynamic> json) {
     return ShiftExchangeRequest(
       id: json['id'] as String,
-      requesterId: json['requesterId'] as String,
-      requesterName: json['requesterName'] as String,
-      proposedPlanningId: json['proposedPlanningId'] as String,
-      proposedStartTime: (json['proposedStartTime'] as Timestamp).toDate(),
-      proposedEndTime: (json['proposedEndTime'] as Timestamp).toDate(),
-      stationId: json['stationId'] as String,
-      teamId: json['teamId'] as String,
+      initiatorId: json['initiatorId'] as String,
+      initiatorName: json['initiatorName'] as String,
+      initiatorPlanningId: json['initiatorPlanningId'] as String,
+      initiatorStartTime: (json['initiatorStartTime'] as Timestamp).toDate(),
+      initiatorEndTime: (json['initiatorEndTime'] as Timestamp).toDate(),
+      station: json['station'] as String,
+      initiatorTeam: json['initiatorTeam'] as String?,
+      requiredKeySkills: json['requiredKeySkills'] != null
+          ? List<String>.from(json['requiredKeySkills'] as List)
+          : const [],
       status: ShiftExchangeRequestStatus.values.firstWhere(
         (e) => e.toString().split('.').last == json['status'],
-        orElse: () => ShiftExchangeRequestStatus.pending,
-      ),
-      currentWave: json['currentWave'] as int? ?? 0,
-      notifiedUserIds: json['notifiedUserIds'] != null
-          ? List<String>.from(json['notifiedUserIds'] as List)
-          : const [],
-      lastWaveSentAt: json['lastWaveSentAt'] != null
-          ? (json['lastWaveSentAt'] as Timestamp).toDate()
-          : null,
-      mode: ReplacementMode.values.firstWhere(
-        (e) => e.toString().split('.').last == json['mode'],
-        orElse: () => ReplacementMode.similarity,
+        orElse: () => ShiftExchangeRequestStatus.open,
       ),
       createdAt: (json['createdAt'] as Timestamp).toDate(),
       completedAt: json['completedAt'] != null
           ? (json['completedAt'] as Timestamp).toDate()
           : null,
-      cancelledAt: json['cancelledAt'] != null
-          ? (json['cancelledAt'] as Timestamp).toDate()
-          : null,
+      proposalIds: json['proposalIds'] != null
+          ? List<String>.from(json['proposalIds'] as List)
+          : const [],
+      selectedProposalId: json['selectedProposalId'] as String?,
+      refusedByUserIds: json['refusedByUserIds'] != null
+          ? List<String>.from(json['refusedByUserIds'] as List)
+          : const [],
+      proposedByUserIds: json['proposedByUserIds'] != null
+          ? List<String>.from(json['proposedByUserIds'] as List)
+          : const [],
     );
   }
 
   /// Copie avec modifications
   ShiftExchangeRequest copyWith({
     String? id,
-    String? requesterId,
-    String? requesterName,
-    String? proposedPlanningId,
-    DateTime? proposedStartTime,
-    DateTime? proposedEndTime,
-    String? stationId,
-    String? teamId,
+    String? initiatorId,
+    String? initiatorName,
+    String? initiatorPlanningId,
+    DateTime? initiatorStartTime,
+    DateTime? initiatorEndTime,
+    String? station,
+    String? initiatorTeam,
+    List<String>? requiredKeySkills,
     ShiftExchangeRequestStatus? status,
-    int? currentWave,
-    List<String>? notifiedUserIds,
-    DateTime? lastWaveSentAt,
-    ReplacementMode? mode,
     DateTime? createdAt,
     DateTime? completedAt,
-    DateTime? cancelledAt,
+    List<String>? proposalIds,
+    String? selectedProposalId,
+    List<String>? refusedByUserIds,
+    List<String>? proposedByUserIds,
   }) {
     return ShiftExchangeRequest(
       id: id ?? this.id,
-      requesterId: requesterId ?? this.requesterId,
-      requesterName: requesterName ?? this.requesterName,
-      proposedPlanningId: proposedPlanningId ?? this.proposedPlanningId,
-      proposedStartTime: proposedStartTime ?? this.proposedStartTime,
-      proposedEndTime: proposedEndTime ?? this.proposedEndTime,
-      stationId: stationId ?? this.stationId,
-      teamId: teamId ?? this.teamId,
+      initiatorId: initiatorId ?? this.initiatorId,
+      initiatorName: initiatorName ?? this.initiatorName,
+      initiatorPlanningId: initiatorPlanningId ?? this.initiatorPlanningId,
+      initiatorStartTime: initiatorStartTime ?? this.initiatorStartTime,
+      initiatorEndTime: initiatorEndTime ?? this.initiatorEndTime,
+      station: station ?? this.station,
+      initiatorTeam: initiatorTeam ?? this.initiatorTeam,
+      requiredKeySkills: requiredKeySkills ?? this.requiredKeySkills,
       status: status ?? this.status,
-      currentWave: currentWave ?? this.currentWave,
-      notifiedUserIds: notifiedUserIds ?? this.notifiedUserIds,
-      lastWaveSentAt: lastWaveSentAt ?? this.lastWaveSentAt,
-      mode: mode ?? this.mode,
       createdAt: createdAt ?? this.createdAt,
       completedAt: completedAt ?? this.completedAt,
-      cancelledAt: cancelledAt ?? this.cancelledAt,
+      proposalIds: proposalIds ?? this.proposalIds,
+      selectedProposalId: selectedProposalId ?? this.selectedProposalId,
+      refusedByUserIds: refusedByUserIds ?? this.refusedByUserIds,
+      proposedByUserIds: proposedByUserIds ?? this.proposedByUserIds,
     );
   }
 }

@@ -14,6 +14,7 @@ import 'package:nexshift_app/core/repositories/station_repository.dart';
 import 'package:nexshift_app/core/config/environment_config.dart';
 import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/core/services/wave_calculation_service.dart';
+import 'package:nexshift_app/core/services/skill_criticality_service.dart';
 // ReplacementMode est importé depuis station_model.dart
 
 /// Type de notification de remplacement
@@ -62,6 +63,9 @@ class ReplacementRequest {
   final ReplacementMode mode; // Mode de remplacement
   final bool wavesSuspended; // True si vagues suspendues (couverture atteinte)
 
+  // NOUVEAU CHAMP - Phase 6
+  final bool isSOS; // Mode urgence (bypass validations)
+
   ReplacementRequest({
     required this.id,
     required this.requesterId,
@@ -87,6 +91,7 @@ class ReplacementRequest {
     this.pendingValidationUserIds = const [],
     this.mode = ReplacementMode.similarity,
     this.wavesSuspended = false,
+    this.isSOS = false,
   });
 
   Map<String, dynamic> toJson() {
@@ -118,6 +123,7 @@ class ReplacementRequest {
       'pendingValidationUserIds': pendingValidationUserIds,
       'mode': mode.toString().split('.').last,
       'wavesSuspended': wavesSuspended,
+      'isSOS': isSOS,
     };
   }
 
@@ -178,6 +184,7 @@ class ReplacementRequest {
             )
           : ReplacementMode.similarity,
       wavesSuspended: json['wavesSuspended'] as bool? ?? false,
+      isSOS: json['isSOS'] as bool? ?? false,
     );
   }
 }
@@ -200,6 +207,7 @@ class ReplacementNotificationService {
   final SubshiftRepository _subshiftRepository;
   final ReplacementAcceptanceRepository _acceptanceRepository;
   final StationRepository _stationRepository;
+  final SkillCriticalityService _criticalityService = SkillCriticalityService();
 
   /// Constructeur avec injection de dépendances (pour les tests)
   ReplacementNotificationService({
@@ -317,6 +325,7 @@ class ReplacementNotificationService {
     List<String>? requiredSkills,
     int? initialWave,
     bool isResidualRequest = false,
+    bool isSOS = false,
   }) async {
     try {
       debugPrint(
@@ -329,6 +338,9 @@ class ReplacementNotificationService {
       }
       if (initialWave != null) {
         debugPrint('  Initial wave: $initialWave');
+      }
+      if (isSOS) {
+        debugPrint('  🚨 SOS MODE: All waves will be sent simultaneously');
       }
 
       // Créer la demande dans Firestore
@@ -347,6 +359,7 @@ class ReplacementNotificationService {
         requestType: requestType,
         requiredSkills: requiredSkills,
         currentWave: initialWave ?? 0, // Utiliser initialWave si fourni, sinon 0
+        isSOS: isSOS,
       );
 
       await requestRef.set(request.toJson());
@@ -464,6 +477,20 @@ class ReplacementNotificationService {
         debugPrint('🔧 Station replacement mode: ${replacementMode.name}');
       }
 
+      // MODE SOS: Envoyer toutes les vagues simultanément
+      if (request.isSOS) {
+        debugPrint('🚨 SOS MODE: Sending all waves simultaneously...');
+        await _sendAllWavesSimultaneously(
+          request,
+          requester,
+          allUsers,
+          agentsInPlanning,
+          planningTeam,
+          excludedUserIds,
+        );
+        return;
+      }
+
       // Mode de remplacement par similarité (seul mode supporté)
       // Vague 1: Membres de la même équipe que l'astreinte, NON présents dans le shift
       // Exclure: le demandeur, les agents en astreinte ET les utilisateurs exclus (remplacement partiel)
@@ -546,6 +573,116 @@ class ReplacementNotificationService {
     } catch (e) {
       debugPrint('❌ Error triggering notifications: $e');
       // Ne pas rethrow pour ne pas bloquer la création de la demande
+    }
+  }
+
+  /// Envoie toutes les vagues simultanément en mode SOS
+  /// Les compétences-clés (keySkills) restent vérifiées
+  Future<void> _sendAllWavesSimultaneously(
+    ReplacementRequest request,
+    User requester,
+    List<User> allUsers,
+    List<String> agentsInPlanning,
+    String? planningTeam,
+    List<String>? excludedUserIds,
+  ) async {
+    try {
+      // Calculer les vagues pour tous les utilisateurs
+      final waveCalculationService = WaveCalculationService();
+
+      // Récupérer les poids de rareté des compétences
+      final skillRarityWeights = _criticalityService.calculateSkillRarityWeights(
+        teamMembers: allUsers,
+        requesterSkills: requester.skills,
+      );
+
+      // Grouper les utilisateurs par vague (de 1 à 5)
+      final Map<int, List<String>> waveGroups = {};
+
+      for (final user in allUsers) {
+        // Exclure le demandeur et les utilisateurs exclus
+        if (user.id == request.requesterId ||
+            (excludedUserIds?.contains(user.id) ?? false)) {
+          continue;
+        }
+
+        // Calculer la vague pour cet utilisateur
+        final wave = waveCalculationService.calculateWave(
+          requester: requester,
+          candidate: user,
+          planningTeam: planningTeam ?? request.team ?? '',
+          agentsInPlanning: agentsInPlanning,
+          skillRarityWeights: skillRarityWeights,
+        );
+
+        // Ignorer vague 0 (non notifiés)
+        if (wave > 0 && wave <= 5) {
+          waveGroups.putIfAbsent(wave, () => []);
+          waveGroups[wave]!.add(user.id);
+        }
+      }
+
+      // Collecter tous les utilisateurs notifiés
+      final allNotifiedUserIds = <String>[];
+      for (final userIds in waveGroups.values) {
+        allNotifiedUserIds.addAll(userIds);
+      }
+
+      debugPrint('🚨 SOS Mode - Wave distribution:');
+      for (var wave = 1; wave <= 5; wave++) {
+        final count = waveGroups[wave]?.length ?? 0;
+        if (count > 0) {
+          debugPrint('  Wave $wave: $count users');
+        }
+      }
+      debugPrint('  Total: ${allNotifiedUserIds.length} users to notify');
+
+      // Mettre à jour la demande avec tous les utilisateurs notifiés
+      // currentWave = 5 (dernière vague) pour indiquer que toutes les vagues ont été envoyées
+      final requestsPath = _getReplacementRequestsPath(request.station);
+      await firestore.collection(requestsPath).doc(request.id).update({
+        'currentWave': 5,
+        'notifiedUserIds': allNotifiedUserIds,
+        'lastWaveSentAt': FieldValue.serverTimestamp(),
+      });
+
+      // Créer un trigger de notification pour chaque vague (en parallèle)
+      final triggersPath = _getNotificationTriggersPath(request.station);
+      final List<Future<void>> triggerFutures = [];
+
+      for (var wave = 1; wave <= 5; wave++) {
+        final waveUserIds = waveGroups[wave];
+        if (waveUserIds == null || waveUserIds.isEmpty) continue;
+
+        final notificationData = {
+          'type': 'replacement_request',
+          'requestId': request.id,
+          'requesterId': request.requesterId,
+          'requesterName': '${requester.firstName} ${requester.lastName}',
+          'planningId': request.planningId,
+          'startTime': Timestamp.fromDate(request.startTime),
+          'endTime': Timestamp.fromDate(request.endTime),
+          'station': request.station,
+          'team': request.team,
+          'targetUserIds': waveUserIds,
+          'wave': wave,
+          'isSOS': true, // Marquer comme SOS
+          'createdAt': FieldValue.serverTimestamp(),
+          'processed': false,
+        };
+
+        triggerFutures.add(
+          firestore.collection(triggersPath).add(notificationData),
+        );
+      }
+
+      // Attendre que tous les triggers soient créés
+      await Future.wait(triggerFutures);
+
+      debugPrint('✅ SOS Mode: All ${triggerFutures.length} wave triggers created simultaneously');
+    } catch (e) {
+      debugPrint('❌ Error sending all waves simultaneously: $e');
+      rethrow;
     }
   }
 

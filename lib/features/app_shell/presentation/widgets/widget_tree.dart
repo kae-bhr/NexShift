@@ -1,11 +1,8 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lottie/lottie.dart';
 import 'package:nexshift_app/core/data/datasources/notifiers.dart';
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
-import 'package:nexshift_app/core/config/environment_config.dart';
 import 'package:nexshift_app/features/home/presentation/pages/home_page.dart';
 import 'package:nexshift_app/features/planning/presentation/pages/planning_page.dart';
 import 'package:nexshift_app/features/planning/presentation/pages/my_shifts_page.dart';
@@ -18,6 +15,7 @@ import 'package:nexshift_app/features/app_shell/presentation/widgets/station_swi
 import 'package:nexshift_app/features/teams/presentation/pages/team_page.dart';
 import 'package:nexshift_app/features/availability/presentation/pages/add_availability_page.dart';
 import 'package:nexshift_app/features/replacement/presentation/pages/replacement_requests_list_page.dart';
+import 'package:nexshift_app/core/services/badge_count_service.dart';
 
 List<Widget> pages = [HomePage(), PlanningPage()];
 
@@ -38,11 +36,27 @@ class _WidgetTreeState extends State<WidgetTree> {
     _pageController = PageController(initialPage: selectedPageNotifier.value);
     // Sync PageView with notifier
     selectedPageNotifier.addListener(_onPageNotifierChanged);
+    // Initialiser le BadgeCountService dès que l'utilisateur est disponible
+    userNotifier.addListener(_onUserChanged);
+    _initializeBadgeService();
+  }
+
+  void _onUserChanged() {
+    _initializeBadgeService();
+  }
+
+  void _initializeBadgeService() {
+    final user = userNotifier.value;
+    if (user != null && user.id.isNotEmpty && user.station.isNotEmpty) {
+      debugPrint('🏠 [WIDGET_TREE] Initializing BadgeCountService for user ${user.id}');
+      BadgeCountService().initialize(user.id, user.station, user);
+    }
   }
 
   @override
   void dispose() {
     selectedPageNotifier.removeListener(_onPageNotifierChanged);
+    userNotifier.removeListener(_onUserChanged);
     _pageController.dispose();
     super.dispose();
   }
@@ -212,7 +226,9 @@ class _WidgetTreeState extends State<WidgetTree> {
         drawer: ValueListenableBuilder(
           valueListenable: userNotifier,
           builder: (context, user, child) {
-            debugPrint('🎨 [DRAWER] Building drawer with user: ${user != null ? '${user.firstName} ${user.lastName} (id=${user.id})' : 'NULL'}');
+            debugPrint(
+              '🎨 [DRAWER] Building drawer with user: ${user != null ? '${user.firstName} ${user.lastName} (id=${user.id})' : 'NULL'}',
+            );
             return Drawer(
               child: Column(
                 children: [
@@ -234,7 +250,9 @@ class _WidgetTreeState extends State<WidgetTree> {
                               style: TextStyle(fontWeight: FontWeight.w300),
                             ),
                             TextSpan(
-                              text: user != null ? "${user.firstName} ${user.lastName}" : "",
+                              text: user != null
+                                  ? "${user.firstName} ${user.lastName}"
+                                  : "",
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
                                 color: Theme.of(context).colorScheme.primary,
@@ -277,14 +295,17 @@ class _WidgetTreeState extends State<WidgetTree> {
                         ),
                       ),
                       TextButton(
-                        onPressed: user != null ? () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => TeamPage(teamId: user.team),
-                            ),
-                          );
-                        } : null,
+                        onPressed: user != null
+                            ? () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) =>
+                                        TeamPage(teamId: user.team),
+                                  ),
+                                );
+                              }
+                            : null,
                         child: ListTile(
                           minTileHeight: 0.0,
                           leading: Icon(
@@ -335,9 +356,10 @@ class _WidgetTreeState extends State<WidgetTree> {
                         ),
                       ),
                       // Mes astreintes - visible pour leaders, chiefs et admins
-                      if (user != null && (user.admin ||
-                          user.status == KConstants.statusLeader ||
-                          user.status == KConstants.statusChief))
+                      if (user != null &&
+                          (user.admin ||
+                              user.status == KConstants.statusLeader ||
+                              user.status == KConstants.statusChief))
                         TextButton(
                           onPressed: () {
                             Navigator.push(
@@ -368,7 +390,9 @@ class _WidgetTreeState extends State<WidgetTree> {
                           ),
                         ),
                       // Administration - visible pour admins, chefs de centre et chefs de garde
-                      if (user != null && (user.admin || user.status == KConstants.statusLeader))
+                      if (user != null &&
+                          (user.admin ||
+                              user.status == KConstants.statusLeader))
                         TextButton(
                           onPressed: () {
                             Navigator.push(
@@ -398,6 +422,7 @@ class _WidgetTreeState extends State<WidgetTree> {
                             ),
                           ),
                         ),
+                      // Utiliser le BadgeCountService pour les pastilles du drawer
                       TextButton(
                         onPressed: () {
                           Navigator.push(
@@ -408,260 +433,109 @@ class _WidgetTreeState extends State<WidgetTree> {
                             ),
                           );
                         },
-                        child: StreamBuilder<QuerySnapshot>(
-                          stream: user != null ? (() {
-                            final requestsPath = EnvironmentConfig.useStationSubcollections && user.station.isNotEmpty
-                                ? (SDISContext().currentSDISId != null && SDISContext().currentSDISId!.isNotEmpty
-                                    ? 'sdis/${SDISContext().currentSDISId}/stations/${user.station}/replacements/automatic/replacementRequests'
-                                    : 'stations/${user.station}/replacements/automatic/replacementRequests')
-                                : 'replacementRequests';
-                            return FirebaseFirestore.instance
-                              .collection(requestsPath)
-                              .where('status', isEqualTo: 'pending')
-                              .where('station', isEqualTo: user.station)
-                              .snapshots();
-                          })() : Stream.empty(),
-                          builder: (context, requestsSnapshot) {
-                            if (!requestsSnapshot.hasData) {
-                              return ListTile(
-                                minTileHeight: 0.0,
-                                leading: Icon(
-                                  Icons.swap_horiz,
-                                  color: Theme.of(context).colorScheme.primary,
-                                ),
-                                title: Text(
-                                  "Remplacements",
-                                  style: TextStyle(
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.tertiary,
-                                    fontSize: KTextStyle
-                                        .descriptionTextStyle
-                                        .fontSize,
-                                    fontFamily: KTextStyle
-                                        .descriptionTextStyle
-                                        .fontFamily,
-                                    fontWeight: KTextStyle
-                                        .descriptionTextStyle
-                                        .fontWeight,
-                                  ),
-                                ),
-                              );
-                            }
+                        child: ValueListenableBuilder<bool>(
+                              valueListenable: BadgeCountService().hasReplacementPending,
+                              builder: (context, hasReplacementPending, _) {
+                                return ValueListenableBuilder<bool>(
+                                  valueListenable: BadgeCountService().hasExchangePending,
+                                  builder: (context, hasExchangePending, _) {
+                                    return ValueListenableBuilder<bool>(
+                                      valueListenable: BadgeCountService().hasExchangeNeedingSelection,
+                                      builder: (context, hasExchangeNeedingSelection, _) {
+                                        return ValueListenableBuilder<bool>(
+                                          valueListenable: BadgeCountService().hasReplacementValidation,
+                                          builder: (context, hasReplacementValidation, _) {
+                                            return ValueListenableBuilder<bool>(
+                                              valueListenable: BadgeCountService().hasExchangeValidation,
+                                              builder: (context, hasExchangeValidation, _) {
+                                                final hasValidation = hasReplacementValidation || hasExchangeValidation;
 
-                            // Ajouter un StreamBuilder pour les acceptances en attente de validation (chefs uniquement)
-                            debugPrint('🔔 [DRAWER] Checking if user is chief/leader: status=${user?.status}, isChief=${user?.status == 'chief'}, isLeader=${user?.status == 'leader'}');
-                            return StreamBuilder<QuerySnapshot>(
-                              stream: user != null && (user.status == 'chief' || user.status == 'leader') ? (() {
-                                final acceptancesPath = EnvironmentConfig.useStationSubcollections && user.station.isNotEmpty
-                                    ? (SDISContext().currentSDISId != null && SDISContext().currentSDISId!.isNotEmpty
-                                        ? 'sdis/${SDISContext().currentSDISId}/stations/${user.station}/replacements/automatic/replacementAcceptances'
-                                        : 'stations/${user.station}/replacements/automatic/replacementAcceptances')
-                                    : 'replacementAcceptances';
-                                debugPrint('🔔 [DRAWER] Watching acceptances at: $acceptancesPath for chiefTeamId: ${user.team}');
-                                return FirebaseFirestore.instance
-                                    .collection(acceptancesPath)
-                                    .where('status', isEqualTo: 'pendingValidation')
-                                    .where('chiefTeamId', isEqualTo: user.team)
-                                    .snapshots();
-                              })() : Stream.empty(),
-                              builder: (context, acceptancesSnapshot) {
-                                final pendingAcceptancesCount = acceptancesSnapshot.hasData ? acceptancesSnapshot.data!.docs.length : 0;
-                                debugPrint('🔔 [DRAWER] Pending acceptances count: $pendingAcceptancesCount (hasData: ${acceptancesSnapshot.hasData})');
-                                if (acceptancesSnapshot.hasData && acceptancesSnapshot.data!.docs.isNotEmpty) {
-                                  debugPrint('🔔 [DRAWER] Acceptance IDs: ${acceptancesSnapshot.data!.docs.map((d) => d.id).join(", ")}');
-                                  for (var doc in acceptancesSnapshot.data!.docs) {
-                                    final data = doc.data() as Map<String, dynamic>;
-                                    debugPrint('🔔 [DRAWER]   - ${doc.id}: chiefTeamId=${data['chiefTeamId']}, status=${data['status']}');
-                                  }
-                                } else if (acceptancesSnapshot.hasData) {
-                                  debugPrint('🔔 [DRAWER] No acceptances found - query returned empty result');
-                                }
-
-                                return StreamBuilder<QuerySnapshot>(
-                                  stream: user != null ? (() {
-                                    final declinesPath = EnvironmentConfig.useStationSubcollections && user.station.isNotEmpty
-                                        ? (SDISContext().currentSDISId != null && SDISContext().currentSDISId!.isNotEmpty
-                                            ? 'sdis/${SDISContext().currentSDISId}/stations/${user.station}/replacements/automatic/replacementRequestDeclines'
-                                            : 'stations/${user.station}/replacements/automatic/replacementRequestDeclines')
-                                        : 'replacementRequestDeclines';
-                                    return FirebaseFirestore.instance
-                                        .collection(declinesPath)
-                                        .where('userId', isEqualTo: user.id)
-                                        .snapshots();
-                                  })() : Stream.empty(),
-                                  builder: (context, declinesSnapshot) {
-                                    // Compter les demandes où l'utilisateur est demandeur OU notifié
-                                    // ET n'a PAS refusé ET n'a PAS marqué comme "Vu"
-                                    int pendingCount = 0;
-
-                                if (declinesSnapshot.hasData) {
-                                  final declinedRequestIds = declinesSnapshot
-                                      .data!
-                                      .docs
-                                      .map((doc) {
-                                        final data =
-                                            doc.data() as Map<String, dynamic>;
-                                        return data['requestId'] as String;
-                                      })
-                                      .toSet();
-
-                                  pendingCount = requestsSnapshot.data!.docs.where((
-                                    doc,
-                                  ) {
-                                    final data =
-                                        doc.data() as Map<String, dynamic>;
-                                    final requestId = doc.id;
-                                    final requesterId =
-                                        data['requesterId'] as String?;
-                                    final notifiedUserIds = List<String>.from(
-                                      data['notifiedUserIds'] ?? [],
-                                    );
-                                    final seenByUserIds = List<String>.from(
-                                      data['seenByUserIds'] ?? [],
-                                    );
-                                    final pendingValidationUserIds = List<String>.from(
-                                      data['pendingValidationUserIds'] ?? [],
-                                    );
-
-                                    // Exclure les demandes refusées par l'utilisateur
-                                    if (declinedRequestIds.contains(
-                                      requestId,
-                                    )) {
-                                      return false;
-                                    }
-
-                                    // Exclure les demandes marquées comme "Vues" par l'utilisateur
-                                    if (user != null && seenByUserIds.contains(user.id)) {
-                                      return false;
-                                    }
-
-                                    // Exclure les demandes où l'utilisateur a une acceptation en attente de validation
-                                    if (user != null && pendingValidationUserIds.contains(user.id)) {
-                                      return false;
-                                    }
-
-                                    return user != null && (requesterId == user.id ||
-                                        notifiedUserIds.contains(user.id));
-                                  }).length;
-                                } else {
-                                  // Si pas encore de données sur les refus, compter toutes les demandes
-                                  // mais exclure quand même les demandes "vues"
-                                  pendingCount = requestsSnapshot.data!.docs
-                                      .where((doc) {
-                                        final data =
-                                            doc.data() as Map<String, dynamic>;
-                                        final requesterId =
-                                            data['requesterId'] as String?;
-                                        final notifiedUserIds =
-                                            List<String>.from(
-                                              data['notifiedUserIds'] ?? [],
+                                                return ListTile(
+                                                  minTileHeight: 0.0,
+                                                  leading: Icon(
+                                                    Icons.swap_horiz,
+                                                    color: Theme.of(context).colorScheme.primary,
+                                                  ),
+                                                  title: Text(
+                                                    "Remplacements",
+                                                    style: TextStyle(
+                                                      color: Theme.of(context).colorScheme.tertiary,
+                                                      fontSize: KTextStyle.descriptionTextStyle.fontSize,
+                                                      fontFamily: KTextStyle.descriptionTextStyle.fontFamily,
+                                                      fontWeight: KTextStyle.descriptionTextStyle.fontWeight,
+                                                    ),
+                                                  ),
+                                                  trailing: (!hasReplacementPending &&
+                                                          !hasExchangePending &&
+                                                          !hasExchangeNeedingSelection &&
+                                                          !hasValidation)
+                                                      ? const SizedBox.shrink()
+                                                      : Row(
+                                                          mainAxisSize: MainAxisSize.min,
+                                                          children: [
+                                                            // Pastille ronde AppNameColor pour demandes de remplacement
+                                                            if (hasReplacementPending)
+                                                              Container(
+                                                                width: 12,
+                                                                height: 12,
+                                                                decoration: BoxDecoration(
+                                                                  color: Theme.of(context).colorScheme.primary,
+                                                                  shape: BoxShape.circle,
+                                                                ),
+                                                              ),
+                                                            if (hasReplacementPending &&
+                                                                (hasExchangePending ||
+                                                                    hasExchangeNeedingSelection ||
+                                                                    hasValidation))
+                                                              const SizedBox(width: 6),
+                                                            // Pastille ronde verte pour demandes d'échange
+                                                            if (hasExchangePending)
+                                                              Container(
+                                                                width: 12,
+                                                                height: 12,
+                                                                decoration: const BoxDecoration(
+                                                                  color: Colors.green,
+                                                                  shape: BoxShape.circle,
+                                                                ),
+                                                              ),
+                                                            if (hasExchangePending &&
+                                                                (hasExchangeNeedingSelection || hasValidation))
+                                                              const SizedBox(width: 6),
+                                                            // Pastille ronde violette pour échanges avec propositions nécessitant sélection
+                                                            if (hasExchangeNeedingSelection)
+                                                              Container(
+                                                                width: 12,
+                                                                height: 12,
+                                                                decoration: const BoxDecoration(
+                                                                  color: Colors.purple,
+                                                                  shape: BoxShape.circle,
+                                                                ),
+                                                              ),
+                                                            if (hasExchangeNeedingSelection && hasValidation)
+                                                              const SizedBox(width: 6),
+                                                            // Pastille ronde bleue pour validations en attente
+                                                            if (hasValidation)
+                                                              Container(
+                                                                width: 12,
+                                                                height: 12,
+                                                                decoration: const BoxDecoration(
+                                                                  color: Colors.blue,
+                                                                  shape: BoxShape.circle,
+                                                                ),
+                                                              ),
+                                                          ],
+                                                        ),
+                                                );
+                                              },
                                             );
-                                        final seenByUserIds = List<String>.from(
-                                          data['seenByUserIds'] ?? [],
+                                          },
                                         );
-                                        final pendingValidationUserIds = List<String>.from(
-                                          data['pendingValidationUserIds'] ?? [],
-                                        );
-
-                                        // Exclure les demandes marquées comme "Vues"
-                                        if (user != null && seenByUserIds.contains(user.id)) {
-                                          return false;
-                                        }
-
-                                        // Exclure les demandes où l'utilisateur a une acceptation en attente de validation
-                                        if (user != null && pendingValidationUserIds.contains(user.id)) {
-                                          return false;
-                                        }
-
-                                        return user != null && (requesterId == user.id ||
-                                            notifiedUserIds.contains(user.id));
-                                      })
-                                      .length;
-                                }
-
-                                return ListTile(
-                                  minTileHeight: 0.0,
-                                  leading: Icon(
-                                    Icons.swap_horiz,
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.primary,
-                                  ),
-                                  title: Text(
-                                    "Remplacements",
-                                    style: TextStyle(
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.tertiary,
-                                      fontSize: KTextStyle
-                                          .descriptionTextStyle
-                                          .fontSize,
-                                      fontFamily: KTextStyle
-                                          .descriptionTextStyle
-                                          .fontFamily,
-                                      fontWeight: KTextStyle
-                                          .descriptionTextStyle
-                                          .fontWeight,
-                                    ),
-                                  ),
-                                  trailing: (pendingCount > 0 || pendingAcceptancesCount > 0)
-                                      ? Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            // Badge pour les demandes en attente
-                                            if (pendingCount > 0)
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(
-                                                  horizontal: 8,
-                                                  vertical: 4,
-                                                ),
-                                                decoration: BoxDecoration(
-                                                  color: Theme.of(context).colorScheme.primary,
-                                                  borderRadius: BorderRadius.circular(12),
-                                                ),
-                                                child: Text(
-                                                  pendingCount.toString(),
-                                                  style: TextStyle(
-                                                    color: Theme.of(context).colorScheme.onPrimary,
-                                                    fontSize: 12,
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
-                                                ),
-                                              ),
-                                            // Espacement entre les badges
-                                            if (pendingCount > 0 && pendingAcceptancesCount > 0)
-                                              const SizedBox(width: 4),
-                                            // Badge vert pour les validations en attente
-                                            if (pendingAcceptancesCount > 0)
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(
-                                                  horizontal: 8,
-                                                  vertical: 4,
-                                                ),
-                                                decoration: BoxDecoration(
-                                                  color: Colors.green,
-                                                  borderRadius: BorderRadius.circular(12),
-                                                ),
-                                                child: Text(
-                                                  pendingAcceptancesCount.toString(),
-                                                  style: const TextStyle(
-                                                    color: Colors.white,
-                                                    fontSize: 12,
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
-                                                ),
-                                              ),
-                                          ],
-                                        )
-                                      : null,
-                                );
+                                      },
+                                    );
                                   },
                                 );
                               },
-                            );
-                          },
-                        ),
+                            ),
                       ),
                     ],
                   ),

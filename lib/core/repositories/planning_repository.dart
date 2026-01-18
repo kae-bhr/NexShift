@@ -11,13 +11,13 @@ class PlanningRepository {
 
   /// Constructeur par défaut (production)
   PlanningRepository({FirestoreService? firestoreService})
-      : _firestoreService = firestoreService ?? FirestoreService(),
-        _directFirestore = null;
+    : _firestoreService = firestoreService ?? FirestoreService(),
+      _directFirestore = null;
 
   /// Constructeur pour les tests avec Firestore direct
   PlanningRepository.forTest(FirebaseFirestore firestore)
-      : _directFirestore = firestore,
-        _firestoreService = FirestoreService();
+    : _directFirestore = firestore,
+      _firestoreService = FirestoreService();
 
   /// Retourne le chemin de collection selon l'environnement
   String _getCollectionPath(String? stationId) {
@@ -29,7 +29,9 @@ class PlanningRepository {
     try {
       // Mode test
       if (_directFirestore != null) {
-        final snapshot = await _directFirestore.collection(_collectionName).get();
+        final snapshot = await _directFirestore
+            .collection(_collectionName)
+            .get();
         return snapshot.docs.map((doc) {
           final data = doc.data();
           data['id'] = doc.id;
@@ -54,7 +56,9 @@ class PlanningRepository {
       if (EnvironmentConfig.useStationSubcollections) {
         // Mode test
         if (_directFirestore != null) {
-          final snapshot = await _directFirestore.collection(collectionPath).get();
+          final snapshot = await _directFirestore
+              .collection(collectionPath)
+              .get();
           return snapshot.docs.map((doc) {
             final data = doc.data();
             data['id'] = doc.id;
@@ -160,14 +164,25 @@ class PlanningRepository {
     String userId, {
     DateTime? start,
     DateTime? end,
+    String? stationId,
   }) async {
     try {
       List<Planning> plannings;
 
-      if (start != null && end != null) {
-        plannings = await getAllInRange(start, end);
+      // En mode subcollections, charger depuis la station spécifique
+      if (EnvironmentConfig.useStationSubcollections && stationId != null) {
+        if (start != null && end != null) {
+          plannings = await getByStationInRange(stationId, start, end);
+        } else {
+          plannings = await getByStation(stationId);
+        }
       } else {
-        plannings = await getAll();
+        // Mode legacy : charger tous les plannings
+        if (start != null && end != null) {
+          plannings = await getAllInRange(start, end);
+        } else {
+          plannings = await getAll();
+        }
       }
 
       return plannings.where((p) => p.agentsId.contains(userId)).toList();
@@ -206,16 +221,21 @@ class PlanningRepository {
       final collectionPath = _getCollectionPath(stationId);
 
       // Mode test OU mode subcollections : utiliser FirebaseFirestore directement
-      if (_directFirestore != null || EnvironmentConfig.useStationSubcollections) {
+      if (_directFirestore != null ||
+          EnvironmentConfig.useStationSubcollections) {
         final firestore = _directFirestore ?? FirebaseFirestore.instance;
         final doc = await firestore.collection(collectionPath).doc(id).get();
         if (!doc.exists) {
-          debugPrint('❌ [PlanningRepository] getById($id) - Document not found at path: $collectionPath');
+          debugPrint(
+            '❌ [PlanningRepository] getById($id) - Document not found at path: $collectionPath',
+          );
           return null;
         }
         final data = doc.data()!;
         data['id'] = doc.id;
-        debugPrint('✅ [PlanningRepository] getById($id) - Found at path: $collectionPath');
+        debugPrint(
+          '✅ [PlanningRepository] getById($id) - Found at path: $collectionPath',
+        );
         return Planning.fromJson(data);
       }
 
@@ -236,11 +256,18 @@ class PlanningRepository {
     try {
       // Mode test
       if (_directFirestore != null) {
-        await _directFirestore.collection(_collectionName).doc(planning.id).set(planning.toJson());
+        await _directFirestore
+            .collection(_collectionName)
+            .doc(planning.id)
+            .set(planning.toJson());
         return;
       }
       // Mode production
-      await _firestoreService.upsert(_collectionName, planning.id, planning.toJson());
+      await _firestoreService.upsert(
+        _collectionName,
+        planning.id,
+        planning.toJson(),
+      );
     } catch (e) {
       debugPrint('Firestore error during save: $e');
       rethrow;
@@ -301,7 +328,10 @@ class PlanningRepository {
         // Mode test: supprimer individuellement
         if (_directFirestore != null) {
           for (final planning in toDelete) {
-            await _directFirestore.collection(_collectionName).doc(planning.id).delete();
+            await _directFirestore
+                .collection(_collectionName)
+                .doc(planning.id)
+                .delete();
           }
           return;
         }
@@ -330,7 +360,9 @@ class PlanningRepository {
     String? stationId,
   }) async {
     if (EnvironmentConfig.useStationSubcollections && stationId == null) {
-      throw Exception('stationId required in dev mode for deletePlanningsInRange');
+      throw Exception(
+        'stationId required in dev mode for deletePlanningsInRange',
+      );
     }
 
     final collectionPath = _getCollectionPath(stationId);
@@ -346,7 +378,10 @@ class PlanningRepository {
         // Mode test: supprimer individuellement
         if (_directFirestore != null) {
           for (final planning in toDelete) {
-            await _directFirestore.collection(collectionPath).doc(planning.id).delete();
+            await _directFirestore
+                .collection(collectionPath)
+                .doc(planning.id)
+                .delete();
           }
           return;
         }
@@ -376,7 +411,10 @@ class PlanningRepository {
         // Mode test: supprimer individuellement
         if (_directFirestore != null) {
           for (final planning in all) {
-            await _directFirestore.collection(_collectionName).doc(planning.id).delete();
+            await _directFirestore
+                .collection(_collectionName)
+                .doc(planning.id)
+                .delete();
           }
           return;
         }

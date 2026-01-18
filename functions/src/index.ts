@@ -212,6 +212,89 @@ export const sendReplacementNotifications = onDocumentCreated(
         );
         break;
 
+      // Notifications pour les échanges d'astreintes
+      case "shift_exchange_proposal_received":
+        notification = {
+          title: trigger.title || "Nouvelle proposition d'échange",
+          body: trigger.body || "Une nouvelle proposition d'échange a été reçue",
+        };
+        data = {
+          type: "shift_exchange_proposal_received",
+          requestId: trigger.data?.requestId || "",
+          proposalId: trigger.data?.proposalId || "",
+          proposerName: trigger.data?.proposerName || "",
+        };
+        console.log(
+          "  📨 Shift exchange proposal received notification",
+        );
+        break;
+
+      case "shift_exchange_validation_required":
+        notification = {
+          title: trigger.title || "Validation d'échange requise",
+          body: trigger.body || "Un échange d'astreinte nécessite votre validation",
+        };
+        data = {
+          type: "shift_exchange_validation_required",
+          requestId: trigger.data?.requestId || "",
+          proposalId: trigger.data?.proposalId || "",
+          initiatorName: trigger.data?.initiatorName || "",
+          proposerName: trigger.data?.proposerName || "",
+        };
+        console.log(
+          "  📨 Shift exchange validation required notification",
+        );
+        break;
+
+      case "shift_exchange_validated":
+        notification = {
+          title: trigger.title || "✅ Échange validé",
+          body: trigger.body || "Votre échange d'astreinte a été validé",
+        };
+        data = {
+          type: "shift_exchange_validated",
+          requestId: trigger.data?.requestId || "",
+          proposalId: trigger.data?.proposalId || "",
+        };
+        console.log(
+          "  📨 Shift exchange validated notification",
+        );
+        break;
+
+      case "shift_exchange_rejected":
+        notification = {
+          title: trigger.title || "❌ Proposition refusée",
+          body: trigger.body || "Une proposition d'échange a été refusée",
+        };
+        data = {
+          type: "shift_exchange_rejected",
+          requestId: trigger.data?.requestId || "",
+          proposalId: trigger.data?.proposalId || "",
+          proposerName: trigger.data?.proposerName || "",
+          leaderName: trigger.data?.leaderName || "",
+          rejectionReason: trigger.data?.rejectionReason || "",
+        };
+        console.log(
+          "  📨 Shift exchange rejected notification",
+        );
+        break;
+
+      case "shift_exchange_proposer_selected":
+        notification = {
+          title: trigger.title || "🎯 Votre proposition sélectionnée",
+          body: trigger.body || "Votre proposition d'échange a été sélectionnée",
+        };
+        data = {
+          type: "shift_exchange_proposer_selected",
+          requestId: trigger.data?.requestId || "",
+          proposalId: trigger.data?.proposalId || "",
+          initiatorName: trigger.data?.initiatorName || "",
+        };
+        console.log(
+          "  📨 Shift exchange proposer selected notification",
+        );
+        break;
+
       default:
         console.error("❌ Unknown notification type:", type);
         await snapshot.ref.update({

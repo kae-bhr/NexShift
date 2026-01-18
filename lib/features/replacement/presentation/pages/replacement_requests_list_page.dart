@@ -10,69 +10,21 @@ import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/data/models/station_model.dart';
 import 'package:nexshift_app/core/data/models/subshift_model.dart';
 import 'package:nexshift_app/features/replacement/presentation/pages/replacement_request_dialog.dart';
-import 'package:nexshift_app/features/replacement/presentation/widgets/pending_acceptances_tab.dart';
+import 'package:nexshift_app/features/replacement/presentation/widgets/replacement_sub_tabs.dart';
+import 'package:nexshift_app/features/replacement/presentation/widgets/icon_tab_bar.dart';
+import 'package:nexshift_app/features/replacement/presentation/widgets/filtered_requests_view.dart';
+import 'package:nexshift_app/features/replacement/presentation/widgets/replacement_tile_wrapper.dart';
+import 'package:nexshift_app/features/shift_exchange/presentation/widgets/exchange_content_widget.dart';
 import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
+import 'package:nexshift_app/core/presentation/widgets/unified_request_tile/unified_request_tile_exports.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:nexshift_app/core/config/environment_config.dart';
+import 'package:nexshift_app/core/services/shift_exchange_service.dart';
+import 'package:nexshift_app/core/repositories/planning_repository.dart';
+import 'package:nexshift_app/core/services/badge_count_service.dart';
+import 'package:nexshift_app/core/presentation/widgets/request_actions_bottom_sheet.dart';
 
-/// Classe pour représenter une proposition de remplacement manuel
-class ManualReplacementProposal {
-  final String id;
-  final String proposerId;
-  final String proposerName;
-  final String replacedId;
-  final String replacedName;
-  final String replacerId;
-  final String replacerName;
-  final String planningId;
-  final DateTime startTime;
-  final DateTime endTime;
-  final String status;
-  final DateTime? createdAt;
-
-  ManualReplacementProposal({
-    required this.id,
-    required this.proposerId,
-    required this.proposerName,
-    required this.replacedId,
-    required this.replacedName,
-    required this.replacerId,
-    required this.replacerName,
-    required this.planningId,
-    required this.startTime,
-    required this.endTime,
-    required this.status,
-    this.createdAt,
-  });
-
-  factory ManualReplacementProposal.fromJson(Map<String, dynamic> json) {
-    try {
-      return ManualReplacementProposal(
-        id: json['id'] as String? ?? '',
-        proposerId: json['proposerId'] as String? ?? '',
-        proposerName: json['proposerName'] as String? ?? '',
-        replacedId: json['replacedId'] as String? ?? '',
-        replacedName: json['replacedName'] as String? ?? '',
-        replacerId: json['replacerId'] as String? ?? '',
-        replacerName: json['replacerName'] as String? ?? '',
-        planningId: json['planningId'] as String? ?? '',
-        startTime: json['startTime'] is Timestamp
-            ? (json['startTime'] as Timestamp).toDate()
-            : DateTime.now(),
-        endTime: json['endTime'] is Timestamp
-            ? (json['endTime'] as Timestamp).toDate()
-            : DateTime.now(),
-        status: json['status'] as String? ?? 'pending',
-        createdAt: json['createdAt'] is Timestamp
-            ? (json['createdAt'] as Timestamp).toDate()
-            : null,
-      );
-    } catch (e) {
-      debugPrint('Error parsing ManualReplacementProposal: $e');
-      rethrow;
-    }
-  }
-}
+// ManualReplacementProposal est maintenant importé depuis filtered_requests_view.dart
 
 /// Page listant toutes les demandes de remplacement en cours
 /// Accessible depuis le Drawer
@@ -85,12 +37,18 @@ class ReplacementRequestsListPage extends StatefulWidget {
 }
 
 class _ReplacementRequestsListPageState
-    extends State<ReplacementRequestsListPage> with SingleTickerProviderStateMixin {
+    extends State<ReplacementRequestsListPage>
+    with TickerProviderStateMixin {
   final _notificationService = ReplacementNotificationService();
   final _userRepository = UserRepository();
+  final _exchangeService = ShiftExchangeService();
+  final _planningRepository = PlanningRepository();
   String? _currentUserId;
+  String? _currentStationId;
+  User? _currentUser;
   DateTime _selectedDate = DateTime.now();
-  TabController? _tabController;
+  TabController? _mainTabController;
+  TabController? _replacementSubTabController;
   bool _isChief = false;
 
   @override
@@ -101,21 +59,108 @@ class _ReplacementRequestsListPageState
 
   @override
   void dispose() {
-    _tabController?.dispose();
+    _mainTabController?.dispose();
+    _replacementSubTabController?.dispose();
     super.dispose();
   }
 
   Future<void> _loadCurrentUser() async {
     final user = await UserStorageHelper.loadUser();
-    if (mounted) {
+    if (mounted && user != null) {
+      // Initialiser le BadgeCountService
+      if (user.id.isNotEmpty && user.station.isNotEmpty) {
+        BadgeCountService().initialize(user.id, user.station, user);
+      }
+
       setState(() {
-        _currentUserId = user?.id;
-        _isChief = user?.status == 'chief' || user?.status == 'leader';
-        // Initialiser le TabController avec le bon nombre d'onglets
-        final tabCount = _isChief ? 2 : 1;
-        _tabController = TabController(length: tabCount, vsync: this);
+        _currentUserId = user.id;
+        _currentStationId = user.station;
+        _currentUser = user;
+        _isChief = user.status == 'chief' || user.status == 'leader';
+        // Initialiser les TabControllers
+        _mainTabController = TabController(length: 2, vsync: this);
+        _replacementSubTabController = TabController(length: 4, vsync: this);
       });
     }
+  }
+
+  /// Calcule le nombre de propositions d'échange nécessitant la validation de CE leader spécifique
+  /// en utilisant la même logique que getProposalsRequiringValidationForLeader
+  Future<int> _getExchangeValidationCount(
+    QuerySnapshot proposalsSnapshot,
+  ) async {
+    if (_currentUser == null ||
+        _currentUserId == null ||
+        _currentStationId == null) {
+      return 0;
+    }
+
+    final userTeam = _currentUser!.team;
+    final leaderKey = '${userTeam}_$_currentUserId';
+    int count = 0;
+
+    for (final doc in proposalsSnapshot.docs) {
+      final proposalData = doc.data() as Map<String, dynamic>;
+      final validations =
+          proposalData['leaderValidations'] as Map<String, dynamic>? ?? {};
+
+      // Si ce leader a déjà validé, on passe
+      if (validations.containsKey(leaderKey)) {
+        continue;
+      }
+
+      // Récupérer les équipes de l'initiateur et du proposeur
+      final proposerTeam = proposalData['proposerTeamId'] as String?;
+      final requestId = proposalData['requestId'] as String?;
+
+      // Vérifier si ce leader fait partie des équipes concernées
+      if (proposerTeam == userTeam) {
+        count++;
+        continue;
+      }
+
+      // Pour l'équipe de l'initiateur, on doit récupérer le planning
+      if (requestId != null) {
+        try {
+          // On pourrait aussi extraire initiatorTeamId s'il est stocké dans la proposition
+          // Sinon on doit récupérer la demande et son planning
+          // Pour l'instant, on compte si le proposeur est dans l'équipe
+          // La logique complète nécessiterait de récupérer chaque request
+        } catch (e) {
+          // Ignorer les erreurs
+        }
+      }
+    }
+
+    return count;
+  }
+
+  /// Retourne le chemin de collection pour les demandes de remplacement automatiques
+  String _getCollectionPath() {
+    if (_currentStationId == null || _currentStationId!.isEmpty) {
+      return 'replacementRequests';
+    }
+
+    final sdisId = SDISContext().currentSDISId;
+    if (EnvironmentConfig.useStationSubcollections &&
+        sdisId != null &&
+        sdisId.isNotEmpty) {
+      return 'sdis/$sdisId/stations/$_currentStationId/replacements/automatic/replacementRequests';
+    }
+
+    return 'replacementRequests';
+  }
+
+  /// Retourne le chemin de collection pour les propositions de remplacement manuel
+  String _getManualReplacementProposalsPath(String stationId) {
+    if (EnvironmentConfig.useStationSubcollections && stationId.isNotEmpty) {
+      final sdisId = SDISContext().currentSDISId;
+      if (sdisId != null && sdisId.isNotEmpty) {
+        return 'sdis/$sdisId/stations/$stationId/replacements/manual/proposals';
+      }
+      return 'stations/$stationId/replacements/manual/proposals';
+    }
+    return 'manualReplacementProposals';
   }
 
   String _formatDateTime(DateTime dt) {
@@ -159,7 +204,9 @@ class _ReplacementRequestsListPageState
 
   @override
   Widget build(BuildContext context) {
-    if (_currentUserId == null || _tabController == null) {
+    if (_currentUserId == null ||
+        _mainTabController == null ||
+        _replacementSubTabController == null) {
       return Scaffold(
         appBar: CustomAppBar(
           title: 'Demandes de remplacement',
@@ -173,317 +220,139 @@ class _ReplacementRequestsListPageState
       appBar: CustomAppBar(
         title: 'Demandes de remplacement',
         bottomColor: KColors.appNameColor,
-        bottom: _isChief
-            ? TabBar(
-                controller: _tabController,
-                labelColor: Theme.of(context).brightness == Brightness.dark
-                    ? Colors.white
-                    : KColors.appNameColor,
-                unselectedLabelColor: Theme.of(context).brightness == Brightness.dark
-                    ? Colors.white70
-                    : KColors.appNameColor.withValues(alpha: 0.7),
-                indicatorColor: Theme.of(context).brightness == Brightness.dark
-                    ? Colors.white
-                    : KColors.appNameColor,
-                tabs: const [
-                  Tab(text: 'Demandes'),
-                  Tab(text: 'Validations'),
-                ],
-              )
-            : null,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(kToolbarHeight),
+          child: _buildMainTabBar(),
+        ),
       ),
-      body: _isChief
-          ? TabBarView(
-              controller: _tabController,
-              children: [
-                _buildRequestsTab(),
-                const PendingAcceptancesTab(),
-              ],
-            )
-          : _buildRequestsTab(),
+      body: TabBarView(
+        controller: _mainTabController,
+        children: [_buildReplacementsContent(), _buildExchangesContent()],
+      ),
     );
   }
 
-  Widget _buildRequestsTab() {
-    return Column(
-      children: [
-          // Sélecteur de mois/année
-          Container(
-            padding: const EdgeInsets.all(16),
-            color: Theme.of(context).brightness == Brightness.dark
-                ? Colors.grey.shade900
-                : Colors.grey.shade100,
-            child: Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.chevron_left),
-                  onPressed: () {
-                    setState(() {
-                      _selectedDate = DateTime(
-                        _selectedDate.year,
-                        _selectedDate.month - 1,
-                        1,
-                      );
-                    });
-                  },
-                  tooltip: 'Mois précédent',
-                ),
-                Expanded(
-                  child: InkWell(
-                    onTap: _selectMonthYear,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 12,
-                        horizontal: 16,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).brightness == Brightness.dark
-                            ? Colors.grey.shade800
-                            : Colors.white,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: Theme.of(context).brightness == Brightness.dark
-                              ? Colors.grey.shade700
-                              : Colors.grey.shade300,
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.calendar_month,
-                            size: 20,
-                            color: Theme.of(context).brightness == Brightness.dark
-                                ? Colors.blue.shade300
-                                : Colors.blue,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            _formatMonthYear(_selectedDate),
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: Theme.of(context).brightness == Brightness.dark
-                                  ? Colors.white
-                                  : Colors.black,
+  Widget _buildMainTabBar() {
+    // Utiliser le BadgeCountService pour des compteurs cohérents avec filtre date
+    final badgeService = BadgeCountService();
+
+    return ValueListenableBuilder<bool>(
+      valueListenable: badgeService.hasReplacementPending,
+      builder: (context, hasReplacementPending, _) {
+        return ValueListenableBuilder<bool>(
+          valueListenable: badgeService.hasReplacementValidation,
+          builder: (context, hasReplacementValidation, _) {
+            return ValueListenableBuilder<bool>(
+              valueListenable: badgeService.hasExchangePending,
+              builder: (context, hasExchangePending, _) {
+                return ValueListenableBuilder<bool>(
+                  valueListenable: badgeService.hasExchangeValidation,
+                  builder: (context, hasExchangeValidation, _) {
+                    return ValueListenableBuilder<bool>(
+                      valueListenable: badgeService.hasExchangeNeedingSelection,
+                      builder: (context, hasExchangeNeedingSelection, _) {
+                        return TabBar(
+                          controller: _mainTabController,
+                          labelColor:
+                              Theme.of(context).brightness == Brightness.dark
+                              ? Colors.white
+                              : KColors.appNameColor,
+                          unselectedLabelColor:
+                              Theme.of(context).brightness == Brightness.dark
+                              ? Colors.white70
+                              : KColors.appNameColor.withValues(alpha: 0.7),
+                          indicatorColor:
+                              Theme.of(context).brightness == Brightness.dark
+                              ? Colors.white
+                              : KColors.appNameColor,
+                          tabs: [
+                            Tab(
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Text('Remplacements'),
+                                  if (hasReplacementPending ||
+                                      hasReplacementValidation) ...[
+                                    const SizedBox(width: 8),
+                                    // Pastille ronde AppNameColor pour demandes en attente
+                                    if (hasReplacementPending)
+                                      Container(
+                                        width: 12,
+                                        height: 12,
+                                        decoration: BoxDecoration(
+                                          color: KColors.appNameColor,
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                    if (hasReplacementPending &&
+                                        hasReplacementValidation)
+                                      const SizedBox(width: 6),
+                                    // Pastille ronde bleue pour validations en attente
+                                    if (hasReplacementValidation)
+                                      Container(
+                                        width: 12,
+                                        height: 12,
+                                        decoration: const BoxDecoration(
+                                          color: Colors.blue,
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                  ],
+                                ],
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.chevron_right),
-                  onPressed: () {
-                    setState(() {
-                      _selectedDate = DateTime(
-                        _selectedDate.year,
-                        _selectedDate.month + 1,
-                        1,
-                      );
-                    });
-                  },
-                  tooltip: 'Mois suivant',
-                ),
-              ],
-            ),
-          ),
-          // Liste des demandes
-          Expanded(
-            child: FutureBuilder<User?>(
-              future: UserStorageHelper.loadUser(),
-              builder: (context, userSnapshot) {
-                if (!userSnapshot.hasData || userSnapshot.data == null) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
-                final currentUser = userSnapshot.data!;
-                // Utiliser le même chemin que dans ReplacementNotificationService
-                final requestsPath = EnvironmentConfig.useStationSubcollections && currentUser.station.isNotEmpty
-                    ? (SDISContext().currentSDISId != null && SDISContext().currentSDISId!.isNotEmpty
-                        ? 'sdis/${SDISContext().currentSDISId}/stations/${currentUser.station}/replacements/automatic/replacementRequests'
-                        : 'stations/${currentUser.station}/replacements/automatic/replacementRequests')
-                    : 'replacementRequests';
-
-                return StreamBuilder<List<ReplacementRequest>>(
-                  stream: _notificationService.firestore
-                      .collection(requestsPath)
-                      .where('status', whereIn: ['pending', 'accepted'])
-                      .snapshots()
-                      .asyncMap((snapshot) async {
-                        final startOfMonth = DateTime(
-                          _selectedDate.year,
-                          _selectedDate.month,
-                          1,
-                        );
-                        final endOfMonth = DateTime(
-                          _selectedDate.year,
-                          _selectedDate.month + 1,
-                          1,
-                        );
-
-                        final allRequests = snapshot.docs
-                            .map((doc) => ReplacementRequest.fromJson(doc.data()))
-                            .where((request) {
-                              return request.startTime.isAfter(
-                                    startOfMonth.subtract(const Duration(days: 1)),
-                                  ) &&
-                                  request.startTime.isBefore(endOfMonth);
-                            })
-                            .toList();
-
-                        final visibleRequests = <ReplacementRequest>[];
-                        for (final request in allRequests) {
-                          if (request.status == ReplacementRequestStatus.accepted) {
-                            visibleRequests.add(request);
-                            continue;
-                          }
-                          final canView = await _canViewRequest(request);
-                          if (canView) {
-                            visibleRequests.add(request);
-                          }
-                        }
-
-                        visibleRequests.sort(
-                          (a, b) => a.startTime.compareTo(b.startTime),
-                        );
-
-                        return visibleRequests;
-                      }),
-                  builder: (context, requestsSnapshot) {
-                if (requestsSnapshot.connectionState ==
-                    ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
-                if (requestsSnapshot.hasError) {
-                  return Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.error_outline,
-                            size: 64,
-                            color: Colors.red.shade300,
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Erreur: ${requestsSnapshot.error}',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.red.shade700),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }
-
-                final requests = requestsSnapshot.data ?? [];
-
-                // Ajouter un second StreamBuilder pour les propositions manuelles
-                return StreamBuilder<List<ManualReplacementProposal>>(
-                  stream: FirebaseFirestore.instance
-                      .collection('manualReplacementProposals')
-                      .where('status', isEqualTo: 'pending')
-                      .snapshots()
-                      .asyncMap((snapshot) async {
-                        final startOfMonth = DateTime(
-                          _selectedDate.year,
-                          _selectedDate.month,
-                          1,
-                        );
-                        final endOfMonth = DateTime(
-                          _selectedDate.year,
-                          _selectedDate.month + 1,
-                          1,
-                        );
-
-                        final allProposals = snapshot.docs
-                            .map(
-                              (doc) => ManualReplacementProposal.fromJson(
-                                doc.data(),
+                            Tab(
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Text('Échanges'),
+                                  if (hasExchangePending ||
+                                      hasExchangeValidation ||
+                                      hasExchangeNeedingSelection) ...[
+                                    const SizedBox(width: 8),
+                                    // Pastille ronde verte pour demandes d'échange en attente
+                                    if (hasExchangePending)
+                                      Container(
+                                        width: 12,
+                                        height: 12,
+                                        decoration: const BoxDecoration(
+                                          color: Colors.green,
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                    if (hasExchangePending &&
+                                        (hasExchangeNeedingSelection ||
+                                            hasExchangeValidation))
+                                      const SizedBox(width: 6),
+                                    // Pastille ronde violette pour demandes avec propositions nécessitant sélection
+                                    if (hasExchangeNeedingSelection)
+                                      Container(
+                                        width: 12,
+                                        height: 12,
+                                        decoration: const BoxDecoration(
+                                          color: Colors.purple,
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                    if (hasExchangeNeedingSelection &&
+                                        hasExchangeValidation)
+                                      const SizedBox(width: 6),
+                                    // Pastille ronde bleue pour validations en attente
+                                    if (hasExchangeValidation)
+                                      Container(
+                                        width: 12,
+                                        height: 12,
+                                        decoration: const BoxDecoration(
+                                          color: Colors.blue,
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                  ],
+                                ],
                               ),
-                            )
-                            .where((proposal) {
-                              return proposal.startTime.isAfter(
-                                    startOfMonth.subtract(
-                                      const Duration(days: 1),
-                                    ),
-                                  ) &&
-                                  proposal.startTime.isBefore(endOfMonth);
-                            })
-                            .toList();
-
-                        final visibleProposals = <ManualReplacementProposal>[];
-                        for (final proposal in allProposals) {
-                          // Le remplaçant ET le remplacé peuvent voir la proposition
-                          if (proposal.replacerId == _currentUserId ||
-                              proposal.replacedId == _currentUserId) {
-                            visibleProposals.add(proposal);
-                          }
-                        }
-
-                        visibleProposals.sort(
-                          (a, b) => a.startTime.compareTo(b.startTime),
+                            ),
+                          ],
                         );
-
-                        return visibleProposals;
-                      }),
-                  builder: (context, proposalsSnapshot) {
-                    if (proposalsSnapshot.connectionState ==
-                        ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-
-                    final proposals = proposalsSnapshot.data ?? [];
-
-                    if (requests.isEmpty && proposals.isEmpty) {
-                      return Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16.0),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.check_circle_outline,
-                                size: 64,
-                                color: Colors.green.shade300,
-                              ),
-                              const SizedBox(height: 16),
-                              const Text(
-                                'Aucune demande de remplacement en cours',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              const Text(
-                                'Les demandes en attente apparaîtront ici',
-                                style: TextStyle(color: Colors.grey),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    }
-
-                    return ListView.builder(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: requests.length + proposals.length,
-                      itemBuilder: (context, index) {
-                        if (index < requests.length) {
-                          // Afficher une demande classique
-                          final request = requests[index];
-                          return _buildRequestCard(request);
-                        } else {
-                          // Afficher une proposition manuelle
-                          final proposal = proposals[index - requests.length];
-                          return _buildManualProposalCard(proposal);
-                        }
                       },
                     );
                   },
@@ -491,10 +360,162 @@ class _ReplacementRequestsListPageState
               },
             );
           },
+        );
+      },
+    );
+  }
+
+  Widget _buildReplacementsContent() {
+    if (_currentUserId == null || _currentStationId == null) {
+      return Column(
+        children: [
+          IconTabBar(
+            controller: _replacementSubTabController!,
+            tabs: replacementSubTabs,
+            selectedColor: Theme.of(context).brightness == Brightness.dark
+                ? Colors.white
+                : KColors.appNameColor,
+            unselectedColor: Theme.of(context).brightness == Brightness.dark
+                ? Colors.white70
+                : KColors.appNameColor.withValues(alpha: 0.7),
+          ),
+          Expanded(child: Container()),
+        ],
+      );
+    }
+
+    // Utiliser le BadgeCountService pour les compteurs centralisés
+    final badgeService = BadgeCountService();
+
+    return ValueListenableBuilder<int>(
+      valueListenable: badgeService.replacementPendingCount,
+      builder: (context, pendingCount, _) {
+        return ValueListenableBuilder<int>(
+          valueListenable: badgeService.replacementMyRequestsCount,
+          builder: (context, myRequestsCount, _) {
+            return ValueListenableBuilder<int>(
+              valueListenable: badgeService.replacementToValidateCount,
+              builder: (context, validationCount, _) {
+                return Column(
+                  children: [
+                    // Sous-onglets avec icônes et badges
+                    IconTabBar(
+                      controller: _replacementSubTabController!,
+                      tabs: replacementSubTabs,
+                      selectedColor:
+                          Theme.of(context).brightness == Brightness.dark
+                          ? Colors.white
+                          : KColors.appNameColor,
+                      unselectedColor:
+                          Theme.of(context).brightness == Brightness.dark
+                          ? Colors.white70
+                          : KColors.appNameColor.withValues(alpha: 0.7),
+                      badgeCounts: {
+                        ReplacementSubTab.pending: pendingCount,
+                        ReplacementSubTab.myRequests: myRequestsCount,
+                        ReplacementSubTab.toValidate: validationCount,
+                      },
+                      badgeColors: {
+                        ReplacementSubTab.pending: KColors.appNameColor,
+                        ReplacementSubTab.myRequests: KColors.appNameColor,
+                        ReplacementSubTab.toValidate: Colors.blue,
+                      },
+                    ),
+                    // Contenu des sous-onglets
+                    Expanded(
+                      child: TabBarView(
+                        controller: _replacementSubTabController,
+                        children: replacementSubTabs.map((config) {
+                          // Pour l'historique, ajouter le navigateur mensuel
+                          if (config.type == ReplacementSubTab.history) {
+                            return _buildHistoryTabWithNavigator();
+                          }
+                          // Pour les autres onglets, affichage normal
+                          return FilteredRequestsView(
+                            subTab: config.type,
+                            currentUserId: _currentUserId,
+                            currentStationId: _currentStationId,
+                            currentUser: _currentUser,
+                            selectedMonth: null,
+                            buildCard: _buildRequestCard,
+                            buildManualCard: _buildManualProposalCard,
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildHistoryTabWithNavigator() {
+    return Column(
+      children: [
+        // Navigateur mensuel
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+          color: Theme.of(context).brightness == Brightness.dark
+              ? Colors.grey.shade900
+              : Colors.grey.shade100,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.chevron_left),
+                onPressed: () {
+                  setState(() {
+                    _selectedDate = DateTime(
+                      _selectedDate.year,
+                      _selectedDate.month - 1,
+                    );
+                  });
+                },
+              ),
+              Text(
+                _formatMonthYear(_selectedDate),
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.chevron_right),
+                onPressed: () {
+                  setState(() {
+                    _selectedDate = DateTime(
+                      _selectedDate.year,
+                      _selectedDate.month + 1,
+                    );
+                  });
+                },
+              ),
+            ],
+          ),
         ),
+        // Liste de l'historique
+        Expanded(
+          child: FilteredRequestsView(
+            subTab: ReplacementSubTab.history,
+            currentUserId: _currentUserId,
+            currentStationId: _currentStationId,
+            currentUser: _currentUser,
+            selectedMonth: _selectedDate,
+            buildCard: _buildRequestCard,
+            buildManualCard: _buildManualProposalCard,
+          ),
         ),
       ],
     );
+  }
+
+  Widget _buildExchangesContent() {
+    // Afficher le widget de contenu d'échange
+    return const ExchangeContentWidget();
   }
 
   Future<void> _deleteRequest(ReplacementRequest request) async {
@@ -547,7 +568,87 @@ class _ReplacementRequestsListPageState
     }
   }
 
-  Widget _buildRequestCard(ReplacementRequest request) {
+  /// Convertit le sous-onglet en mode de vue pour les tuiles unifiées
+  TileViewMode _subTabToViewMode(ReplacementSubTab subTab) {
+    switch (subTab) {
+      case ReplacementSubTab.pending:
+        return TileViewMode.pending;
+      case ReplacementSubTab.myRequests:
+        return TileViewMode.myRequests;
+      case ReplacementSubTab.toValidate:
+        return TileViewMode.toValidate;
+      case ReplacementSubTab.history:
+        return TileViewMode.history;
+    }
+  }
+
+  Widget _buildRequestCard(
+    ReplacementRequest request,
+    ReplacementSubTab subTab,
+  ) {
+    final viewMode = _subTabToViewMode(subTab);
+
+    // En mode "Mes demandes", le tap ouvre le BottomSheet d'actions
+    VoidCallback? onTapCallback;
+    if (viewMode == TileViewMode.myRequests) {
+      onTapCallback = () => _showRequestActionsBottomSheet(request);
+    }
+
+    return ReplacementTileWrapper(
+      request: request,
+      currentUserId: _currentUserId ?? '',
+      stationId: _currentStationId ?? '',
+      viewMode: viewMode,
+      onTap: onTapCallback,
+      onDelete: () => _deleteRequest(request),
+      onAccept: () =>
+          _handleRequestTap(request), // Ouvre le dialog de confirmation
+      onRefuse: () =>
+          _declineReplacementRequest(request), // Refuse directement
+      onValidate: () =>
+          _handleRequestTap(request), // À ajuster pour la validation chef
+      onWaveTap: () => request.requestType == RequestType.availability
+          ? _showNotifiedUsersDialog(request)
+          : _showWaveDetailsDialog(request),
+      onMarkAsSeen: () => _markRequestAsSeen(request.id),
+      onSkipToNextWave: () => _skipToNextWave(request),
+      onResendNotifications: () => _showResendNotificationsDialog(request),
+    );
+  }
+
+  /// Affiche le BottomSheet d'actions pour une demande de remplacement automatique
+  Future<void> _showRequestActionsBottomSheet(ReplacementRequest request) async {
+    // Charger le nom du demandeur
+    final requesterName = await _getRequesterName(request.requesterId);
+
+    if (!mounted) return;
+
+    // Déterminer si le bouton de renotification doit être affiché
+    // Pour les remplacements automatiques : seulement à partir de la vague 5
+    final showResendButton = request.currentWave >= 5;
+
+    RequestActionsBottomSheet.show(
+      context: context,
+      requestType: request.isSOS
+          ? UnifiedRequestType.sosReplacement
+          : UnifiedRequestType.automaticReplacement,
+      initiatorName: requesterName,
+      team: request.team,
+      station: request.station,
+      startTime: request.startTime,
+      endTime: request.endTime,
+      onResendNotifications: showResendButton
+          ? () => _showResendNotificationsDialog(request)
+          : null,
+      onDelete: () => _deleteRequest(request),
+    );
+  }
+
+  // Ancienne méthode _buildRequestCard conservée temporairement pour référence
+  Widget _buildRequestCardOld(ReplacementRequest request) {
+    print(
+      '[DEBUG SOS BUILD] Building card for request ${request.id}: isSOS = ${request.isSOS}',
+    );
     return FutureBuilder<Map<String, dynamic>>(
       future:
           Future.wait([
@@ -571,16 +672,15 @@ class _ReplacementRequestsListPageState
         final currentUser = snapshot.data?['currentUser'] as User?;
         final canAccept = snapshot.data?['canAccept'] as bool? ?? false;
         final hasDeclined = snapshot.data?['hasDeclined'] as bool? ?? false;
-        final hasPendingAcceptance = snapshot.data?['hasPendingAcceptance'] as bool? ?? false;
-        // Permettre la suppression si admin/leader OU si c'est sa propre demande
+        final hasPendingAcceptance =
+            snapshot.data?['hasPendingAcceptance'] as bool? ?? false;
+        // Permettre la suppression uniquement si c'est sa propre demande (donc uniquement dans "Mes demandes")
         final canDelete =
-            currentUser != null &&
-            (currentUser.admin ||
-             currentUser.status == 'leader' ||
-             currentUser.id == request.requesterId);
+            currentUser != null && currentUser.id == request.requesterId;
 
         // Phase 3 - Vérifier si l'utilisateur est notifié
-        final isNotified = currentUser != null &&
+        final isNotified =
+            currentUser != null &&
             request.notifiedUserIds.contains(currentUser.id);
 
         return Card(
@@ -589,7 +689,10 @@ class _ReplacementRequestsListPageState
           child: InkWell(
             // Phase 3 FIX: Seuls les utilisateurs notifiés peuvent ouvrir le dialog
             // ET pas d'acceptation en attente de validation
-            onTap: request.status == ReplacementRequestStatus.pending && isNotified && !hasPendingAcceptance
+            onTap:
+                request.status == ReplacementRequestStatus.pending &&
+                    isNotified &&
+                    !hasPendingAcceptance
                 ? () => _handleRequestTap(request)
                 : null,
             borderRadius: BorderRadius.circular(12),
@@ -601,11 +704,13 @@ class _ReplacementRequestsListPageState
                   // En-tête avec nom et badge
                   Row(
                     children: [
-                      const CircleAvatar(
-                        backgroundColor: Colors.blue,
+                      CircleAvatar(
+                        backgroundColor: request.isSOS
+                            ? Colors.red
+                            : Colors.blue,
                         radius: 20,
                         child: Icon(
-                          Icons.person,
+                          request.isSOS ? Icons.warning : Icons.person,
                           color: Colors.white,
                           size: 20,
                         ),
@@ -636,11 +741,12 @@ class _ReplacementRequestsListPageState
                                     color: hasDeclined
                                         ? Colors.red.shade100
                                         : (hasPendingAcceptance
-                                            ? Colors.green.shade100
-                                            : (request.status ==
-                                                    ReplacementRequestStatus.accepted
-                                                ? Colors.green.shade100
-                                                : Colors.orange.shade100)),
+                                              ? Colors.green.shade100
+                                              : (request.status ==
+                                                        ReplacementRequestStatus
+                                                            .accepted
+                                                    ? Colors.green.shade100
+                                                    : Colors.orange.shade100)),
                                     borderRadius: BorderRadius.circular(12),
                                   ),
                                   child: Row(
@@ -650,44 +756,50 @@ class _ReplacementRequestsListPageState
                                         hasDeclined
                                             ? Icons.cancel
                                             : (hasPendingAcceptance
-                                                ? Icons.schedule
-                                                : (request.status ==
-                                                        ReplacementRequestStatus
-                                                            .accepted
-                                                    ? Icons.check_circle
-                                                    : Icons.access_time)),
+                                                  ? Icons.schedule
+                                                  : (request.status ==
+                                                            ReplacementRequestStatus
+                                                                .accepted
+                                                        ? Icons.check_circle
+                                                        : Icons.access_time)),
                                         size: 14,
                                         color: hasDeclined
                                             ? Colors.red.shade700
                                             : (hasPendingAcceptance
-                                                ? Colors.green.shade700
-                                                : (request.status ==
-                                                        ReplacementRequestStatus
-                                                            .accepted
-                                                    ? Colors.green.shade700
-                                                    : Colors.orange.shade700)),
+                                                  ? Colors.green.shade700
+                                                  : (request.status ==
+                                                            ReplacementRequestStatus
+                                                                .accepted
+                                                        ? Colors.green.shade700
+                                                        : Colors
+                                                              .orange
+                                                              .shade700)),
                                       ),
                                       const SizedBox(width: 4),
                                       Text(
                                         hasDeclined
                                             ? 'Refusé'
                                             : (hasPendingAcceptance
-                                                ? 'En attente de validation'
-                                                : (request.status ==
-                                                        ReplacementRequestStatus
-                                                            .accepted
-                                                    ? 'Accepté'
-                                                    : 'En attente')),
+                                                  ? 'En attente de validation'
+                                                  : (request.status ==
+                                                            ReplacementRequestStatus
+                                                                .accepted
+                                                        ? 'Accepté'
+                                                        : 'En attente')),
                                         style: TextStyle(
                                           color: hasDeclined
                                               ? Colors.red.shade700
                                               : (hasPendingAcceptance
-                                                  ? Colors.green.shade700
-                                                  : (request.status ==
-                                                          ReplacementRequestStatus
-                                                              .accepted
-                                                      ? Colors.green.shade700
-                                                      : Colors.orange.shade700)),
+                                                    ? Colors.green.shade700
+                                                    : (request.status ==
+                                                              ReplacementRequestStatus
+                                                                  .accepted
+                                                          ? Colors
+                                                                .green
+                                                                .shade700
+                                                          : Colors
+                                                                .orange
+                                                                .shade700)),
                                           fontSize: 12,
                                           fontWeight: FontWeight.w600,
                                         ),
@@ -748,9 +860,10 @@ class _ReplacementRequestsListPageState
                                 ],
                                 // Indicateur de vague/personnes notifiées (afficher pour toutes les demandes)
                                 if ((request.status ==
-                                        ReplacementRequestStatus.pending &&
-                                    isNotified) ||
-                                    request.status == ReplacementRequestStatus.accepted) ...[
+                                            ReplacementRequestStatus.pending &&
+                                        isNotified) ||
+                                    request.status ==
+                                        ReplacementRequestStatus.accepted) ...[
                                   const SizedBox(width: 8),
                                   GestureDetector(
                                     onTap: () =>
@@ -1142,38 +1255,38 @@ class _ReplacementRequestsListPageState
                             ),
                           )
                         : hasPendingAcceptance
-                            ? FilledButton.icon(
-                                onPressed: null,
-                                icon: const Icon(Icons.schedule, size: 18),
-                                label: const Text('En attente de validation'),
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: Colors.green,
-                                  disabledBackgroundColor: Colors.green.shade300,
-                                ),
-                              )
-                            : OutlinedButton.icon(
-                                onPressed: (canAccept && !hasDeclined)
-                                    ? () => _handleRequestTap(request)
-                                    : (hasDeclined
-                                        ? () => _handleRequestTap(request)
-                                        : null),
-                                icon: const Icon(
-                                  Icons.visibility_outlined,
-                                  size: 18,
-                                ),
-                                label: const Text('Voir le remplacement'),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: (canAccept && !hasDeclined)
-                                      ? Theme.of(context).colorScheme.primary
-                                      : Colors.grey,
-                                  side: BorderSide(
-                                    color: (canAccept && !hasDeclined)
-                                        ? Theme.of(context).colorScheme.primary
-                                        : Colors.grey.shade400,
-                                  ),
-                                  disabledForegroundColor: Colors.grey.shade400,
-                                ),
+                        ? FilledButton.icon(
+                            onPressed: null,
+                            icon: const Icon(Icons.schedule, size: 18),
+                            label: const Text('En attente de validation'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: Colors.green,
+                              disabledBackgroundColor: Colors.green.shade300,
+                            ),
+                          )
+                        : OutlinedButton.icon(
+                            onPressed: (canAccept && !hasDeclined)
+                                ? () => _handleRequestTap(request)
+                                : (hasDeclined
+                                      ? () => _handleRequestTap(request)
+                                      : null),
+                            icon: const Icon(
+                              Icons.visibility_outlined,
+                              size: 18,
+                            ),
+                            label: const Text('Voir le remplacement'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: (canAccept && !hasDeclined)
+                                  ? Theme.of(context).colorScheme.primary
+                                  : Colors.grey,
+                              side: BorderSide(
+                                color: (canAccept && !hasDeclined)
+                                    ? Theme.of(context).colorScheme.primary
+                                    : Colors.grey.shade400,
                               ),
+                              disabledForegroundColor: Colors.grey.shade400,
+                            ),
+                          ),
                   ),
                 ],
               ),
@@ -1184,9 +1297,63 @@ class _ReplacementRequestsListPageState
     );
   }
 
-  Widget _buildManualProposalCard(ManualReplacementProposal proposal) {
+  Widget _buildManualProposalCard(
+    ManualReplacementProposal proposal,
+    ReplacementSubTab subTab,
+  ) {
+    final viewMode = _subTabToViewMode(subTab);
+
+    // En mode "Mes demandes", le tap ouvre le BottomSheet d'actions
+    VoidCallback? onTapCallback;
+    if (viewMode == TileViewMode.myRequests) {
+      onTapCallback = () => _showManualProposalActionsBottomSheet(proposal);
+    }
+
+    return ManualProposalTileWrapper(
+      proposal: proposal,
+      currentUserId: _currentUserId ?? '',
+      viewMode: viewMode,
+      station: _currentStationId,
+      onTap: onTapCallback,
+      onDelete: () => _deleteManualProposal(proposal),
+      onAccept: () => _acceptManualProposal(proposal),
+      onRefuse: () => _declineManualProposal(proposal),
+      onResendNotifications: () => _resendManualProposalNotification(proposal),
+    );
+  }
+
+  /// Affiche le BottomSheet d'actions pour une proposition de remplacement manuel
+  void _showManualProposalActionsBottomSheet(ManualReplacementProposal proposal) {
+    RequestActionsBottomSheet.show(
+      context: context,
+      requestType: UnifiedRequestType.manualReplacement,
+      initiatorName: proposal.replacedName,
+      team: proposal.replacedTeam,
+      station: _currentStationId,
+      startTime: proposal.startTime,
+      endTime: proposal.endTime,
+      onResendNotifications: () => _resendManualProposalNotification(proposal),
+      onDelete: () => _deleteManualProposal(proposal),
+    );
+  }
+
+  /// Relance la notification pour une proposition de remplacement manuel
+  Future<void> _resendManualProposalNotification(ManualReplacementProposal proposal) async {
+    // TODO: Implémenter la logique de renotification pour les propositions manuelles
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Notification de relance envoyée'),
+        backgroundColor: Colors.orange,
+      ),
+    );
+  }
+
+  // Ancienne méthode _buildManualProposalCard conservée temporairement pour référence
+  Widget _buildManualProposalCardOld(ManualReplacementProposal proposal) {
     // Déterminer si l'utilisateur est le remplacé
     final bool isReplaced = proposal.replacedId == _currentUserId;
+    // Déterminer si l'utilisateur est le remplaçant désigné
+    final bool isDesignatedReplacer = proposal.replacerId == _currentUserId;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -1239,7 +1406,9 @@ class _ReplacementRequestsListPageState
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Icon(
-                                isReplaced ? Icons.check_circle : Icons.touch_app,
+                                isReplaced
+                                    ? Icons.check_circle
+                                    : Icons.touch_app,
                                 size: 14,
                                 color: isReplaced
                                     ? Colors.green.shade700
@@ -1264,6 +1433,21 @@ class _ReplacementRequestsListPageState
                       ],
                     ),
                   ),
+                  // Icône de suppression pour le propriétaire (remplacé)
+                  if (isReplaced) ...[
+                    const SizedBox(width: 8),
+                    IconButton(
+                      icon: const Icon(
+                        Icons.delete_outline,
+                        color: Colors.red,
+                        size: 20,
+                      ),
+                      onPressed: () => _deleteManualProposal(proposal),
+                      tooltip: 'Supprimer la proposition',
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
                 ],
               ),
               const SizedBox(height: 12),
@@ -1346,32 +1530,35 @@ class _ReplacementRequestsListPageState
 
               const SizedBox(height: 12),
 
-              // Boutons d'action
-              Row(
-                children: [
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: () => _acceptManualProposal(proposal),
-                      icon: const Icon(Icons.check, size: 18),
-                      label: const Text('Accepter'),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.green,
+              // Boutons d'action (uniquement pour le remplaçant désigné)
+              // Convention UX : [ Refuser (gauche) ]  [ Accepter (droite) ]
+              if (isDesignatedReplacer)
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => _declineManualProposal(proposal),
+                        icon: const Icon(Icons.close, size: 18),
+                        label: const Text('Refuser'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.red,
+                          side: const BorderSide(color: Colors.red),
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => _declineManualProposal(proposal),
-                      icon: const Icon(Icons.close, size: 18),
-                      label: const Text('Refuser'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.red,
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: () => _acceptManualProposal(proposal),
+                        icon: const Icon(Icons.check, size: 18),
+                        label: const Text('Accepter'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Colors.green,
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                ),
             ],
           ),
         ),
@@ -1396,9 +1583,29 @@ class _ReplacementRequestsListPageState
   /// Accepte une proposition de remplacement manuel
   Future<void> _acceptManualProposal(ManualReplacementProposal proposal) async {
     try {
-      // Créer un document dans manualReplacementAcceptances
+      if (_currentStationId == null) {
+        throw Exception('Station ID non disponible');
+      }
+
+      // Vérifier que c'est bien le remplaçant désigné qui accepte
+      if (_currentUserId != proposal.replacerId) {
+        throw Exception(
+          'Seul le remplaçant désigné peut accepter cette proposition',
+        );
+      }
+
+      final proposalsPath = _getManualReplacementProposalsPath(
+        _currentStationId!,
+      );
+      debugPrint(
+        '[DEBUG Manual Accept] Updating proposal at: $proposalsPath/${proposal.id}',
+      );
+
+      // Créer un document dans manualReplacementAcceptances (sous-collection du proposal)
       await FirebaseFirestore.instance
-          .collection('manualReplacementAcceptances')
+          .collection(proposalsPath)
+          .doc(proposal.id)
+          .collection('acceptances')
           .add({
             'proposalId': proposal.id,
             'replacerId': proposal.replacerId,
@@ -1407,14 +1614,32 @@ class _ReplacementRequestsListPageState
 
       // Mettre à jour le statut de la proposition
       await FirebaseFirestore.instance
-          .collection('manualReplacementProposals')
+          .collection(proposalsPath)
           .doc(proposal.id)
           .update({'status': 'accepted'});
+
+      // IMPORTANT: Créer un Subshift pour que le remplacement apparaisse
+      // dans la HomePage et la PlanningPage
+      final subshiftId = 'manual_${proposal.id}';
+      final subshift = Subshift(
+        id: subshiftId,
+        planningId: proposal.planningId,
+        replacedId: proposal.replacedId,
+        replacerId: proposal.replacerId,
+        start: proposal.startTime,
+        end: proposal.endTime,
+      );
+
+      debugPrint('[DEBUG Manual Accept] Creating subshift: $subshiftId');
+      await SubshiftRepository().save(subshift, stationId: _currentStationId);
+      debugPrint('[DEBUG Manual Accept] Subshift created successfully');
+
+      debugPrint('[DEBUG Manual Accept] Proposal accepted successfully');
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('✅ Proposition acceptée'),
+            content: Text('Proposition acceptée'),
             backgroundColor: Colors.green,
           ),
         );
@@ -1437,11 +1662,31 @@ class _ReplacementRequestsListPageState
     ManualReplacementProposal proposal,
   ) async {
     try {
+      if (_currentStationId == null) {
+        throw Exception('Station ID non disponible');
+      }
+
+      // Vérifier que c'est bien le remplaçant désigné qui refuse
+      if (_currentUserId != proposal.replacerId) {
+        throw Exception(
+          'Seul le remplaçant désigné peut refuser cette proposition',
+        );
+      }
+
+      final proposalsPath = _getManualReplacementProposalsPath(
+        _currentStationId!,
+      );
+      debugPrint(
+        '[DEBUG Manual Decline] Declining proposal at: $proposalsPath/${proposal.id}',
+      );
+
       // Mettre à jour le statut de la proposition
       await FirebaseFirestore.instance
-          .collection('manualReplacementProposals')
+          .collection(proposalsPath)
           .doc(proposal.id)
           .update({'status': 'declined'});
+
+      debugPrint('[DEBUG Manual Decline] Proposal declined successfully');
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1460,6 +1705,77 @@ class _ReplacementRequestsListPageState
             backgroundColor: Colors.red,
           ),
         );
+      }
+    }
+  }
+
+  /// Supprime une proposition de remplacement manuel (par le propriétaire/remplacé)
+  Future<void> _deleteManualProposal(ManualReplacementProposal proposal) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Supprimer la proposition ?"),
+        content: const Text(
+          "Cette action est irréversible. Voulez-vous vraiment supprimer cette proposition de remplacement ?",
+        ),
+        actions: [
+          TextButton(
+            child: const Text("Annuler"),
+            onPressed: () => Navigator.pop(ctx, false),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text("Supprimer"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        if (_currentStationId == null) {
+          throw Exception('Station ID non disponible');
+        }
+
+        // Vérifier que c'est bien le propriétaire (remplacé) qui supprime
+        if (_currentUserId != proposal.replacedId) {
+          throw Exception('Seul le créateur de la demande peut la supprimer');
+        }
+
+        final proposalsPath = _getManualReplacementProposalsPath(
+          _currentStationId!,
+        );
+        debugPrint(
+          '[DEBUG Manual Delete] Deleting proposal at: $proposalsPath/${proposal.id}',
+        );
+
+        // Supprimer la proposition
+        await FirebaseFirestore.instance
+            .collection(proposalsPath)
+            .doc(proposal.id)
+            .delete();
+
+        debugPrint('[DEBUG Manual Delete] Proposal deleted successfully');
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Proposition supprimée'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        debugPrint('Error deleting manual proposal: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Erreur: ${e.toString()}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
       }
     }
   }
@@ -1511,10 +1827,13 @@ class _ReplacementRequestsListPageState
       if (currentUser == null) return false;
 
       // Utiliser le bon chemin pour les declines
-      final declinesPath = EnvironmentConfig.useStationSubcollections && currentUser.station.isNotEmpty
-          ? (SDISContext().currentSDISId != null && SDISContext().currentSDISId!.isNotEmpty
-              ? 'sdis/${SDISContext().currentSDISId}/stations/${currentUser.station}/replacements/automatic/replacementRequestDeclines'
-              : 'stations/${currentUser.station}/replacements/automatic/replacementRequestDeclines')
+      final declinesPath =
+          EnvironmentConfig.useStationSubcollections &&
+              currentUser.station.isNotEmpty
+          ? (SDISContext().currentSDISId != null &&
+                    SDISContext().currentSDISId!.isNotEmpty
+                ? 'sdis/${SDISContext().currentSDISId}/stations/${currentUser.station}/replacements/automatic/replacementRequestDeclines'
+                : 'stations/${currentUser.station}/replacements/automatic/replacementRequestDeclines')
           : 'replacementRequestDeclines';
 
       final snapshot = await FirebaseFirestore.instance
@@ -1531,6 +1850,75 @@ class _ReplacementRequestsListPageState
     }
   }
 
+  /// Refuse une demande de remplacement directement depuis la tuile
+  /// Enregistre le refus et met à jour la liste des refusés sur la demande
+  Future<void> _declineReplacementRequest(ReplacementRequest request) async {
+    if (_currentUserId == null || _currentStationId == null) return;
+
+    try {
+      // Construire les chemins avec la bonne structure SDIS/station
+      final sdisId = SDISContext().currentSDISId;
+      final useSubcollections = EnvironmentConfig.useStationSubcollections &&
+          _currentStationId!.isNotEmpty;
+
+      String declinesPath;
+      String requestsPath;
+
+      if (useSubcollections) {
+        if (sdisId != null && sdisId.isNotEmpty) {
+          declinesPath = 'sdis/$sdisId/stations/$_currentStationId/replacements/automatic/replacementRequestDeclines';
+          requestsPath = 'sdis/$sdisId/stations/$_currentStationId/replacements/automatic/replacementRequests';
+        } else {
+          declinesPath = 'stations/$_currentStationId/replacements/automatic/replacementRequestDeclines';
+          requestsPath = 'stations/$_currentStationId/replacements/automatic/replacementRequests';
+        }
+      } else {
+        declinesPath = 'replacementRequestDeclines';
+        requestsPath = 'replacementRequests';
+      }
+
+      // 1. Enregistrer le refus dans la collection des declines
+      await FirebaseFirestore.instance
+          .collection(declinesPath)
+          .add({
+        'requestId': request.id,
+        'userId': _currentUserId,
+        'declinedAt': Timestamp.now(),
+      });
+
+      // 2. Mettre à jour declinedByUserIds sur la demande
+      await FirebaseFirestore.instance
+          .collection(requestsPath)
+          .doc(request.id)
+          .update({
+        'declinedByUserIds': FieldValue.arrayUnion([_currentUserId]),
+      });
+
+      debugPrint(
+        '✅ Decline recorded for request ${request.id} by user $_currentUserId',
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Demande de remplacement refusée'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ Error declining request: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur lors du refus: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   /// Vérifie si l'utilisateur a une acceptation en attente de validation pour cette demande
   Future<bool> _hasUserPendingAcceptance(String requestId) async {
     if (_currentUserId == null) return false;
@@ -1540,13 +1928,18 @@ class _ReplacementRequestsListPageState
       if (currentUser == null) return false;
 
       // Utiliser le bon chemin pour les acceptances
-      final acceptancesPath = EnvironmentConfig.useStationSubcollections && currentUser.station.isNotEmpty
-          ? (SDISContext().currentSDISId != null && SDISContext().currentSDISId!.isNotEmpty
-              ? 'sdis/${SDISContext().currentSDISId}/stations/${currentUser.station}/replacements/automatic/replacementAcceptances'
-              : 'stations/${currentUser.station}/replacements/automatic/replacementAcceptances')
+      final acceptancesPath =
+          EnvironmentConfig.useStationSubcollections &&
+              currentUser.station.isNotEmpty
+          ? (SDISContext().currentSDISId != null &&
+                    SDISContext().currentSDISId!.isNotEmpty
+                ? 'sdis/${SDISContext().currentSDISId}/stations/${currentUser.station}/replacements/automatic/replacementAcceptances'
+                : 'stations/${currentUser.station}/replacements/automatic/replacementAcceptances')
           : 'replacementAcceptances';
 
-      debugPrint('🔍 [PENDING_ACCEPTANCE] Checking for user $_currentUserId on request $requestId at path: $acceptancesPath');
+      debugPrint(
+        '🔍 [PENDING_ACCEPTANCE] Checking for user $_currentUserId on request $requestId at path: $acceptancesPath',
+      );
 
       final snapshot = await FirebaseFirestore.instance
           .collection(acceptancesPath)
@@ -1557,7 +1950,9 @@ class _ReplacementRequestsListPageState
           .get();
 
       final hasPending = snapshot.docs.isNotEmpty;
-      debugPrint('🔍 [PENDING_ACCEPTANCE] Found ${snapshot.docs.length} pending acceptance(s): $hasPending');
+      debugPrint(
+        '🔍 [PENDING_ACCEPTANCE] Found ${snapshot.docs.length} pending acceptance(s): $hasPending',
+      );
 
       return hasPending;
     } catch (e) {
@@ -1583,10 +1978,7 @@ class _ReplacementRequestsListPageState
       }
 
       // Simuler le passage à la vague suivante (DEV uniquement)
-      await _notificationService.simulateNextWave(
-        request.id,
-        request.station,
-      );
+      await _notificationService.simulateNextWave(request.id, request.station);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1636,19 +2028,23 @@ class _ReplacementRequestsListPageState
   Future<void> _showWaveDetailsDialog(ReplacementRequest request) async {
     try {
       // Récupérer le demandeur pour connaître ses compétences
-      final requester = await _userRepository.getById(request.requesterId, stationId: request.station);
+      final requester = await _userRepository.getById(
+        request.requesterId,
+        stationId: request.station,
+      );
       if (requester == null) return;
 
       // Récupérer tous les utilisateurs de la station (utiliser getByStation pour multi-SDIS)
       final allUsers = await _userRepository.getByStation(request.station);
       final stationUsers = allUsers
-          .where(
-            (u) => u.id != request.requesterId,
-          )
+          .where((u) => u.id != request.requesterId)
           .toList();
 
       // Récupérer le planning pour exclure les agents en astreinte et connaître l'équipe
-      final planningsPath = EnvironmentConfig.getCollectionPath('plannings', request.station);
+      final planningsPath = EnvironmentConfig.getCollectionPath(
+        'plannings',
+        request.station,
+      );
       final planningDoc = await _notificationService.firestore
           .collection(planningsPath)
           .doc(request.planningId)
@@ -1744,6 +2140,26 @@ class _ReplacementRequestsListPageState
           SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
         );
       }
+    }
+  }
+
+  /// Marque une demande comme vue par l'utilisateur courant
+  Future<void> _markRequestAsSeen(String requestId) async {
+    if (_currentUserId == null) return;
+
+    try {
+      final path = _getCollectionPath();
+      await _notificationService.firestore
+          .collection(path)
+          .doc(requestId)
+          .update({
+            'seenByUserIds': FieldValue.arrayUnion([_currentUserId]),
+          });
+      debugPrint(
+        '[DEBUG] Marked request $requestId as seen by $_currentUserId',
+      );
+    } catch (e) {
+      debugPrint('Error marking request as seen: $e');
     }
   }
 
@@ -1856,6 +2272,167 @@ class _ReplacementRequestsListPageState
       }
     }
   }
+
+  /// Affiche le dialog de confirmation pour relancer les notifications
+  /// Uniquement pour les demandes de remplacement automatique en vague 5
+  Future<void> _showResendNotificationsDialog(
+    ReplacementRequest request,
+  ) async {
+    // Vérifier que c'est bien une demande en vague 5
+    if (request.currentWave != 5) {
+      debugPrint(
+        'Cannot resend notifications: not in wave 5 (current: ${request.currentWave})',
+      );
+      return;
+    }
+
+    // Calculer le nombre d'utilisateurs à relancer
+    // Utilisateurs notifiés qui n'ont pas refusé (état "En attente" ou "Vu")
+    final usersToNotify = request.notifiedUserIds
+        .where((userId) => !request.declinedByUserIds.contains(userId))
+        .toList();
+
+    if (usersToNotify.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Aucun utilisateur à relancer'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    // Afficher le dialog de confirmation
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.notifications_active, color: Colors.orange.shade700),
+            const SizedBox(width: 8),
+            const Expanded(child: Text('Relancer les notifications')),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Voulez-vous relancer une notification à tous les agents qui n\'ont pas encore répondu ?',
+              style: TextStyle(color: Colors.grey.shade700),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.orange.shade200),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.people, color: Colors.orange.shade700, size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    '${usersToNotify.length} agent${usersToNotify.length > 1 ? 's' : ''} ser${usersToNotify.length > 1 ? 'ont' : 'a'} notifié${usersToNotify.length > 1 ? 's' : ''}',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: Colors.orange.shade800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () => Navigator.of(context).pop(true),
+            icon: const Icon(Icons.send, size: 18),
+            label: const Text('Relancer'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orange.shade600,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    // Envoyer les notifications de relance
+    try {
+      await _resendNotificationsToUsers(request, usersToNotify);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Notifications relancées à ${usersToNotify.length} agent${usersToNotify.length > 1 ? 's' : ''}',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error resending notifications: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur lors de la relance: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  /// Envoie les notifications de relance aux utilisateurs spécifiés
+  Future<void> _resendNotificationsToUsers(
+    ReplacementRequest request,
+    List<String> userIds,
+  ) async {
+    if (userIds.isEmpty) return;
+
+    // Récupérer le nom du demandeur
+    final requester = await _userRepository.getById(
+      request.requesterId,
+      stationId: request.station,
+    );
+    final requesterName = requester != null
+        ? '${requester.firstName} ${requester.lastName}'
+        : 'Un agent';
+
+    // Créer un trigger de notification pour la relance
+    final notificationTriggersPath = EnvironmentConfig.getCollectionPath(
+      'notificationTriggers',
+      request.station,
+    );
+
+    await _notificationService.firestore
+        .collection(notificationTriggersPath)
+        .add({
+          'type': 'replacement_reminder',
+          'requestId': request.id,
+          'targetUserIds': userIds,
+          'requesterName': requesterName,
+          'startTime': Timestamp.fromDate(request.startTime),
+          'endTime': Timestamp.fromDate(request.endTime),
+          'createdAt': FieldValue.serverTimestamp(),
+          'processed': false,
+        });
+
+    debugPrint(
+      '📨 Resent notifications to ${userIds.length} users for request ${request.id}',
+    );
+  }
 }
 
 /// Widget pour afficher les détails des vagues de notification
@@ -1902,10 +2479,13 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
       if (currentUser == null) return;
 
       // Utiliser le bon chemin pour les declines
-      final declinesPath = EnvironmentConfig.useStationSubcollections && currentUser.station.isNotEmpty
-          ? (SDISContext().currentSDISId != null && SDISContext().currentSDISId!.isNotEmpty
-              ? 'sdis/${SDISContext().currentSDISId}/stations/${currentUser.station}/replacements/automatic/replacementRequestDeclines'
-              : 'stations/${currentUser.station}/replacements/automatic/replacementRequestDeclines')
+      final declinesPath =
+          EnvironmentConfig.useStationSubcollections &&
+              currentUser.station.isNotEmpty
+          ? (SDISContext().currentSDISId != null &&
+                    SDISContext().currentSDISId!.isNotEmpty
+                ? 'sdis/${SDISContext().currentSDISId}/stations/${currentUser.station}/replacements/automatic/replacementRequestDeclines'
+                : 'stations/${currentUser.station}/replacements/automatic/replacementRequestDeclines')
           : 'replacementRequestDeclines';
 
       final snapshot = await FirebaseFirestore.instance
@@ -1931,10 +2511,13 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
       if (currentUser == null) return;
 
       // Charger les acceptations validées (validation manuelle par chef)
-      final acceptancesPath = EnvironmentConfig.useStationSubcollections && currentUser.station.isNotEmpty
-          ? (SDISContext().currentSDISId != null && SDISContext().currentSDISId!.isNotEmpty
-              ? 'sdis/${SDISContext().currentSDISId}/stations/${currentUser.station}/replacements/automatic/replacementAcceptances'
-              : 'stations/${currentUser.station}/replacements/automatic/replacementAcceptances')
+      final acceptancesPath =
+          EnvironmentConfig.useStationSubcollections &&
+              currentUser.station.isNotEmpty
+          ? (SDISContext().currentSDISId != null &&
+                    SDISContext().currentSDISId!.isNotEmpty
+                ? 'sdis/${SDISContext().currentSDISId}/stations/${currentUser.station}/replacements/automatic/replacementAcceptances'
+                : 'stations/${currentUser.station}/replacements/automatic/replacementAcceptances')
           : 'replacementAcceptances';
 
       final acceptancesSnapshot = await FirebaseFirestore.instance
@@ -1949,12 +2532,16 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
 
       // Charger les Subshifts pour trouver les acceptations automatiques
       final subshiftRepo = SubshiftRepository();
-      final subshifts = await subshiftRepo.getByPlanningId(widget.request.planningId);
+      final subshifts = await subshiftRepo.getByPlanningId(
+        widget.request.planningId,
+      );
 
       debugPrint(
         '🔍 [WaveDialog] Loading validated acceptances for request ${widget.request.id}',
       );
-      debugPrint('  Request period: ${widget.request.startTime} - ${widget.request.endTime}');
+      debugPrint(
+        '  Request period: ${widget.request.startTime} - ${widget.request.endTime}',
+      );
       debugPrint('  Request requesterId: ${widget.request.requesterId}');
       debugPrint('  Found ${subshifts.length} subshifts for planning');
 
@@ -1967,8 +2554,10 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
 
         // Vérifier si le Subshift correspond à cette demande de remplacement
         // Le Subshift peut couvrir toute ou partie de la demande (acceptation partielle)
-        final matchesReplacer = subshift.replacedId == widget.request.requesterId;
-        final overlapsTime = subshift.start.isBefore(widget.request.endTime) &&
+        final matchesReplacer =
+            subshift.replacedId == widget.request.requesterId;
+        final overlapsTime =
+            subshift.start.isBefore(widget.request.endTime) &&
             subshift.end.isAfter(widget.request.startTime);
 
         debugPrint(
@@ -1981,13 +2570,18 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
         }
       }
 
-      debugPrint('  Total validated from subshifts: ${validatedFromSubshifts.length}');
+      debugPrint(
+        '  Total validated from subshifts: ${validatedFromSubshifts.length}',
+      );
       debugPrint('  Validated user IDs: $validatedFromSubshifts');
 
       if (mounted) {
         setState(() {
           // Combiner les deux sources de validation
-          _validatedUserIds = {...validatedFromAcceptances, ...validatedFromSubshifts};
+          _validatedUserIds = {
+            ...validatedFromAcceptances,
+            ...validatedFromSubshifts,
+          };
         });
       }
     } catch (e) {
@@ -2149,15 +2743,18 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
                                   fontSize: 15,
                                 ),
                               ),
-                              const SizedBox(height: 2),
-                              Text(
-                                timingInfo,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey.shade600,
-                                  fontStyle: FontStyle.italic,
+                              // Ne pas afficher le timing pour la wave 0 (Agents non-notifiés)
+                              if (wave != 0) ...[
+                                const SizedBox(height: 2),
+                                Text(
+                                  timingInfo,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade600,
+                                    fontStyle: FontStyle.italic,
+                                  ),
                                 ),
-                              ),
+                              ],
                             ],
                           ),
                         ),
@@ -2194,120 +2791,141 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
                           ),
                           child: Column(
                             children: users.map((user) {
-                        final isNotified = widget.notifiedUserIds.contains(
-                          user.id,
-                        );
-                        final hasDeclined = _declinedUserIds.contains(user.id);
+                              final isNotified = widget.notifiedUserIds
+                                  .contains(user.id);
+                              final hasDeclined = _declinedUserIds.contains(
+                                user.id,
+                              );
 
-                        // Vérifier si l'utilisateur a marqué comme "Vu"
-                        final hasSeen = widget.request.seenByUserIds.contains(user.id);
+                              // Vérifier si l'utilisateur a marqué comme "Vu"
+                              final hasSeen = widget.request.seenByUserIds
+                                  .contains(user.id);
 
-                        // Vérifier si l'utilisateur a été validé
-                        // Soit via Subshift/ReplacementAcceptance validée, soit en tant que replacerId de la demande acceptée
-                        final isValidated = _validatedUserIds.contains(user.id) ||
-                            (widget.request.status == ReplacementRequestStatus.accepted &&
-                             widget.request.replacerId == user.id);
+                              // Vérifier si l'utilisateur a été validé
+                              // Soit via Subshift/ReplacementAcceptance validée, soit en tant que replacerId de la demande acceptée
+                              final isValidated =
+                                  _validatedUserIds.contains(user.id) ||
+                                  (widget.request.status ==
+                                          ReplacementRequestStatus.accepted &&
+                                      widget.request.replacerId == user.id);
 
-                        // Vérifier si l'utilisateur est en attente de validation
-                        final isPendingValidation = widget.request.pendingValidationUserIds.contains(user.id);
+                              // Vérifier si l'utilisateur est en attente de validation
+                              final isPendingValidation = widget
+                                  .request
+                                  .pendingValidationUserIds
+                                  .contains(user.id);
 
-                        // Déterminer le statut
-                        String statusLabel;
-                        Color statusColor;
-                        Color statusBgColor;
-                        IconData statusIcon;
+                              // Déterminer le statut
+                              String statusLabel;
+                              Color statusColor;
+                              Color statusBgColor;
+                              IconData statusIcon;
 
-                        if (hasDeclined) {
-                          statusLabel = 'Refusé';
-                          statusColor = Colors.red.shade700;
-                          statusBgColor = Colors.red.shade100;
-                          statusIcon = Icons.cancel;
-                        } else if (isValidated) {
-                          statusLabel = 'Validé';
-                          statusColor = Colors.green.shade700;
-                          statusBgColor = Colors.green.shade100;
-                          statusIcon = Icons.check_circle;
-                        } else if (isPendingValidation) {
-                          statusLabel = 'En attente de validation';
-                          statusColor = Colors.green.shade700;
-                          statusBgColor = Colors.green.shade100;
-                          statusIcon = Icons.schedule;
-                        } else if (hasSeen) {
-                          statusLabel = 'Vu';
-                          statusColor = Colors.grey.shade700;
-                          statusBgColor = Colors.grey.shade200;
-                          statusIcon = Icons.visibility;
-                        } else if (isNotified) {
-                          statusLabel = 'En attente';
-                          statusColor = Colors.orange.shade700;
-                          statusBgColor = Colors.orange.shade100;
-                          statusIcon = Icons.schedule;
-                        } else {
-                          statusLabel = 'Non notifié';
-                          statusColor = Colors.grey.shade600;
-                          statusBgColor = Colors.grey.shade100;
-                          statusIcon = Icons.person;
-                        }
+                              if (hasDeclined) {
+                                statusLabel = 'Refusé';
+                                statusColor = Colors.red.shade700;
+                                statusBgColor = Colors.red.shade100;
+                                statusIcon = Icons.cancel;
+                              } else if (isValidated) {
+                                statusLabel = 'Validé';
+                                statusColor = Colors.green.shade700;
+                                statusBgColor = Colors.green.shade100;
+                                statusIcon = Icons.check_circle;
+                              } else if (isPendingValidation) {
+                                statusLabel = 'En attente de validation';
+                                statusColor = Colors.green.shade700;
+                                statusBgColor = Colors.green.shade100;
+                                statusIcon = Icons.schedule;
+                              } else if (hasSeen) {
+                                statusLabel = 'Vu';
+                                statusColor = Colors.grey.shade700;
+                                statusBgColor = Colors.grey.shade200;
+                                statusIcon = Icons.visibility;
+                              } else if (isNotified) {
+                                statusLabel = 'En attente';
+                                statusColor = Colors.orange.shade700;
+                                statusBgColor = Colors.orange.shade100;
+                                statusIcon = Icons.schedule;
+                              } else {
+                                statusLabel = 'Non notifié';
+                                statusColor = Colors.grey.shade600;
+                                statusBgColor = Colors.grey.shade100;
+                                statusIcon = Icons.person;
+                              }
 
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4),
-                          child: Row(
-                            children: [
-                              Icon(
-                                statusIcon,
-                                size: 16,
-                                color: statusColor,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  '${user.firstName} ${user.lastName}',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: hasDeclined
-                                        ? Colors.grey.shade600
-                                        : (isValidated
-                                            ? Colors.green.shade900
-                                            : (isPendingValidation
-                                                ? Colors.green.shade900
-                                                : (hasSeen
-                                                    ? Colors.grey.shade700
-                                                    : (isNotified
-                                                        ? Colors.black
-                                                        : Colors.grey.shade700)))),
-                                    fontWeight: isNotified || hasDeclined || hasSeen || isPendingValidation || isValidated
-                                        ? FontWeight.w600
-                                        : FontWeight.normal,
-                                    decoration: hasDeclined
-                                        ? TextDecoration.lineThrough
-                                        : null,
-                                  ),
-                                ),
-                              ),
-                              Container(
+                              return Padding(
                                 padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 2,
+                                  vertical: 4,
                                 ),
-                                decoration: BoxDecoration(
-                                  color: statusBgColor,
-                                  borderRadius: BorderRadius.circular(8),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      statusIcon,
+                                      size: 16,
+                                      color: statusColor,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        '${user.firstName} ${user.lastName}',
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          color: hasDeclined
+                                              ? Colors.grey.shade600
+                                              : (isValidated
+                                                    ? Colors.green.shade900
+                                                    : (isPendingValidation
+                                                          ? Colors
+                                                                .green
+                                                                .shade900
+                                                          : (hasSeen
+                                                                ? Colors
+                                                                      .grey
+                                                                      .shade700
+                                                                : (isNotified
+                                                                      ? Colors
+                                                                            .black
+                                                                      : Colors
+                                                                            .grey
+                                                                            .shade700)))),
+                                          fontWeight:
+                                              isNotified ||
+                                                  hasDeclined ||
+                                                  hasSeen ||
+                                                  isPendingValidation ||
+                                                  isValidated
+                                              ? FontWeight.w600
+                                              : FontWeight.normal,
+                                          decoration: hasDeclined
+                                              ? TextDecoration.lineThrough
+                                              : null,
+                                        ),
+                                      ),
+                                    ),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: statusBgColor,
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Text(
+                                        statusLabel,
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: statusColor,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                child: Text(
-                                  statusLabel,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: statusColor,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                            ],
+                              );
+                            }).toList(),
                           ),
-                        );
-                      }).toList(),
-                            ),
-                          ),
+                        ),
               ],
             );
           },
@@ -2348,71 +2966,78 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: orderedCategories.where((category) {
-          return categorizedUsers.containsKey(category) &&
-              categorizedUsers[category]!.isNotEmpty;
-        }).map((category) {
-          final categoryUsers = categorizedUsers[category]!;
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.only(top: 8, bottom: 4),
-                child: Text(
-                  _getNonNotifiedCategoryLabel(category),
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey.shade700,
+        children: orderedCategories
+            .where((category) {
+              return categorizedUsers.containsKey(category) &&
+                  categorizedUsers[category]!.isNotEmpty;
+            })
+            .map((category) {
+              final categoryUsers = categorizedUsers[category]!;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8, bottom: 4),
+                    child: Text(
+                      _getNonNotifiedCategoryLabel(category),
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey.shade700,
+                      ),
+                    ),
                   ),
-                ),
-              ),
-              ...categoryUsers.map((user) {
-                return Padding(
-                  padding: const EdgeInsets.only(left: 16, top: 4, bottom: 4),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.person,
-                        size: 16,
-                        color: Colors.grey.shade600,
+                  ...categoryUsers.map((user) {
+                    return Padding(
+                      padding: const EdgeInsets.only(
+                        left: 16,
+                        top: 4,
+                        bottom: 4,
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          '${user.firstName} ${user.lastName}',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey.shade700,
-                            fontWeight: FontWeight.normal,
-                          ),
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade100,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          'Non notifié',
-                          style: TextStyle(
-                            fontSize: 11,
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.person,
+                            size: 16,
                             color: Colors.grey.shade600,
-                            fontWeight: FontWeight.w600,
                           ),
-                        ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              '${user.firstName} ${user.lastName}',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey.shade700,
+                                fontWeight: FontWeight.normal,
+                              ),
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade100,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              'Non notifié',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey.shade600,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                );
-              }),
-            ],
-          );
-        }).toList(),
+                    );
+                  }),
+                ],
+              );
+            })
+            .toList(),
       ),
     );
   }

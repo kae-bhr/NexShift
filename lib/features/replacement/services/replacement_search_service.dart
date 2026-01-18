@@ -159,6 +159,7 @@ class ReplacementSearchService {
     required DateTime? endDateTime,
     required String station,
     String? team,
+    bool isSOS = false,
     VoidCallback? onValidate,
   }) async {
     if (onValidate != null) {
@@ -190,6 +191,7 @@ class ReplacementSearchService {
         endTime: endDateTime,
         station: station,
         team: team,
+        isSOS: isSOS,
       );
 
       if (context.mounted) {

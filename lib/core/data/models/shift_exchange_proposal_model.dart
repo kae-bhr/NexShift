@@ -2,46 +2,53 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 /// Statut d'une proposition d'échange
 enum ShiftExchangeProposalStatus {
-  pendingRequester, // En attente de réponse du demandeur
-  acceptedByRequester, // Acceptée par le demandeur
-  rejectedByRequester, // Rejetée par le demandeur
-  pendingLeaders, // En attente de validation des chefs d'équipe
-  validatedByLeaders, // Validée par les deux chefs
-  rejectedByLeaders, // Rejetée par au moins un chef
+  pendingSelection, // En attente de sélection par agent A
+  selectedByInitiator, // Sélectionnée par A, en attente validation chefs
+  validated, // Validé par tous les chefs requis
+  rejected, // Rejeté par au moins 1 chef
 }
 
-/// Réponse du demandeur à une proposition
-enum RequesterResponse {
-  pending, // Pas encore répondu
-  accepted, // Accepté
-  rejected, // Refusé
+/// État de validation d'une équipe
+enum TeamValidationState {
+  pending, // Aucun chef n'a répondu
+  validatedTemporarily, // Au moins 1 chef a accepté, aucun refus
+  autoValidated, // Proposeur est chef (définitif)
+  rejected, // Au moins 1 chef a refusé (définitif)
 }
 
 /// Validation d'un chef d'équipe
 class LeaderValidation {
-  final bool validated;
+  final String leaderId; // Chef validant
+  final String team; // Équipe concernée
+  final bool approved; // true/false
+  final String? comment; // Motif si refus (obligatoire)
   final DateTime validatedAt;
-  final String? comment;
 
   LeaderValidation({
-    required this.validated,
-    required this.validatedAt,
+    required this.leaderId,
+    required this.team,
+    required this.approved,
     this.comment,
+    required this.validatedAt,
   });
 
   Map<String, dynamic> toJson() {
     return {
-      'validated': validated,
-      'validatedAt': Timestamp.fromDate(validatedAt),
+      'leaderId': leaderId,
+      'team': team,
+      'approved': approved,
       if (comment != null) 'comment': comment,
+      'validatedAt': Timestamp.fromDate(validatedAt),
     };
   }
 
   factory LeaderValidation.fromJson(Map<String, dynamic> json) {
     return LeaderValidation(
-      validated: json['validated'] as bool,
-      validatedAt: (json['validatedAt'] as Timestamp).toDate(),
+      leaderId: json['leaderId'] as String,
+      team: json['team'] as String,
+      approved: json['approved'] as bool,
       comment: json['comment'] as String?,
+      validatedAt: (json['validatedAt'] as Timestamp).toDate(),
     );
   }
 }
@@ -49,63 +56,92 @@ class LeaderValidation {
 /// Modèle pour une proposition d'échange de garde
 class ShiftExchangeProposal {
   final String id;
-  final String exchangeRequestId; // FK vers shiftExchangeRequests
-  final String proposerId; // ID de l'utilisateur proposant l'échange
+  final String requestId; // FK vers ShiftExchangeRequest
+  final String proposerId; // Agent B (équipe 2)
   final String proposerName; // Nom du proposeur (cache)
-  final String proposedPlanningId; // ID du planning proposé en échange
-  final DateTime proposedStartTime; // Début de la garde proposée
-  final DateTime proposedEndTime; // Fin de la garde proposée
-  final ShiftExchangeProposalStatus status;
 
-  // Réponse du demandeur
-  final RequesterResponse requesterResponse;
-  final DateTime? requesterResponseAt;
-  final String? requesterRejectionReason;
+  // Propositions multiples: liste des plannings proposés
+  final List<String> proposedPlanningIds; // NOUVEAU: plusieurs astreintes
+
+  // Planning sélectionné par l'initiateur (parmi proposedPlanningIds)
+  final String? selectedPlanningId; // NOUVEAU: astreinte choisie par A
+
+  // Liste des plannings refusés (pour permettre de refuser individuellement)
+  final List<String> rejectedPlanningIds; // NOUVEAU: astreintes refusées par les chefs
+
+  // Anciens champs (compatibilité): gardés pour migration
+  final String? proposerPlanningId; // DEPRECATED: une seule astreinte
+  final DateTime? proposerStartTime; // DEPRECATED
+  final DateTime? proposerEndTime; // DEPRECATED
+
+  // Détection chef-proposeur
+  final bool isProposerChief; // NOUVEAU: true si proposeur est chef
+  final String? proposerTeamId; // NOUVEAU: ID équipe du proposeur
+
+  // Détection chef-initiateur
+  final bool isInitiatorChief; // NOUVEAU: true si initiateur est chef
+  final String? initiatorTeamId; // NOUVEAU: ID équipe de l'initiateur
+
+  final ShiftExchangeProposalStatus status;
+  final DateTime createdAt;
 
   // Validations des chefs d'équipe
-  final Map<String, LeaderValidation>
-      leaderValidations; // Map<leaderId, LeaderValidation>
+  final Map<String, LeaderValidation> leaderValidations; // team → validation
 
-  final DateTime createdAt;
-  final DateTime? completedAt;
+  // État de finalisation
+  final bool isFinalized; // NOUVEAU: true quand échange complet
+
+  final DateTime? acceptedAt;
+  final DateTime? rejectedAt;
 
   ShiftExchangeProposal({
     required this.id,
-    required this.exchangeRequestId,
+    required this.requestId,
     required this.proposerId,
     required this.proposerName,
-    required this.proposedPlanningId,
-    required this.proposedStartTime,
-    required this.proposedEndTime,
+    required this.proposedPlanningIds,
+    this.selectedPlanningId,
+    this.rejectedPlanningIds = const [],
+    this.proposerPlanningId, // DEPRECATED: pour compatibilité
+    this.proposerStartTime, // DEPRECATED
+    this.proposerEndTime, // DEPRECATED
+    this.isProposerChief = false,
+    this.proposerTeamId,
+    this.isInitiatorChief = false,
+    this.initiatorTeamId,
     required this.status,
-    this.requesterResponse = RequesterResponse.pending,
-    this.requesterResponseAt,
-    this.requesterRejectionReason,
-    this.leaderValidations = const {},
     required this.createdAt,
-    this.completedAt,
+    this.leaderValidations = const {},
+    this.isFinalized = false,
+    this.acceptedAt,
+    this.rejectedAt,
   });
 
   /// Conversion vers JSON pour Firestore
   Map<String, dynamic> toJson() {
     return {
       'id': id,
-      'exchangeRequestId': exchangeRequestId,
+      'requestId': requestId,
       'proposerId': proposerId,
       'proposerName': proposerName,
-      'proposedPlanningId': proposedPlanningId,
-      'proposedStartTime': Timestamp.fromDate(proposedStartTime),
-      'proposedEndTime': Timestamp.fromDate(proposedEndTime),
+      'proposedPlanningIds': proposedPlanningIds,
+      if (selectedPlanningId != null) 'selectedPlanningId': selectedPlanningId,
+      'rejectedPlanningIds': rejectedPlanningIds,
+      'isProposerChief': isProposerChief,
+      if (proposerTeamId != null) 'proposerTeamId': proposerTeamId,
+      'isInitiatorChief': isInitiatorChief,
+      if (initiatorTeamId != null) 'initiatorTeamId': initiatorTeamId,
+      // Anciens champs pour compatibilité
+      if (proposerPlanningId != null) 'proposerPlanningId': proposerPlanningId,
+      if (proposerStartTime != null) 'proposerStartTime': Timestamp.fromDate(proposerStartTime!),
+      if (proposerEndTime != null) 'proposerEndTime': Timestamp.fromDate(proposerEndTime!),
       'status': status.toString().split('.').last,
-      'requesterResponse': requesterResponse.toString().split('.').last,
-      if (requesterResponseAt != null)
-        'requesterResponseAt': Timestamp.fromDate(requesterResponseAt!),
-      if (requesterRejectionReason != null)
-        'requesterRejectionReason': requesterRejectionReason,
+      'createdAt': Timestamp.fromDate(createdAt),
       'leaderValidations': leaderValidations
           .map((key, value) => MapEntry(key, value.toJson())),
-      'createdAt': Timestamp.fromDate(createdAt),
-      if (completedAt != null) 'completedAt': Timestamp.fromDate(completedAt!),
+      'isFinalized': isFinalized,
+      if (acceptedAt != null) 'acceptedAt': Timestamp.fromDate(acceptedAt!),
+      if (rejectedAt != null) 'rejectedAt': Timestamp.fromDate(rejectedAt!),
     };
   }
 
@@ -124,30 +160,56 @@ class ShiftExchangeProposal {
       }
     }
 
+    // Gestion migration: ancien format (proposerPlanningId) vs nouveau (proposedPlanningIds)
+    List<String> planningIds;
+    String? legacyPlanningId;
+    DateTime? legacyStartTime;
+    DateTime? legacyEndTime;
+
+    if (json.containsKey('proposedPlanningIds')) {
+      // Nouveau format
+      planningIds = List<String>.from(json['proposedPlanningIds'] as List);
+    } else if (json.containsKey('proposerPlanningId')) {
+      // Ancien format: migration automatique
+      legacyPlanningId = json['proposerPlanningId'] as String;
+      planningIds = [legacyPlanningId];
+      legacyStartTime = json['proposerStartTime'] != null
+          ? (json['proposerStartTime'] as Timestamp).toDate()
+          : null;
+      legacyEndTime = json['proposerEndTime'] != null
+          ? (json['proposerEndTime'] as Timestamp).toDate()
+          : null;
+    } else {
+      planningIds = [];
+    }
+
     return ShiftExchangeProposal(
       id: json['id'] as String,
-      exchangeRequestId: json['exchangeRequestId'] as String,
+      requestId: json['requestId'] as String,
       proposerId: json['proposerId'] as String,
       proposerName: json['proposerName'] as String,
-      proposedPlanningId: json['proposedPlanningId'] as String,
-      proposedStartTime: (json['proposedStartTime'] as Timestamp).toDate(),
-      proposedEndTime: (json['proposedEndTime'] as Timestamp).toDate(),
+      proposedPlanningIds: planningIds,
+      selectedPlanningId: json['selectedPlanningId'] as String?,
+      rejectedPlanningIds: (json['rejectedPlanningIds'] as List<dynamic>?)?.map((e) => e as String).toList() ?? [],
+      proposerPlanningId: legacyPlanningId,
+      proposerStartTime: legacyStartTime,
+      proposerEndTime: legacyEndTime,
+      isProposerChief: json['isProposerChief'] as bool? ?? false,
+      proposerTeamId: json['proposerTeamId'] as String?,
+      isInitiatorChief: json['isInitiatorChief'] as bool? ?? false,
+      initiatorTeamId: json['initiatorTeamId'] as String?,
       status: ShiftExchangeProposalStatus.values.firstWhere(
         (e) => e.toString().split('.').last == json['status'],
-        orElse: () => ShiftExchangeProposalStatus.pendingRequester,
+        orElse: () => ShiftExchangeProposalStatus.pendingSelection,
       ),
-      requesterResponse: RequesterResponse.values.firstWhere(
-        (e) => e.toString().split('.').last == json['requesterResponse'],
-        orElse: () => RequesterResponse.pending,
-      ),
-      requesterResponseAt: json['requesterResponseAt'] != null
-          ? (json['requesterResponseAt'] as Timestamp).toDate()
-          : null,
-      requesterRejectionReason: json['requesterRejectionReason'] as String?,
-      leaderValidations: validations,
       createdAt: (json['createdAt'] as Timestamp).toDate(),
-      completedAt: json['completedAt'] != null
-          ? (json['completedAt'] as Timestamp).toDate()
+      leaderValidations: validations,
+      isFinalized: json['isFinalized'] as bool? ?? false,
+      acceptedAt: json['acceptedAt'] != null
+          ? (json['acceptedAt'] as Timestamp).toDate()
+          : null,
+      rejectedAt: json['rejectedAt'] != null
+          ? (json['rejectedAt'] as Timestamp).toDate()
           : null,
     );
   }
@@ -155,48 +217,125 @@ class ShiftExchangeProposal {
   /// Copie avec modifications
   ShiftExchangeProposal copyWith({
     String? id,
-    String? exchangeRequestId,
+    String? requestId,
     String? proposerId,
     String? proposerName,
-    String? proposedPlanningId,
-    DateTime? proposedStartTime,
-    DateTime? proposedEndTime,
+    List<String>? proposedPlanningIds,
+    String? selectedPlanningId,
+    List<String>? rejectedPlanningIds,
+    String? proposerPlanningId,
+    DateTime? proposerStartTime,
+    DateTime? proposerEndTime,
+    bool? isProposerChief,
+    String? proposerTeamId,
+    bool? isInitiatorChief,
+    String? initiatorTeamId,
     ShiftExchangeProposalStatus? status,
-    RequesterResponse? requesterResponse,
-    DateTime? requesterResponseAt,
-    String? requesterRejectionReason,
-    Map<String, LeaderValidation>? leaderValidations,
     DateTime? createdAt,
-    DateTime? completedAt,
+    Map<String, LeaderValidation>? leaderValidations,
+    bool? isFinalized,
+    DateTime? acceptedAt,
+    DateTime? rejectedAt,
   }) {
     return ShiftExchangeProposal(
       id: id ?? this.id,
-      exchangeRequestId: exchangeRequestId ?? this.exchangeRequestId,
+      requestId: requestId ?? this.requestId,
       proposerId: proposerId ?? this.proposerId,
       proposerName: proposerName ?? this.proposerName,
-      proposedPlanningId: proposedPlanningId ?? this.proposedPlanningId,
-      proposedStartTime: proposedStartTime ?? this.proposedStartTime,
-      proposedEndTime: proposedEndTime ?? this.proposedEndTime,
+      proposedPlanningIds: proposedPlanningIds ?? this.proposedPlanningIds,
+      selectedPlanningId: selectedPlanningId ?? this.selectedPlanningId,
+      rejectedPlanningIds: rejectedPlanningIds ?? this.rejectedPlanningIds,
+      proposerPlanningId: proposerPlanningId ?? this.proposerPlanningId,
+      proposerStartTime: proposerStartTime ?? this.proposerStartTime,
+      proposerEndTime: proposerEndTime ?? this.proposerEndTime,
+      isProposerChief: isProposerChief ?? this.isProposerChief,
+      proposerTeamId: proposerTeamId ?? this.proposerTeamId,
+      isInitiatorChief: isInitiatorChief ?? this.isInitiatorChief,
+      initiatorTeamId: initiatorTeamId ?? this.initiatorTeamId,
       status: status ?? this.status,
-      requesterResponse: requesterResponse ?? this.requesterResponse,
-      requesterResponseAt: requesterResponseAt ?? this.requesterResponseAt,
-      requesterRejectionReason:
-          requesterRejectionReason ?? this.requesterRejectionReason,
-      leaderValidations: leaderValidations ?? this.leaderValidations,
       createdAt: createdAt ?? this.createdAt,
-      completedAt: completedAt ?? this.completedAt,
+      leaderValidations: leaderValidations ?? this.leaderValidations,
+      isFinalized: isFinalized ?? this.isFinalized,
+      acceptedAt: acceptedAt ?? this.acceptedAt,
+      rejectedAt: rejectedAt ?? this.rejectedAt,
     );
   }
 
-  /// Vérifie si les deux chefs ont validé
-  bool get allLeadersValidated {
-    if (leaderValidations.length != 2) return false;
-    return leaderValidations.values.every((v) => v.validated);
+  /// Calcule l'état de validation de chaque équipe
+  Map<String, TeamValidationState> get teamValidationStates {
+    final states = <String, TeamValidationState>{};
+
+    // Grouper les validations par équipe
+    for (var entry in leaderValidations.entries) {
+      // CRITICAL: La clé est au format "teamId_leaderId", on doit extraire uniquement teamId
+      final keyParts = entry.key.split('_');
+      final teamId = keyParts.isNotEmpty ? keyParts[0] : entry.key;
+      final validation = entry.value;
+
+      // Si l'équipe est déjà dans les états, vérifier la cohérence
+      if (!states.containsKey(teamId)) {
+        // Première validation pour cette équipe
+        if (validation.approved) {
+          states[teamId] = TeamValidationState.validatedTemporarily;
+        } else {
+          states[teamId] = TeamValidationState.rejected;
+        }
+      } else {
+        // Équipe déjà présente: appliquer la logique de priorité au refus
+        if (!validation.approved) {
+          // Un refus annule toute validation temporaire
+          states[teamId] = TeamValidationState.rejected;
+        }
+        // Si déjà validée temporairement et nouvelle acceptation, reste validée
+      }
+    }
+
+    // Ajouter l'auto-validation si initiateur est chef
+    if (isInitiatorChief && initiatorTeamId != null) {
+      states[initiatorTeamId!] = TeamValidationState.autoValidated;
+    }
+
+    // Ajouter l'auto-validation si proposeur est chef
+    if (isProposerChief && proposerTeamId != null) {
+      states[proposerTeamId!] = TeamValidationState.autoValidated;
+    }
+
+    return states;
   }
 
-  /// Vérifie si au moins un chef a refusé
+  /// Vérifie si l'échange peut être finalisé
+  bool get canBeFinalized {
+    if (isFinalized) return false;
+    if (status != ShiftExchangeProposalStatus.selectedByInitiator) return false;
+
+    final states = teamValidationStates;
+
+    // Vérifier qu'il y a bien 2 équipes
+    if (states.length != 2) return false;
+
+    // Toutes les équipes doivent être validées (temp ou auto)
+    return states.values.every((state) =>
+        state == TeamValidationState.validatedTemporarily ||
+        state == TeamValidationState.autoValidated);
+  }
+
+  /// Vérifie si au moins une équipe a refusé
+  bool get hasAnyRejection {
+    return teamValidationStates.values
+        .any((state) => state == TeamValidationState.rejected);
+  }
+
+  /// DEPRECATED: Utilisez teamValidationStates à la place
+  @Deprecated('Utilisez teamValidationStates pour une logique multi-chefs complète')
+  bool get allLeadersValidated {
+    if (leaderValidations.length != 2) return false;
+    return leaderValidations.values.every((v) => v.approved);
+  }
+
+  /// DEPRECATED: Utilisez hasAnyRejection à la place
+  @Deprecated('Utilisez hasAnyRejection pour une logique multi-chefs complète')
   bool get anyLeaderRejected {
     if (leaderValidations.isEmpty) return false;
-    return leaderValidations.values.any((v) => !v.validated);
+    return leaderValidations.values.any((v) => !v.approved);
   }
 }

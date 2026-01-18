@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:nexshift_app/core/data/datasources/notifiers.dart';
 import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
@@ -24,8 +25,23 @@ class EnterApp {
       debugPrint('🟣 [ENTER_APP] User profile loaded: ${loadedUser.firstName} ${loadedUser.lastName}, station=${loadedUser.station}');
     }
 
-    await UserStorageHelper.saveUser(loadedUser);
-    debugPrint('🟣 [ENTER_APP] User saved to local storage');
+    // Extraire le SDIS ID de l'email Firebase
+    String? sdisId;
+    final firebaseUser = firebase_auth.FirebaseAuth.instance.currentUser;
+    if (firebaseUser != null && firebaseUser.email != null) {
+      final email = firebaseUser.email!;
+      if (email.endsWith('@nexshift.app')) {
+        final parts = email.split('@')[0].split('_');
+        if (parts.isNotEmpty) {
+          sdisId = parts[0];
+          debugPrint('🟣 [ENTER_APP] Extracted SDIS ID from email: $sdisId');
+        }
+      }
+    }
+
+    // Sauvegarder l'utilisateur ET le SDIS ID
+    await UserStorageHelper.saveUser(loadedUser, sdisId: sdisId);
+    debugPrint('🟣 [ENTER_APP] User saved to local storage with SDIS ID: $sdisId');
 
     // Gestion du token d'authentification
     final SharedPreferences prefs = await SharedPreferences.getInstance();

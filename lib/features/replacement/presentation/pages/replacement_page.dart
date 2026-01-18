@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:nexshift_app/core/repositories/local_repositories.dart';
+import 'package:nexshift_app/core/repositories/user_repository.dart';
 import 'package:nexshift_app/core/repositories/subshift_repositories.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
@@ -45,6 +45,7 @@ class _ReplacementPageState extends State<ReplacementPage> {
   DateTime? startDateTime;
   DateTime? endDateTime;
   String? error;
+  bool isSOS = false; // Mode SOS (vagues simultanées)
 
   bool get isValid {
     // Mode manuel: require both replaced and replacer
@@ -93,6 +94,17 @@ class _ReplacementPageState extends State<ReplacementPage> {
     return 'notificationTriggers';
   }
 
+  String _getManualReplacementProposalsPath(String stationId) {
+    if (EnvironmentConfig.useStationSubcollections && stationId.isNotEmpty) {
+      final sdisId = SDISContext().currentSDISId;
+      if (sdisId != null && sdisId.isNotEmpty) {
+        return 'sdis/$sdisId/stations/$stationId/replacements/manual/proposals';
+      }
+      return 'stations/$stationId/replacements/manual/proposals';
+    }
+    return 'manualReplacementProposals';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -113,7 +125,8 @@ class _ReplacementPageState extends State<ReplacementPage> {
   }
 
   Future<void> _loadUsers() async {
-    final users = await LocalRepository().getAllUsers();
+    // Charger les utilisateurs de la station du planning
+    final users = await UserRepository().getByStation(widget.planning.station);
     final subshifts = await repo.getByPlanningId(widget.planning.id);
     await _loadActiveRequests();
     setState(() {
@@ -123,26 +136,29 @@ class _ReplacementPageState extends State<ReplacementPage> {
   }
 
   /// Charge les périodes couvertes par des demandes de remplacement actives
+  /// Inclut les demandes automatiques, manuelles et les échanges
   Future<void> _loadActiveRequests() async {
     try {
       if (widget.currentUser == null) return;
 
       final stationId = widget.currentUser!.station;
-      final requestsPath = EnvironmentConfig.useStationSubcollections && stationId.isNotEmpty
-          ? (SDISContext().currentSDISId != null && SDISContext().currentSDISId!.isNotEmpty
-              ? 'sdis/${SDISContext().currentSDISId}/stations/$stationId/replacements/automatic/replacementRequests'
+      final sdisId = SDISContext().currentSDISId;
+      final periods = <Map<String, DateTime>>[];
+
+      // 1. Charger les demandes automatiques
+      final automaticPath = EnvironmentConfig.useStationSubcollections && stationId.isNotEmpty
+          ? (sdisId != null && sdisId.isNotEmpty
+              ? 'sdis/$sdisId/stations/$stationId/replacements/automatic/replacementRequests'
               : 'stations/$stationId/replacements/automatic/replacementRequests')
           : 'replacementRequests';
 
-      // Chercher les demandes actives pour ce planning
-      final snapshot = await FirebaseFirestore.instance
-          .collection(requestsPath)
+      final automaticSnapshot = await FirebaseFirestore.instance
+          .collection(automaticPath)
           .where('planningId', isEqualTo: widget.planning.id)
           .where('status', whereIn: ['pending', 'accepted'])
           .get();
 
-      final periods = <Map<String, DateTime>>[];
-      for (final doc in snapshot.docs) {
+      for (final doc in automaticSnapshot.docs) {
         final data = doc.data();
         final start = (data['startTime'] as Timestamp).toDate();
         final end = (data['endTime'] as Timestamp).toDate();
@@ -150,6 +166,51 @@ class _ReplacementPageState extends State<ReplacementPage> {
 
         // Ajouter la période seulement si c'est pour l'utilisateur sélectionné
         if (requesterId == replacedId) {
+          periods.add({'start': start, 'end': end});
+        }
+      }
+
+      // 2. Charger les demandes manuelles
+      final manualPath = _getManualReplacementProposalsPath(stationId);
+      final manualSnapshot = await FirebaseFirestore.instance
+          .collection(manualPath)
+          .where('planningId', isEqualTo: widget.planning.id)
+          .where('status', isEqualTo: 'pending')
+          .get();
+
+      for (final doc in manualSnapshot.docs) {
+        final data = doc.data();
+        final start = (data['startTime'] as Timestamp).toDate();
+        final end = (data['endTime'] as Timestamp).toDate();
+        final requestReplacedId = data['replacedId'] as String;
+
+        // Ajouter la période seulement si c'est pour l'utilisateur sélectionné
+        if (requestReplacedId == replacedId) {
+          periods.add({'start': start, 'end': end});
+        }
+      }
+
+      // 3. Charger les demandes d'échange
+      final exchangePath = EnvironmentConfig.useStationSubcollections && stationId.isNotEmpty
+          ? (sdisId != null && sdisId.isNotEmpty
+              ? 'sdis/$sdisId/stations/$stationId/shiftExchangeRequests'
+              : 'stations/$stationId/shiftExchangeRequests')
+          : 'shiftExchangeRequests';
+
+      final exchangeSnapshot = await FirebaseFirestore.instance
+          .collection(exchangePath)
+          .where('initiatorPlanningId', isEqualTo: widget.planning.id)
+          .where('status', whereIn: ['open', 'proposalSelected'])
+          .get();
+
+      for (final doc in exchangeSnapshot.docs) {
+        final data = doc.data();
+        final start = (data['initiatorStartTime'] as Timestamp).toDate();
+        final end = (data['initiatorEndTime'] as Timestamp).toDate();
+        final initiatorId = data['initiatorId'] as String;
+
+        // Ajouter la période seulement si c'est pour l'utilisateur sélectionné
+        if (initiatorId == replacedId) {
           periods.add({'start': start, 'end': end});
         }
       }
@@ -650,12 +711,15 @@ class _ReplacementPageState extends State<ReplacementPage> {
         return;
       }
 
-      // Create a proposal document in Firestore
+      // Create a proposal document in Firestore with correct path
+      final proposalsPath = _getManualReplacementProposalsPath(widget.planning.station);
+      print('[DEBUG Manual] Creating proposal at path: $proposalsPath');
+
       final proposalRef = FirebaseFirestore.instance
-          .collection('manualReplacementProposals')
+          .collection(proposalsPath)
           .doc();
 
-      await proposalRef.set({
+      final proposalData = {
         'id': proposalRef.id,
         'proposerId': proposerUser.id,
         'proposerName': '${proposerUser.firstName} ${proposerUser.lastName}',
@@ -668,7 +732,12 @@ class _ReplacementPageState extends State<ReplacementPage> {
         'endTime': Timestamp.fromDate(endDateTime!),
         'status': 'pending', // pending, accepted, declined
         'createdAt': FieldValue.serverTimestamp(),
-      });
+        'station': widget.planning.station,
+      };
+
+      print('[DEBUG Manual] Proposal data: $proposalData');
+      await proposalRef.set(proposalData);
+      print('[DEBUG Manual] Proposal created with ID: ${proposalRef.id}');
 
       // Send notification to the replacer via notificationTriggers
       final notificationTriggersPath = _getNotificationTriggersPath(widget.planning.station);
@@ -737,6 +806,7 @@ class _ReplacementPageState extends State<ReplacementPage> {
       endDateTime: endDateTime,
       station: currentUser.station,
       team: currentUser.team,
+      isSOS: isSOS,
       onValidate: _validate,
     );
   }
@@ -812,7 +882,7 @@ class _ReplacementPageState extends State<ReplacementPage> {
                   // ignore special non-selectable tokens
                   if (v == null ||
                       v == '__team_header__' ||
-                      v == '__ppbeider__')
+                      v == '__divider__')
                     return;
                   setState(() {
                     replacerId = v;
@@ -832,6 +902,125 @@ class _ReplacementPageState extends State<ReplacementPage> {
               onTap: () => _showDateTimePickerDialog(),
             ),
             const SizedBox(height: 16),
+
+            // Mode SOS - uniquement en mode automatique
+            if (!widget.isManualMode) ...[
+              Card(
+                elevation: 2,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(
+                    color: isSOS ? Colors.red : Colors.grey[300]!,
+                    width: 2,
+                  ),
+                ),
+                color: isSOS ? Colors.red[50] : Colors.white,
+                child: InkWell(
+                  onTap: () {
+                    setState(() {
+                      isSOS = !isSOS;
+                    });
+                  },
+                  borderRadius: BorderRadius.circular(12),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 24,
+                          height: 24,
+                          decoration: BoxDecoration(
+                            color: isSOS ? Colors.red : Colors.white,
+                            border: Border.all(
+                              color: isSOS ? Colors.red : Colors.grey[400]!,
+                              width: 2,
+                            ),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: isSOS
+                              ? const Icon(
+                                  Icons.check,
+                                  size: 18,
+                                  color: Colors.white,
+                                )
+                              : null,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.warning,
+                                    size: 18,
+                                    color: isSOS ? Colors.red : Colors.grey[600],
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Mode SOS',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                      color: isSOS ? Colors.red[700] : Colors.grey[700],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  InkWell(
+                                    onTap: () {
+                                      showDialog(
+                                        context: context,
+                                        builder: (context) => AlertDialog(
+                                          title: Row(
+                                            children: [
+                                              Icon(Icons.local_hospital, color: Colors.red[700]),
+                                              const SizedBox(width: 8),
+                                              const Text('Mode SOS'),
+                                            ],
+                                          ),
+                                          content: const Text(
+                                            'Le mode SOS permet d\'envoyer TOUTES les vagues de notifications simultanément au lieu de les envoyer progressivement.\n\n'
+                                            'Utilisez ce mode uniquement en cas d\'urgence pour maximiser les chances de trouver rapidement un remplaçant.\n\n'
+                                            'Note : Le filtrage par compétences-clés reste actif.',
+                                            style: TextStyle(fontSize: 14),
+                                          ),
+                                          actions: [
+                                            TextButton(
+                                              onPressed: () => Navigator.pop(context),
+                                              child: const Text('Compris'),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    },
+                                    child: Icon(
+                                      Icons.help_outline,
+                                      size: 18,
+                                      color: Colors.grey[600],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Envoyer toutes les vagues simultanément',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+
             // Bouton différent selon le mode
             ElevatedButton.icon(
               onPressed: isValid

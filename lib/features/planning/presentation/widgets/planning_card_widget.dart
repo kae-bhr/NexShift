@@ -24,6 +24,7 @@ class PlanningCard extends StatefulWidget {
   final bool showNote;
   final bool isExpanded;
   final int replacementCount;
+  final int pendingRequestCount; // Nombre de demandes en attente
   // Vehicle icons to display at the bottom of the card. Each item expects:
   // {'type': String, 'id': int, 'color': Color}
   final List<Map<String, dynamic>> vehicleIconSpecs;
@@ -36,6 +37,7 @@ class PlanningCard extends StatefulWidget {
     this.showNote = false,
     this.isExpanded = false,
     this.replacementCount = 0,
+    this.pendingRequestCount = 0,
     this.vehicleIconSpecs = const [],
     this.availabilityColor,
   });
@@ -260,27 +262,63 @@ class _PlanningCardState extends State<PlanningCard> {
                     ],
                   ),
                 ),
-                if (widget.replacementCount > 0)
+                // Badges en haut à droite (demandes en attente + remplacements)
+                if (widget.pendingRequestCount > 0 ||
+                    widget.replacementCount > 0)
                   Positioned(
                     top: 8,
                     right: 8,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.primary,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        widget.replacementCount.toString(),
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onPrimary,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Badge des demandes en attente (outlined)
+                        if (widget.pendingRequestCount > 0)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 7,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.transparent,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: Theme.of(context).colorScheme.primary,
+                                width: 1,
+                              ),
+                            ),
+                            child: Text(
+                              widget.pendingRequestCount.toString(),
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.primary,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        if (widget.pendingRequestCount > 0 &&
+                            widget.replacementCount > 0)
+                          const SizedBox(width: 6),
+                        // Badge des remplacements (filled)
+                        if (widget.replacementCount > 0)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.primary,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              widget.replacementCount.toString(),
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.onPrimary,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
 

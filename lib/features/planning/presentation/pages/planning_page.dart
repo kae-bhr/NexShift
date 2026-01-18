@@ -14,7 +14,7 @@ import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 import 'package:nexshift_app/core/data/datasources/notifiers.dart';
 import 'package:nexshift_app/core/repositories/team_repository.dart';
 import 'package:nexshift_app/core/utils/subshift_normalizer.dart';
-import 'package:nexshift_app/features/replacement/presentation/pages/replacement_page.dart';
+import 'package:nexshift_app/features/app_shell/presentation/widgets/absence_menu_overlay.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:nexshift_app/core/config/environment_config.dart';
 import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
@@ -354,15 +354,12 @@ class _PlanningPageState extends State<PlanningPage> {
                       ? null
                       : () {
                           Navigator.pop(context);
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => ReplacementPage(
-                                planning: planning,
-                                currentUser: user,
-                                parentSubshift: replacerSubshift,
-                              ),
-                            ),
+                          // Afficher le menu d'absence avec les trois options
+                          AbsenceMenuOverlay.showAsBottomSheet(
+                            context: context,
+                            planning: planning,
+                            user: user,
+                            parentSubshift: replacerSubshift,
                           );
                         },
                   icon: const Icon(Icons.event_busy),
@@ -373,34 +370,6 @@ class _PlanningPageState extends State<PlanningPage> {
                           side: const BorderSide(color: Colors.grey),
                         )
                       : null,
-                ),
-              ),
-            ],
-
-            // Bouton "Effectuer un remplacement manuel" - affiché pour admin, leader, chef d'équipe, ou si agent en astreinte/remplaçant
-            if (user.admin ||
-                user.status == KConstants.statusLeader ||
-                (user.status == KConstants.statusChief && user.team == planning.team) ||
-                ((isOnGuard && !isReplacedFully) || replacerSubshift != null)) ...[
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => ReplacementPage(
-                          planning: planning,
-                          currentUser: user,
-                          isManualMode: true,
-                        ),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.swap_horiz),
-                  label: const Text('Effectuer un remplacement manuel'),
                 ),
               ),
             ],
