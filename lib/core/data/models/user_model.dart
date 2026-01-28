@@ -10,6 +10,16 @@ class User {
   final String? positionId; // ID du poste occupé par l'agent
   final List<String> keySkills; // Compétences-clés critiques
 
+  // Alertes personnalisées
+  final bool personalAlertEnabled; // Alerte avant astreinte personnelle
+  final int personalAlertBeforeShiftHours; // Heures avant l'astreinte
+
+  final bool chiefAlertEnabled; // Alerte changement équipe (chef uniquement)
+  final int chiefAlertBeforeShiftHours; // Heures avant l'astreinte
+
+  final bool anomalyAlertEnabled; // Alerte anomalies planning (chef uniquement)
+  final int anomalyAlertDaysBefore; // Jours avant pour détecter les anomalies
+
   User({
     required this.id,
     required this.lastName,
@@ -21,6 +31,12 @@ class User {
     required this.skills,
     this.positionId,
     this.keySkills = const [], // Par défaut : liste vide
+    this.personalAlertEnabled = false,
+    this.personalAlertBeforeShiftHours = 1,
+    this.chiefAlertEnabled = false,
+    this.chiefAlertBeforeShiftHours = 1,
+    this.anomalyAlertEnabled = false,
+    this.anomalyAlertDaysBefore = 14,
   });
 
   /// Permet de dupliquer l'objet avec des champs modifiés
@@ -35,6 +51,12 @@ class User {
     List<String>? skills,
     String? positionId,
     List<String>? keySkills,
+    bool? personalAlertEnabled,
+    int? personalAlertBeforeShiftHours,
+    bool? chiefAlertEnabled,
+    int? chiefAlertBeforeShiftHours,
+    bool? anomalyAlertEnabled,
+    int? anomalyAlertDaysBefore,
   }) {
     return User(
       id: id ?? this.id,
@@ -47,6 +69,15 @@ class User {
       skills: skills ?? this.skills,
       positionId: positionId ?? this.positionId,
       keySkills: keySkills ?? this.keySkills,
+      personalAlertEnabled: personalAlertEnabled ?? this.personalAlertEnabled,
+      personalAlertBeforeShiftHours:
+          personalAlertBeforeShiftHours ?? this.personalAlertBeforeShiftHours,
+      chiefAlertEnabled: chiefAlertEnabled ?? this.chiefAlertEnabled,
+      chiefAlertBeforeShiftHours:
+          chiefAlertBeforeShiftHours ?? this.chiefAlertBeforeShiftHours,
+      anomalyAlertEnabled: anomalyAlertEnabled ?? this.anomalyAlertEnabled,
+      anomalyAlertDaysBefore:
+          anomalyAlertDaysBefore ?? this.anomalyAlertDaysBefore,
     );
   }
 
@@ -61,6 +92,12 @@ class User {
     'skills': skills,
     if (positionId != null) 'positionId': positionId,
     'keySkills': keySkills,
+    'personalAlertEnabled': personalAlertEnabled,
+    'personalAlertBeforeShiftHours': personalAlertBeforeShiftHours,
+    'chiefAlertEnabled': chiefAlertEnabled,
+    'chiefAlertBeforeShiftHours': chiefAlertBeforeShiftHours,
+    'anomalyAlertEnabled': anomalyAlertEnabled,
+    'anomalyAlertDaysBefore': anomalyAlertDaysBefore,
   };
 
   factory User.fromJson(Map<String, dynamic> json) => User(
@@ -76,6 +113,13 @@ class User {
     keySkills: json['keySkills'] != null
         ? List<String>.from(json['keySkills'])
         : [],
+    personalAlertEnabled: json['personalAlertEnabled'] as bool? ?? true,
+    personalAlertBeforeShiftHours:
+        json['personalAlertBeforeShiftHours'] as int? ?? 1,
+    chiefAlertEnabled: json['chiefAlertEnabled'] as bool? ?? true,
+    chiefAlertBeforeShiftHours: json['chiefAlertBeforeShiftHours'] as int? ?? 1,
+    anomalyAlertEnabled: json['anomalyAlertEnabled'] as bool? ?? true,
+    anomalyAlertDaysBefore: json['anomalyAlertDaysBefore'] as int? ?? 14,
   );
 
   static User empty() => User(

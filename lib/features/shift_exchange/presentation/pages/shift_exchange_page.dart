@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:nexshift_app/core/data/models/planning_model.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
+import 'package:nexshift_app/core/repositories/user_repository.dart';
 import 'package:nexshift_app/core/services/shift_exchange_service.dart';
 import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
@@ -26,6 +27,52 @@ class _ShiftExchangePageState extends State<ShiftExchangePage> {
   final _exchangeService = ShiftExchangeService();
   bool _isSubmitting = false;
 
+  // Liste des agents présents dans l'astreinte
+  List<User> _agentsInPlanning = [];
+  // ID de l'agent qui souhaite échanger (initiator)
+  String? _initiatorId;
+
+  /// Vérifie si l'utilisateur courant peut sélectionner l'agent à échanger
+  /// Seuls les admins, leaders et chefs d'équipe (de l'équipe de l'astreinte) peuvent sélectionner
+  bool get _canSelectInitiator =>
+      widget.currentUser.admin ||
+      widget.currentUser.status == KConstants.statusLeader ||
+      (widget.currentUser.status == KConstants.statusChief &&
+          widget.currentUser.team == widget.planning.team);
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAgentsInPlanning();
+    // Pré-sélectionner l'utilisateur courant s'il fait partie de l'astreinte
+    _initiatorId = widget.currentUser.id;
+  }
+
+  /// Charge les agents présents dans l'astreinte
+  Future<void> _loadAgentsInPlanning() async {
+    try {
+      final users = await UserRepository().getByStation(widget.planning.station);
+      // Filtrer par équipe de l'astreinte
+      final agentsInPlanning = users
+          .where((u) => u.team == widget.planning.team)
+          .toList()
+        ..sort((a, b) => '${a.lastName} ${a.firstName}'.compareTo('${b.lastName} ${b.firstName}'));
+
+      setState(() {
+        _agentsInPlanning = agentsInPlanning;
+        // Si l'utilisateur courant n'est pas dans l'astreinte, laisser vide
+        if (!agentsInPlanning.any((u) => u.id == widget.currentUser.id)) {
+          _initiatorId = null;
+        }
+      });
+    } catch (e) {
+      debugPrint('Erreur chargement agents: $e');
+    }
+  }
+
+  /// Vérifie si le formulaire est valide
+  bool get _isValid => _initiatorId != null && _initiatorId!.isNotEmpty;
+
   /// Formate une date au format DD/MM/YYYY HH:mm
   String _formatDateTime(DateTime dt) {
     return DateFormat('dd/MM/yyyy HH:mm').format(dt);
@@ -40,7 +87,7 @@ class _ShiftExchangePageState extends State<ShiftExchangePage> {
 
   /// Propose l'échange d'astreinte
   Future<void> _proposeExchange() async {
-    if (_isSubmitting) return;
+    if (_isSubmitting || !_isValid) return;
 
     setState(() {
       _isSubmitting = true;
@@ -60,9 +107,9 @@ class _ShiftExchangePageState extends State<ShiftExchangePage> {
       // Petit délai pour que le snackbar s'affiche
       await Future.delayed(const Duration(milliseconds: 500));
 
-      // Créer la demande d'échange
+      // Créer la demande d'échange avec l'initiator sélectionné
       await _exchangeService.createExchangeRequest(
-        initiatorId: widget.currentUser.id,
+        initiatorId: _initiatorId!,
         planningId: widget.planning.id,
         station: widget.planning.station,
       );
@@ -115,6 +162,39 @@ class _ShiftExchangePageState extends State<ShiftExchangePage> {
         padding: const EdgeInsets.all(16),
         child: ListView(
           children: [
+            // CHAMP "AGENT À ÉCHANGER" - Dropdown si privilégié, sinon lecture seule
+            if (_canSelectInitiator)
+              DropdownButtonFormField<String>(
+                initialValue: _initiatorId,
+                decoration: InputDecoration(
+                  labelText: "Agent à échanger",
+                  hintText: _initiatorId == null ? "Sélectionnez un agent" : null,
+                ),
+                items: _agentsInPlanning
+                    .map(
+                      (u) => DropdownMenuItem(
+                        value: u.id,
+                        child: Text("${u.lastName} ${u.firstName}"),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (v) {
+                  setState(() {
+                    _initiatorId = v;
+                  });
+                },
+              )
+            else
+              // Lecture seule pour les agents normaux
+              TextFormField(
+                initialValue:
+                    "${widget.currentUser.lastName} ${widget.currentUser.firstName}",
+                decoration: const InputDecoration(labelText: "Agent à échanger"),
+                readOnly: true,
+                enabled: false,
+              ),
+            const SizedBox(height: 16),
+
             // Encart avec les détails de l'astreinte (non modifiable)
             Card(
               elevation: 2,
@@ -238,7 +318,7 @@ class _ShiftExchangePageState extends State<ShiftExchangePage> {
 
             // Bouton "Proposer un échange"
             ElevatedButton.icon(
-              onPressed: _isSubmitting ? null : _proposeExchange,
+              onPressed: (_isSubmitting || !_isValid) ? null : _proposeExchange,
               icon: _isSubmitting
                   ? const SizedBox(
                       width: 20,

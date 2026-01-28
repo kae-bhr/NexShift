@@ -26,6 +26,11 @@ class Station {
   // Map<skillName, weight> - Par défaut, toutes les compétences ont un poids de 1.0
   final Map<String, double> skillWeights;
 
+  // Pause nocturne des vagues de notifications
+  final bool nightPauseEnabled;
+  final String nightPauseStart; // Format "HH:mm"
+  final String nightPauseEnd;   // Format "HH:mm"
+
   const Station({
     required this.id,
     required this.name,
@@ -34,6 +39,9 @@ class Station {
     this.replacementMode = ReplacementMode.similarity, // Mode par défaut: similarité
     this.allowUnderQualifiedAutoAcceptance = false, // Par défaut: désactivé
     this.skillWeights = const {}, // Par défaut : vide (toutes à 1.0)
+    this.nightPauseEnabled = true, // Activé par défaut
+    this.nightPauseStart = '23:00', // Début à 23h par défaut
+    this.nightPauseEnd = '06:00', // Fin à 6h par défaut
   });
 
   Station copyWith({
@@ -44,6 +52,9 @@ class Station {
     ReplacementMode? replacementMode,
     bool? allowUnderQualifiedAutoAcceptance,
     Map<String, double>? skillWeights,
+    bool? nightPauseEnabled,
+    String? nightPauseStart,
+    String? nightPauseEnd,
   }) =>
       Station(
         id: id ?? this.id,
@@ -53,6 +64,9 @@ class Station {
         replacementMode: replacementMode ?? this.replacementMode,
         allowUnderQualifiedAutoAcceptance: allowUnderQualifiedAutoAcceptance ?? this.allowUnderQualifiedAutoAcceptance,
         skillWeights: skillWeights ?? this.skillWeights,
+        nightPauseEnabled: nightPauseEnabled ?? this.nightPauseEnabled,
+        nightPauseStart: nightPauseStart ?? this.nightPauseStart,
+        nightPauseEnd: nightPauseEnd ?? this.nightPauseEnd,
       );
 
   Map<String, dynamic> toJson() => {
@@ -63,6 +77,9 @@ class Station {
         'replacementMode': replacementMode.name,
         'allowUnderQualifiedAutoAcceptance': allowUnderQualifiedAutoAcceptance,
         'skillWeights': skillWeights,
+        'nightPauseEnabled': nightPauseEnabled,
+        'nightPauseStart': nightPauseStart,
+        'nightPauseEnd': nightPauseEnd,
       };
 
   factory Station.fromJson(Map<String, dynamic> json) => Station(
@@ -81,5 +98,8 @@ class Station {
         skillWeights: json['skillWeights'] != null
             ? Map<String, double>.from(json['skillWeights'])
             : {},
+        nightPauseEnabled: json['nightPauseEnabled'] as bool? ?? true,
+        nightPauseStart: json['nightPauseStart'] as String? ?? '23:00',
+        nightPauseEnd: json['nightPauseEnd'] as String? ?? '06:00',
       );
 }

@@ -157,9 +157,140 @@ class _AdminPageState extends State<AdminPage> {
               onPressed: () => _editWaveDelay(context),
             ),
           ),
+          const Divider(height: 1),
+          // Section Pause nocturne
+          SwitchListTile(
+            secondary: const Icon(Icons.nightlight_round),
+            title: const Text('Pause nocturne des notifications'),
+            subtitle: Text(
+              _currentStation!.nightPauseEnabled
+                  ? 'De ${_currentStation!.nightPauseStart} à ${_currentStation!.nightPauseEnd}'
+                  : 'Désactivée',
+            ),
+            value: _currentStation!.nightPauseEnabled,
+            activeThumbColor: KColors.appNameColor,
+            activeTrackColor: KColors.appNameColor.withValues(alpha: 0.5),
+            onChanged: (value) {
+              setState(() {
+                _currentStation = _currentStation!.copyWith(
+                  nightPauseEnabled: value,
+                );
+              });
+              _saveStationConfig();
+            },
+          ),
+          // Afficher les heures uniquement si activé
+          if (_currentStation!.nightPauseEnabled) ...[
+            const Divider(height: 1, indent: 16, endIndent: 16),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _buildTimePickerTile(
+                      context,
+                      label: 'Début',
+                      time: _currentStation!.nightPauseStart,
+                      icon: Icons.bedtime,
+                      onTap: () => _editNightPauseTime(context, isStart: true),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: _buildTimePickerTile(
+                      context,
+                      label: 'Fin',
+                      time: _currentStation!.nightPauseEnd,
+                      icon: Icons.wb_sunny,
+                      onTap: () => _editNightPauseTime(context, isStart: false),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
         ],
       ),
     );
+  }
+
+  Widget _buildTimePickerTile(
+    BuildContext context, {
+    required String label,
+    required String time,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.grey[100],
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.grey[300]!),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 20, color: KColors.appNameColor),
+            const SizedBox(width: 8),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+                Text(
+                  time,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _editNightPauseTime(BuildContext context, {required bool isStart}) async {
+    final currentTime = isStart
+        ? _currentStation!.nightPauseStart
+        : _currentStation!.nightPauseEnd;
+    final parts = currentTime.split(':');
+    final initialTime = TimeOfDay(
+      hour: int.tryParse(parts[0]) ?? (isStart ? 23 : 6),
+      minute: int.tryParse(parts[1]) ?? 0,
+    );
+
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: initialTime,
+      builder: (context, child) {
+        return MediaQuery(
+          data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      final timeString =
+          '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+      setState(() {
+        if (isStart) {
+          _currentStation = _currentStation!.copyWith(nightPauseStart: timeString);
+        } else {
+          _currentStation = _currentStation!.copyWith(nightPauseEnd: timeString);
+        }
+      });
+      await _saveStationConfig();
+    }
   }
 
   Widget _buildReplacementModeSection(BuildContext context) {
@@ -171,8 +302,8 @@ class _AdminPageState extends State<AdminPage> {
             title: const Text('Acceptation automatique d\'agents sous-qualifiés'),
             subtitle: const Text('Permettre aux agents sous-qualifiés d\'accepter automatiquement les demandes de remplacement'),
             value: _currentStation!.allowUnderQualifiedAutoAcceptance,
-            activeColor: KColors.appNameColor,
-            activeTrackColor: KColors.appNameColor.withOpacity(0.5),
+            activeThumbColor: KColors.appNameColor,
+            activeTrackColor: KColors.appNameColor.withValues(alpha: 0.5),
             onChanged: (value) {
               setState(() {
                 _currentStation = _currentStation!.copyWith(

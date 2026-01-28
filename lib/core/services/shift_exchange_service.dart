@@ -934,6 +934,7 @@ class ShiftExchangeService {
         start: request.initiatorStartTime,
         end: request.initiatorEndTime,
         planningId: request.initiatorPlanningId,
+        isExchange: true,
       );
       await _subshiftRepository.save(subshift1, stationId: stationId);
 
@@ -957,6 +958,7 @@ class ShiftExchangeService {
           start: planning.startTime,
           end: planning.endTime,
           planningId: planningId,
+          isExchange: true,
         );
         await _subshiftRepository.save(subshift, stationId: stationId);
         count++;

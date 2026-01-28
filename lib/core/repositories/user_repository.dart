@@ -254,6 +254,23 @@ class UserRepository {
     }
   }
 
+  /// Vérifie si on peut retirer les privilèges (admin/leader) d'un utilisateur
+  /// Retourne true s'il reste au moins un autre admin ou leader dans la station
+  Future<bool> canRemovePrivileges(String stationId, String userId) async {
+    try {
+      final users = await getByStation(stationId);
+      // Compter les admins et leaders AUTRES que l'utilisateur concerné
+      final otherPrivileged = users.where((u) =>
+          u.id != userId &&
+          (u.admin || u.status == 'leader'));
+      return otherPrivileged.isNotEmpty;
+    } catch (e) {
+      debugPrint('Error checking privileges: $e');
+      // En cas d'erreur, on bloque par sécurité
+      return false;
+    }
+  }
+
   /// Supprime tous les utilisateurs
   Future<void> clear() async {
     try {

@@ -226,6 +226,36 @@ class SubshiftRepository {
     }
   }
 
+  /// Met à jour le statut "checkedByChief" d'un subshift
+  Future<void> toggleCheck(String id, {
+    required bool checked,
+    required String checkedBy,
+    String? stationId,
+    String? requestId,
+  }) async {
+    try {
+      final collectionPath = _getCollectionPath(stationId, requestId: requestId);
+      final data = {
+        'checkedByChief': checked,
+        'checkedAt': checked ? DateTime.now().toIso8601String() : null,
+        'checkedBy': checked ? checkedBy : null,
+      };
+
+      // Mode test OU mode subcollections : utiliser Firestore directement
+      if (_directFirestore != null || EnvironmentConfig.useStationSubcollections) {
+        final firestore = _directFirestore ?? FirebaseFirestore.instance;
+        await firestore.collection(collectionPath).doc(id).update(data);
+        return;
+      }
+
+      // Mode production sans subcollections
+      await _firestoreService.upsert(collectionPath, id, data);
+    } catch (e) {
+      debugPrint('Firestore error during toggleCheck: $e');
+      rethrow;
+    }
+  }
+
   Future<void> clear({String? stationId, String? requestId}) async {
     try {
       final collectionPath = _getCollectionPath(stationId, requestId: requestId);

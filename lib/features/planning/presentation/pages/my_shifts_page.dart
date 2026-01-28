@@ -514,7 +514,7 @@ class _MyShiftsPageState extends State<MyShiftsPage> {
     if (result != null) {
       // Sauvegarder les modifications
       final planningRepo = PlanningRepository();
-      await planningRepo.save(result);
+      await planningRepo.save(result, stationId: _currentUser!.station);
       _loadData();
     }
   }

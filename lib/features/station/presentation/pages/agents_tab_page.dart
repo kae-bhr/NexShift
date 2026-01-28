@@ -914,16 +914,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
     final scaffoldMessenger = ScaffoldMessenger.of(context);
 
     // Update user with new team
-    final updatedUser = User(
-      id: user.id,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      station: user.station,
-      status: user.status,
-      team: newTeamId,
-      skills: user.skills,
-      admin: user.admin,
-    );
+    final updatedUser = user.copyWith(team: newTeamId);
 
     await userRepo.upsert(updatedUser);
 
@@ -1520,15 +1511,9 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
               final firstName = firstNameController.text.trim();
               final lastName = lastNameController.text.trim();
 
-              final updatedUser = User(
-                id: user.id,
+              final updatedUser = user.copyWith(
                 firstName: firstName,
                 lastName: lastName,
-                station: user.station,
-                status: user.status,
-                team: user.team,
-                skills: user.skills,
-                admin: user.admin,
               );
 
               final userRepo = UserRepository();
@@ -1944,17 +1929,23 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
     final colorScheme = Theme.of(context).colorScheme;
 
     Future<void> updateRole(String status, String label) async {
-      final updated = User(
-        id: user.id,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        station: user.station,
-        status: status,
-        team: user.team,
-        skills: user.skills,
-        admin: user.admin,
-      );
       final repo = UserRepository();
+
+      // Protection : si on retire le statut leader, vérifier qu'il reste au moins un autre admin/leader
+      if (user.status == KConstants.statusLeader && status != KConstants.statusLeader) {
+        final canRemove = await repo.canRemovePrivileges(user.station, user.id);
+        if (!canRemove) {
+          scaffoldMessenger.showSnackBar(
+            const SnackBar(
+              content: Text('Impossible : il doit rester au moins un chef de centre ou admin dans la caserne.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+          return;
+        }
+      }
+
+      final updated = user.copyWith(status: status);
       await repo.upsert(updated);
       if (widget.currentUser?.id == user.id) {
         await UserStorageHelper.saveUser(updated);
@@ -2051,18 +2042,24 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                   bool isAdmin = user.admin;
                   return GestureDetector(
                     onTap: () async {
-                      setState(() => isAdmin = !isAdmin);
-                      final updated = User(
-                        id: user.id,
-                        firstName: user.firstName,
-                        lastName: user.lastName,
-                        station: user.station,
-                        status: user.status,
-                        team: user.team,
-                        skills: user.skills,
-                        admin: !user.admin,
-                      );
                       final repo = UserRepository();
+
+                      // Protection : si on retire le rôle admin, vérifier qu'il reste au moins un autre admin/leader
+                      if (user.admin) {
+                        final canRemove = await repo.canRemovePrivileges(user.station, user.id);
+                        if (!canRemove) {
+                          scaffoldMessenger.showSnackBar(
+                            const SnackBar(
+                              content: Text('Impossible : il doit rester au moins un chef de centre ou admin dans la caserne.'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                          return;
+                        }
+                      }
+
+                      setState(() => isAdmin = !isAdmin);
+                      final updated = user.copyWith(admin: !user.admin);
                       await repo.upsert(updated);
                       if (widget.currentUser?.id == user.id) {
                         await UserStorageHelper.saveUser(updated);
@@ -2492,16 +2489,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                     ? const Icon(Icons.check, color: Colors.green)
                     : null,
                 onTap: () async {
-                  final updatedUser = User(
-                    id: user.id,
-                    firstName: user.firstName,
-                    lastName: user.lastName,
-                    station: user.station,
-                    status: user.status,
-                    team: '',
-                    skills: user.skills,
-                    admin: user.admin,
-                  );
+                  final updatedUser = user.copyWith(team: '');
 
                   final userRepo = UserRepository();
                   await userRepo.upsert(updatedUser);
@@ -2538,16 +2526,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                       ? const Icon(Icons.check, color: Colors.green)
                       : null,
                   onTap: () async {
-                    final updatedUser = User(
-                      id: user.id,
-                      firstName: user.firstName,
-                      lastName: user.lastName,
-                      station: user.station,
-                      status: user.status,
-                      team: team.id,
-                      skills: user.skills,
-                      admin: user.admin,
-                    );
+                    final updatedUser = user.copyWith(team: team.id);
 
                     final userRepo = UserRepository();
                     await userRepo.upsert(updatedUser);

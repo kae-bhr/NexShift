@@ -160,7 +160,7 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
       else {
         try {
           // 2a. Vérifier si l'utilisateur est en astreinte durant cette période
-          final allPlannings = await _planningRepository.getAll();
+          final allPlannings = await _planningRepository.getByStation(widget.stationId);
           final isOnDuty = allPlannings.any((planning) {
             // Vérifier si l'utilisateur est dans l'astreinte
             if (!planning.agentsId.contains(widget.currentUserId)) return false;
@@ -270,7 +270,7 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
       final actualEndTime = _selectedEndTime ?? _request!.endTime;
 
       // Vérifier les conflits avec les plannings
-      final allPlannings = await _planningRepository.getAll();
+      final allPlannings = await _planningRepository.getByStation(widget.stationId);
       final isOnDuty = allPlannings.any((planning) {
         if (!planning.agentsId.contains(widget.currentUserId)) return false;
         final overlapStart = planning.startTime.isBefore(actualEndTime);

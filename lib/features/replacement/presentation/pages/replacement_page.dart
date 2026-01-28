@@ -789,23 +789,35 @@ class _ReplacementPageState extends State<ReplacementPage> {
       return;
     }
 
-    // Get the current user (replaced agent)
-    final currentUser = widget.currentUser;
-    if (currentUser == null) {
+    // Vérifier que replacedId est défini
+    if (replacedId == null) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text("Utilisateur non trouvé")));
+      ).showSnackBar(const SnackBar(content: Text("Sélectionnez un agent à remplacer")));
+      return;
+    }
+
+    // Trouver l'utilisateur remplacé pour récupérer sa station et son équipe
+    final replacedUser = allUsers.firstWhere(
+      (u) => u.id == replacedId,
+      orElse: () => widget.currentUser ?? User.empty(),
+    );
+
+    if (replacedUser.id.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("Agent à remplacer non trouvé")));
       return;
     }
 
     await ReplacementSearchService.searchForReplacer(
       context,
-      requesterId: currentUser.id,
+      requesterId: replacedId!, // Utiliser l'ID de l'agent sélectionné
       planningId: widget.planning.id,
       startDateTime: startDateTime,
       endDateTime: endDateTime,
-      station: currentUser.station,
-      team: currentUser.team,
+      station: replacedUser.station,
+      team: replacedUser.team,
       isSOS: isSOS,
       onValidate: _validate,
     );
@@ -820,12 +832,25 @@ class _ReplacementPageState extends State<ReplacementPage> {
       widget.planning,
     );
 
+    // Valider que replacedId est bien dans la liste des candidats
+    // Si non, le remettre à null pour éviter l'erreur "value not in items"
+    final validReplacedId = replacedId != null &&
+            replacedCandidates.any((u) => u.id == replacedId)
+        ? replacedId
+        : null;
+
     // Build available replacers dropdown using service
     final availableReplacers =
         ReplacementSearchService.buildAvailableReplacersDropdown(
           allUsers,
           widget.planning,
         );
+
+    // Valider que replacerId est bien dans la liste des remplaçants disponibles
+    final validReplacerId = replacerId != null &&
+            availableReplacers.any((item) => item.value == replacerId)
+        ? replacerId
+        : null;
 
     return Scaffold(
       appBar: CustomAppBar(
@@ -838,44 +863,48 @@ class _ReplacementPageState extends State<ReplacementPage> {
         padding: const EdgeInsets.all(16),
         child: ListView(
           children: [
-            // MODE MANUEL: afficher les champs Remplacé et Remplaçant
-            if (widget.isManualMode) ...[
-              // "Remplacé" field: only show dropdown if user has permission
-              // Otherwise show read-only field with their name
-              if (canSelectReplaced)
-                DropdownButtonFormField<String>(
-                  value: replacedId,
-                  decoration: const InputDecoration(labelText: "Remplacé"),
-                  items: replacedCandidates
-                      .map(
-                        (u) => DropdownMenuItem(
-                          value: u.id,
-                          child: Text("${u.lastName} ${u.firstName}"),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (v) async {
-                    setState(() {
-                      replacedId = v;
-                    });
-                    await _loadActiveRequests();
-                    _validate();
-                  },
-                )
-              else if (widget.currentUser != null)
-                // Show read-only field with current user's name
-                TextFormField(
-                  initialValue:
-                      "${widget.currentUser!.lastName} ${widget.currentUser!.firstName}",
-                  decoration: const InputDecoration(labelText: "Remplacé"),
-                  readOnly: true,
-                  enabled: false,
+            // CHAMP "REMPLACÉ" - Affiché dans tous les modes (manuel et automatique)
+            // Dropdown cliquable si user privilégié, sinon lecture seule
+            if (canSelectReplaced)
+              DropdownButtonFormField<String>(
+                value: validReplacedId,
+                decoration: InputDecoration(
+                  labelText: "Remplacé",
+                  hintText: validReplacedId == null ? "Sélectionnez un agent" : null,
                 ),
-              const SizedBox(height: 12),
+                items: replacedCandidates
+                    .map(
+                      (u) => DropdownMenuItem(
+                        value: u.id,
+                        child: Text("${u.lastName} ${u.firstName}"),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (v) async {
+                  setState(() {
+                    replacedId = v;
+                  });
+                  await _loadActiveRequests();
+                  _validate();
+                },
+              )
+            else if (widget.currentUser != null)
+              // Show read-only field with current user's name
+              TextFormField(
+                initialValue:
+                    "${widget.currentUser!.lastName} ${widget.currentUser!.firstName}",
+                decoration: const InputDecoration(labelText: "Remplacé"),
+                readOnly: true,
+                enabled: false,
+              ),
+            const SizedBox(height: 12),
+
+            // MODE MANUEL: afficher aussi le champ Remplaçant
+            if (widget.isManualMode) ...[
               // Show replacer dropdown for all users (both privileged and regular)
               // Everyone can select the replacer
               DropdownButtonFormField<String>(
-                value: replacerId,
+                value: validReplacerId,
                 decoration: const InputDecoration(labelText: "Remplaçant"),
                 items: availableReplacers,
                 onChanged: (v) {
@@ -892,8 +921,8 @@ class _ReplacementPageState extends State<ReplacementPage> {
               ),
               const SizedBox(height: 16),
             ],
-            // MODE AUTOMATIQUE: pas de champs, juste les horaires
-            // Le remplacé = user courant, le remplaçant sera déterminé par les vagues
+
+            // Card Astreinte avec les horaires
             PlanningTile(
               planning: widget.planning,
               startDateTime: startDateTime,

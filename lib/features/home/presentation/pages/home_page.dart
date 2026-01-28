@@ -917,6 +917,40 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  /// Toggle le statut "checkedByChief" d'un subshift
+  Future<void> _toggleSubshiftCheck(Subshift subshift) async {
+    final newChecked = !subshift.checkedByChief;
+    final subRepo = SubshiftRepository();
+
+    try {
+      await subRepo.toggleCheck(
+        subshift.id,
+        checked: newChecked,
+        checkedBy: _user.id,
+        stationId: _user.station, // Passer le stationId pour le chemin SDIS
+      );
+
+      if (!mounted) return;
+      setState(() {
+        // Mettre à jour localement
+        final index = _allSubshifts.indexWhere((s) => s.id == subshift.id);
+        if (index != -1) {
+          _allSubshifts[index] = subshift.copyWith(
+            checkedByChief: newChecked,
+            checkedAt: newChecked ? DateTime.now() : null,
+            checkedBy: newChecked ? _user.id : null,
+          );
+        }
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e')),
+        );
+      }
+    }
+  }
+
   /// Compte le nombre de demandes en attente pour un planning
   int _getPendingRequestCount(Planning planning) {
     final planningRequests = _pendingRequests
@@ -1568,6 +1602,9 @@ class _HomePageState extends State<HomePage> {
                                     builder: (context, snapshotIcons) {
                                       final specs =
                                           snapshotIcons.data ?? const [];
+                                      // Vérifier si tous les remplacements sont checkés
+                                      final allChecked = subList.isNotEmpty &&
+                                          subList.every((s) => s.checkedByChief);
                                       return PlanningCard(
                                         planning: planning,
                                         onTap: () => _toggleExpanded(id),
@@ -1577,6 +1614,7 @@ class _HomePageState extends State<HomePage> {
                                             _getPendingRequestCount(planning),
                                         vehicleIconSpecs: specs,
                                         availabilityColor: _userTeamColor,
+                                        allReplacementsChecked: allChecked,
                                       );
                                     },
                                   ),
@@ -1608,6 +1646,7 @@ class _HomePageState extends State<HomePage> {
                                                 CrossAxisAlignment.center,
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
+                                              // Bouton "Je souhaite m'absenter" si l'utilisateur est dans l'astreinte
                                               if (!isAvailability &&
                                                   ((isOnGuard &&
                                                           !isReplacedFully) ||
@@ -1617,6 +1656,18 @@ class _HomePageState extends State<HomePage> {
                                                   user: _user,
                                                   replacerSubshift:
                                                       replacerSubshift,
+                                                )
+                                              // Bouton "Faire remplacer un agent" si user privilégié, PAS dans l'astreinte, et en stationView
+                                              else if (!isAvailability &&
+                                                  stationView &&
+                                                  (!isOnGuard || isReplacedFully) &&
+                                                  (_user.admin ||
+                                                      _user.status == KConstants.statusLeader ||
+                                                      (_user.status == KConstants.statusChief &&
+                                                          _user.team.toLowerCase() == planning.team.toLowerCase())))
+                                                _AdminReplaceButton(
+                                                  planning: planning,
+                                                  user: _user,
                                                 ),
                                               const SizedBox(height: 8),
                                               if (!isAvailability)
@@ -1650,6 +1701,17 @@ class _HomePageState extends State<HomePage> {
                                                                   .statusChief) &&
                                                           _user.team ==
                                                               planning.team);
+                                                  // Permissions pour voir/interagir avec le check
+                                                  final canSeeCheck =
+                                                      _user.admin ||
+                                                      _user.status ==
+                                                          KConstants
+                                                              .statusLeader ||
+                                                      ((_user.status ==
+                                                              KConstants
+                                                                  .statusChief) &&
+                                                          _user.team ==
+                                                              planning.team);
                                                   final item = Padding(
                                                     padding:
                                                         const EdgeInsets.symmetric(
@@ -1667,6 +1729,10 @@ class _HomePageState extends State<HomePage> {
                                                               _user.id ||
                                                           s.replacedId ==
                                                               _user.id,
+                                                      showCheckIcon: canSeeCheck,
+                                                      onCheckTap: canSeeCheck
+                                                          ? () => _toggleSubshiftCheck(s)
+                                                          : null,
                                                     ),
                                                   );
 
@@ -1856,6 +1922,131 @@ class _AbsenceMenuButtonState extends State<_AbsenceMenuButton>
         label: const Text("Je souhaite m'absenter"),
         style: FilledButton.styleFrom(
           minimumSize: const Size(double.infinity, 40.0),
+        ),
+      ),
+    );
+  }
+}
+
+/// Widget pour le bouton "Faire remplacer un agent" (pour admins/leaders/chiefs)
+/// Affiché quand l'utilisateur privilégié n'est PAS dans l'astreinte
+class _AdminReplaceButton extends StatefulWidget {
+  final Planning planning;
+  final User user;
+
+  const _AdminReplaceButton({
+    required this.planning,
+    required this.user,
+  });
+
+  @override
+  State<_AdminReplaceButton> createState() => _AdminReplaceButtonState();
+}
+
+class _AdminReplaceButtonState extends State<_AdminReplaceButton>
+    with SingleTickerProviderStateMixin {
+  OverlayEntry? _overlayEntry;
+  late AnimationController _animationController;
+  late Animation<double> _animation;
+  final LayerLink _layerLink = LayerLink();
+
+  @override
+  void initState() {
+    super.initState();
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 200),
+    );
+    _animation = CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeOut,
+    );
+  }
+
+  @override
+  void dispose() {
+    _removeOverlay();
+    _animationController.dispose();
+    super.dispose();
+  }
+
+  void _removeOverlay() {
+    _animationController.reverse().then((_) {
+      _overlayEntry?.remove();
+      _overlayEntry = null;
+    });
+  }
+
+  void _toggleMenu() {
+    if (_overlayEntry != null) {
+      _removeOverlay();
+    } else {
+      _showMenu();
+    }
+  }
+
+  void _showMenu() {
+    final overlay = Overlay.of(context);
+    final renderBox = context.findRenderObject() as RenderBox;
+    final size = renderBox.size;
+
+    _overlayEntry = OverlayEntry(
+      builder: (context) => GestureDetector(
+        onTap: _removeOverlay,
+        behavior: HitTestBehavior.translucent,
+        child: Stack(
+          children: [
+            // Semi-transparent background
+            Positioned.fill(
+              child: Container(color: Colors.black.withValues(alpha: 0.3)),
+            ),
+            // Menu options
+            Positioned(
+              width: size.width,
+              child: CompositedTransformFollower(
+                link: _layerLink,
+                showWhenUnlinked: false,
+                offset: Offset(0, size.height + 8),
+                child: FadeTransition(
+                  opacity: _animation,
+                  child: ScaleTransition(
+                    scale: _animation,
+                    alignment: Alignment.topCenter,
+                    child: Material(
+                      elevation: 8,
+                      borderRadius: BorderRadius.circular(12),
+                      child: AbsenceMenuOverlay.buildMenuContent(
+                        context: context,
+                        planning: widget.planning,
+                        user: widget.user,
+                        parentSubshift: null,
+                        onOptionSelected: _removeOverlay,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    overlay.insert(_overlayEntry!);
+    _animationController.forward();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CompositedTransformTarget(
+      link: _layerLink,
+      child: FilledButton.icon(
+        onPressed: _toggleMenu,
+        icon: const Icon(Icons.admin_panel_settings),
+        label: const Text("Faire remplacer un agent"),
+        style: FilledButton.styleFrom(
+          minimumSize: const Size(double.infinity, 40.0),
+          backgroundColor: Colors.deepPurple,
         ),
       ),
     );

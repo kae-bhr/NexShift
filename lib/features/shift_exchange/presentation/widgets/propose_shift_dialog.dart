@@ -1,8 +1,48 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:nexshift_app/core/data/models/planning_model.dart';
 import 'package:nexshift_app/core/data/models/shift_exchange_request_model.dart';
 import 'package:nexshift_app/core/repositories/planning_repository.dart';
 import 'package:nexshift_app/core/services/shift_exchange_service.dart';
+
+/// Calcule la durée d'un planning en minutes
+int _durationMinutes(DateTime start, DateTime end) =>
+    end.difference(start).inMinutes;
+
+/// Formate une différence de durée en format compact (+1j, -4h, etc.)
+String _formatDurationDiff(int diffMinutes) {
+  if (diffMinutes == 0) return '';
+  final sign = diffMinutes > 0 ? '+' : '-';
+  final abs = diffMinutes.abs();
+  if (abs >= 24 * 60) {
+    final days = abs ~/ (24 * 60);
+    final remainHours = (abs % (24 * 60)) ~/ 60;
+    if (remainHours > 0) return '$sign${days}j${remainHours}h';
+    return '$sign${days}j';
+  } else {
+    final hours = abs ~/ 60;
+    final remainMin = abs % 60;
+    if (hours == 0) return '$sign${remainMin}min';
+    if (remainMin > 0) return '$sign${hours}h${remainMin.toString().padLeft(2, '0')}';
+    return '$sign${hours}h';
+  }
+}
+
+/// Formate une durée en format lisible (ex: "11h", "1j", "1j12h")
+String _formatDuration(int minutes) {
+  if (minutes >= 24 * 60) {
+    final days = minutes ~/ (24 * 60);
+    final remainHours = (minutes % (24 * 60)) ~/ 60;
+    if (remainHours > 0) return '${days}j${remainHours}h';
+    return '${days}j';
+  } else {
+    final hours = minutes ~/ 60;
+    final remainMin = minutes % 60;
+    if (hours == 0) return '${remainMin}min';
+    if (remainMin > 0) return '${hours}h${remainMin.toString().padLeft(2, '0')}';
+    return '${hours}h';
+  }
+}
 
 /// Dialog pour proposer son astreinte en échange
 Future<bool?> showProposeShiftDialog({
@@ -41,9 +81,16 @@ class _ProposeShiftDialogState extends State<_ProposeShiftDialog> {
   final _planningRepository = PlanningRepository();
 
   List<Planning> _futureUserPlannings = [];
-  Set<String> _selectedPlanningIds = {}; // MODIFIÉ: Set pour sélection multiple
+  final Set<String> _selectedPlanningIds = {};
   bool _isLoading = true;
   bool _isSubmitting = false;
+  bool _showDifferentDurations = false;
+
+  /// Durée de référence (astreinte de l'initiateur) en minutes
+  int get _referenceDuration => _durationMinutes(
+        widget.request.initiatorStartTime,
+        widget.request.initiatorEndTime,
+      );
 
   @override
   void initState() {
@@ -53,35 +100,26 @@ class _ProposeShiftDialogState extends State<_ProposeShiftDialog> {
 
   Future<void> _loadUserPlannings() async {
     try {
-      print('[DEBUG ProposeShift] Loading plannings for user: ${widget.userId}, station: ${widget.stationId}');
-
-      // Récupérer tous les plannings de l'utilisateur pour cette station
       final allPlannings = await _planningRepository.getForUser(
         widget.userId,
         stationId: widget.stationId,
       );
-      print('[DEBUG ProposeShift] Total user plannings: ${allPlannings.length}');
 
-      // Filtrer pour ne garder que les plannings futurs de la bonne station
-      // Note: On considère qu'un planning est "futur" si sa date de début n'est pas encore passée
       final now = DateTime.now();
-      print('[DEBUG ProposeShift] Current time: $now');
-
       final futurePlannings = allPlannings
           .where((p) {
-            // Vérifier que la date de début n'est pas encore passée (même jour = futur)
-            final startDate = DateTime(p.startTime.year, p.startTime.month, p.startTime.day);
+            final startDate = DateTime(
+              p.startTime.year,
+              p.startTime.month,
+              p.startTime.day,
+            );
             final today = DateTime(now.year, now.month, now.day);
-            final isFuture = startDate.isAfter(today) || startDate.isAtSameMomentAs(today);
-            final isRightStation = p.station == widget.stationId;
-            print('[DEBUG ProposeShift]   Planning ${p.id}: start=${p.startTime}, station=${p.station}, isFuture=$isFuture, isRightStation=$isRightStation');
-            return isFuture && isRightStation;
+            return (startDate.isAfter(today) ||
+                    startDate.isAtSameMomentAs(today)) &&
+                p.station == widget.stationId;
           })
           .toList();
 
-      print('[DEBUG ProposeShift] Future plannings after filter: ${futurePlannings.length}');
-
-      // Trier par date
       futurePlannings.sort((a, b) => a.startTime.compareTo(b.startTime));
 
       if (mounted) {
@@ -91,11 +129,8 @@ class _ProposeShiftDialogState extends State<_ProposeShiftDialog> {
         });
       }
     } catch (e) {
-      print('[DEBUG ProposeShift] ERROR: $e');
       if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
+        setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Erreur lors du chargement: $e'),
@@ -106,8 +141,20 @@ class _ProposeShiftDialogState extends State<_ProposeShiftDialog> {
     }
   }
 
-  String _formatDateTime(DateTime dt) {
-    return "${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+  /// Retourne la liste filtrée selon le toggle de durée
+  List<Planning> get _filteredPlannings {
+    if (_showDifferentDurations) return _futureUserPlannings;
+    return _futureUserPlannings.where((p) {
+      final dur = _durationMinutes(p.startTime, p.endTime);
+      return dur == _referenceDuration;
+    }).toList();
+  }
+
+  int get _differentDurationCount {
+    return _futureUserPlannings.where((p) {
+      final dur = _durationMinutes(p.startTime, p.endTime);
+      return dur != _referenceDuration;
+    }).length;
   }
 
   Future<void> _submitProposal() async {
@@ -121,12 +168,9 @@ class _ProposeShiftDialogState extends State<_ProposeShiftDialog> {
       return;
     }
 
-    setState(() {
-      _isSubmitting = true;
-    });
+    setState(() => _isSubmitting = true);
 
     try {
-      // MODIFIÉ: Envoyer la liste des plannings sélectionnés
       await _exchangeService.createProposal(
         requestId: widget.request.id,
         proposerId: widget.userId,
@@ -139,14 +183,9 @@ class _ProposeShiftDialogState extends State<_ProposeShiftDialog> {
       }
     } catch (e) {
       if (mounted) {
-        setState(() {
-          _isSubmitting = false;
-        });
+        setState(() => _isSubmitting = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erreur: $e'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
         );
       }
     }
@@ -154,204 +193,397 @@ class _ProposeShiftDialogState extends State<_ProposeShiftDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Proposer mon astreinte'),
-      content: SizedBox(
-        width: double.maxFinite,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Afficher la demande initiale
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.blue[50],
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.blue[200]!),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+    final colorScheme = Theme.of(context).colorScheme;
+    final refDuration = _referenceDuration;
+    final filteredPlannings = _filteredPlannings;
+    final df = DateFormat('dd/MM HH:mm');
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.8,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // ── Header ──
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+              decoration: BoxDecoration(
+                color: colorScheme.primaryContainer.withValues(alpha: 0.3),
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Proposer mon astreinte',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                  const SizedBox(height: 12),
+                  // Carte initiateur
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: colorScheme.surface,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: colorScheme.primary.withValues(alpha: 0.2),
+                      ),
+                    ),
+                    child: Row(
                       children: [
-                        const Icon(Icons.person, size: 16, color: Colors.blue),
-                        const SizedBox(width: 4),
-                        Text(
-                          widget.request.initiatorName,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.blue,
+                        CircleAvatar(
+                          radius: 16,
+                          backgroundColor:
+                              colorScheme.primary.withValues(alpha: 0.1),
+                          child: Icon(
+                            Icons.swap_horiz,
+                            size: 18,
+                            color: colorScheme.primary,
                           ),
                         ),
-                        const Text(
-                          ' propose',
-                          style: TextStyle(color: Colors.blue),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '${widget.request.initiatorName} propose',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: colorScheme.primary,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '${df.format(widget.request.initiatorStartTime)} → ${df.format(widget.request.initiatorEndTime)}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        // Badge durée
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: colorScheme.primary.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            _formatDuration(refDuration),
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: colorScheme.primary,
+                            ),
+                          ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      _formatDateTime(widget.request.initiatorStartTime),
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    Text(
-                      '→ ${_formatDateTime(widget.request.initiatorEndTime)}',
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'En échange, proposez une ou plusieurs de vos astreintes :',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 12),
-              if (_isLoading)
-                const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(32.0),
-                    child: CircularProgressIndicator(),
                   ),
-                )
-              else if (_futureUserPlannings.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.all(16.0),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.event_busy,
-                        size: 48,
-                        color: Colors.grey,
-                      ),
-                      SizedBox(height: 16),
-                      Text(
-                        'Aucune astreinte future disponible',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.grey),
-                      ),
-                    ],
-                  ),
-                )
-              else
-                ...List.generate(_futureUserPlannings.length, (index) {
-                  final planning = _futureUserPlannings[index];
-                  final isSelected = _selectedPlanningIds.contains(planning.id);
+                ],
+              ),
+            ),
 
-                  return Card(
-                    color: isSelected ? Colors.green[50] : Colors.white,
-                    margin: const EdgeInsets.only(bottom: 8),
-                    child: ListTile(
-                      onTap: () {
-                        setState(() {
-                          if (isSelected) {
-                            _selectedPlanningIds.remove(planning.id);
-                          } else {
-                            _selectedPlanningIds.add(planning.id);
-                          }
-                        });
-                      },
-                      title: Text(
-                        'Équipe ${planning.team}',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
+            // ── Contenu scrollable ──
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'En échange, proposez une ou plusieurs de vos astreintes :',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: colorScheme.onSurfaceVariant,
                       ),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const SizedBox(height: 4),
-                          Text(
-                            _formatDateTime(planning.startTime),
-                            style: const TextStyle(fontSize: 12),
+                    ),
+                    const SizedBox(height: 8),
+
+                    // Checkbox filtre durée
+                    if (_differentDurationCount > 0)
+                      GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _showDifferentDurations = !_showDifferentDurations;
+                            if (!_showDifferentDurations) {
+                              final visibleIds =
+                                  _filteredPlannings.map((p) => p.id).toSet();
+                              _selectedPlanningIds
+                                  .retainWhere((id) => visibleIds.contains(id));
+                            }
+                          });
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: Checkbox(
+                                  value: _showDifferentDurations,
+                                  activeColor: colorScheme.primary,
+                                  checkColor: colorScheme.onPrimary,
+                                  side: BorderSide(color: colorScheme.onSurfaceVariant),
+                                  onChanged: (v) {
+                                    setState(() {
+                                      _showDifferentDurations = v ?? false;
+                                      if (!_showDifferentDurations) {
+                                        final visibleIds = _filteredPlannings
+                                            .map((p) => p.id)
+                                            .toSet();
+                                        _selectedPlanningIds.retainWhere(
+                                          (id) => visibleIds.contains(id),
+                                        );
+                                      }
+                                    });
+                                  },
+                                  materialTapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Afficher les durées différentes ($_differentDurationCount)',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                          Text(
-                            '→ ${_formatDateTime(planning.endTime)}',
-                            style: const TextStyle(fontSize: 12),
+                        ),
+                      ),
+
+                    // Liste des plannings
+                    if (_isLoading)
+                      const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(32.0),
+                          child: CircularProgressIndicator(),
+                        ),
+                      )
+                    else if (filteredPlannings.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.all(24.0),
+                        child: Column(
+                          children: [
+                            Icon(Icons.event_busy,
+                                size: 40, color: Colors.grey[400]),
+                            const SizedBox(height: 12),
+                            Text(
+                              _futureUserPlannings.isEmpty
+                                  ? 'Aucune astreinte future disponible'
+                                  : 'Aucune astreinte de même durée',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.grey[500],
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    else
+                      ...filteredPlannings.map((planning) {
+                        final isSelected =
+                            _selectedPlanningIds.contains(planning.id);
+                        final planDuration = _durationMinutes(
+                          planning.startTime,
+                          planning.endTime,
+                        );
+                        final diffMinutes = planDuration - refDuration;
+                        final isSameDuration = diffMinutes == 0;
+
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: Material(
+                            color: isSelected
+                                ? colorScheme.primary.withValues(alpha: 0.08)
+                                : colorScheme.surfaceContainerHighest
+                                    .withValues(alpha: 0.3),
+                            borderRadius: BorderRadius.circular(12),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(12),
+                              onTap: () {
+                                setState(() {
+                                  if (isSelected) {
+                                    _selectedPlanningIds.remove(planning.id);
+                                  } else {
+                                    _selectedPlanningIds.add(planning.id);
+                                  }
+                                });
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 10,
+                                ),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'Équipe ${planning.team}',
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w600,
+                                              fontSize: 14,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            '${df.format(planning.startTime)} → ${df.format(planning.endTime)}',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color:
+                                                  colorScheme.onSurfaceVariant,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+
+                                    // Indicateur de durée
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 3,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: isSameDuration
+                                            ? Colors.green
+                                                .withValues(alpha: 0.1)
+                                            : Colors.orange
+                                                .withValues(alpha: 0.1),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Text(
+                                        isSameDuration
+                                            ? '='
+                                            : _formatDurationDiff(diffMinutes),
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          color: isSameDuration
+                                              ? Colors.green[700]
+                                              : Colors.orange[800],
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+
+                                    // Icône check
+                                    Icon(
+                                      isSelected
+                                          ? Icons.check_circle
+                                          : Icons.circle_outlined,
+                                      color: isSelected
+                                          ? colorScheme.primary
+                                          : Colors.grey[400],
+                                      size: 22,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      }),
+
+                    const SizedBox(height: 12),
+
+                    // Info box
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.orange[50],
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.info_outline,
+                              size: 18, color: Colors.orange[700]),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'L\'initiateur devra sélectionner votre proposition avant validation par les chefs.',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.orange[800],
+                              ),
+                            ),
                           ),
                         ],
                       ),
-                      trailing: isSelected
-                          ? const Icon(Icons.check_circle, color: Colors.green)
-                          : const Icon(Icons.circle_outlined, color: Colors.grey),
                     ),
-                  );
-                }),
-              const SizedBox(height: 16),
-              if (_selectedPlanningIds.isNotEmpty)
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.blue[50],
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.blue[200]!),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.info_outline, size: 20, color: Colors.blue),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          '${_selectedPlanningIds.length} astreinte(s) sélectionnée(s)',
-                          style: const TextStyle(fontSize: 12, color: Colors.blue, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.orange[50],
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.orange[200]!),
-                ),
-                child: const Row(
-                  children: [
-                    Icon(Icons.info_outline, size: 20, color: Colors.orange),
-                    SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'L\'initiateur devra sélectionner votre proposition avant validation par les chefs',
-                        style: TextStyle(fontSize: 12, color: Colors.orange),
-                      ),
-                    ),
+                    const SizedBox(height: 4),
                   ],
                 ),
               ),
-            ],
-          ),
+            ),
+
+            // ── Actions ──
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: _isSubmitting
+                          ? null
+                          : () => Navigator.of(context).pop(false),
+                      child: const Text('Annuler'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: _isSubmitting || _selectedPlanningIds.isEmpty
+                          ? null
+                          : _submitProposal,
+                      child: _isSubmitting
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Text(
+                              _selectedPlanningIds.length > 1
+                                  ? 'Proposer (${_selectedPlanningIds.length})'
+                                  : 'Proposer',
+                            ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: _isSubmitting ? null : () => Navigator.of(context).pop(false),
-          child: const Text('Annuler'),
-        ),
-        ElevatedButton(
-          onPressed: _isSubmitting || _selectedPlanningIds.isEmpty
-              ? null
-              : _submitProposal,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.green,
-            foregroundColor: Colors.white,
-          ),
-          child: _isSubmitting
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                )
-              : Text(_selectedPlanningIds.length > 1
-                  ? 'Proposer ${_selectedPlanningIds.length} astreintes'
-                  : 'Proposer'),
-        ),
-      ],
     );
   }
 }

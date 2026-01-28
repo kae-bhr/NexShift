@@ -29,6 +29,7 @@ class PlanningCard extends StatefulWidget {
   // {'type': String, 'id': int, 'color': Color}
   final List<Map<String, dynamic>> vehicleIconSpecs;
   final Color? availabilityColor; // Couleur pour les disponibilités
+  final bool allReplacementsChecked; // Si tous les remplacements sont checkés
 
   const PlanningCard({
     super.key,
@@ -40,6 +41,7 @@ class PlanningCard extends StatefulWidget {
     this.pendingRequestCount = 0,
     this.vehicleIconSpecs = const [],
     this.availabilityColor,
+    this.allReplacementsChecked = false,
   });
 
   @override
@@ -298,7 +300,7 @@ class _PlanningCardState extends State<PlanningCard> {
                         if (widget.pendingRequestCount > 0 &&
                             widget.replacementCount > 0)
                           const SizedBox(width: 6),
-                        // Badge des remplacements (filled)
+                        // Badge des remplacements (filled - vert si tous checkés)
                         if (widget.replacementCount > 0)
                           Container(
                             padding: const EdgeInsets.symmetric(
@@ -306,13 +308,17 @@ class _PlanningCardState extends State<PlanningCard> {
                               vertical: 4,
                             ),
                             decoration: BoxDecoration(
-                              color: Theme.of(context).colorScheme.primary,
+                              color: widget.allReplacementsChecked
+                                  ? Colors.green
+                                  : Theme.of(context).colorScheme.primary,
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Text(
                               widget.replacementCount.toString(),
                               style: TextStyle(
-                                color: Theme.of(context).colorScheme.onPrimary,
+                                color: widget.allReplacementsChecked
+                                    ? Colors.white
+                                    : Theme.of(context).colorScheme.onPrimary,
                                 fontSize: 12,
                                 fontWeight: FontWeight.bold,
                               ),

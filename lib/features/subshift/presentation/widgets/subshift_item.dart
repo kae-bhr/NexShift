@@ -4,7 +4,7 @@ import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/data/models/planning_model.dart';
 import 'package:nexshift_app/core/data/models/subshift_model.dart';
 
-/// Widget représentant un élément visuel d’un remplacement (SubShift)
+/// Widget représentant un élément visuel d'un remplacement (SubShift)
 /// Purement UI : ne gère aucune donnée métier ni persistence.
 class SubShiftItem extends StatelessWidget {
   final Subshift subShift;
@@ -15,6 +15,12 @@ class SubShiftItem extends StatelessWidget {
   final bool isLast;
   final bool highlight;
 
+  /// Si true, affiche l'icône check à droite
+  final bool showCheckIcon;
+
+  /// Callback appelé lors du clic sur l'icône check
+  final VoidCallback? onCheckTap;
+
   const SubShiftItem({
     super.key,
     required this.subShift,
@@ -24,6 +30,8 @@ class SubShiftItem extends StatelessWidget {
     this.isFirst = false,
     this.isLast = false,
     this.highlight = false,
+    this.showCheckIcon = false,
+    this.onCheckTap,
   });
 
   @override
@@ -37,8 +45,11 @@ class SubShiftItem extends StatelessWidget {
       orElse: () => noneUser,
     );
 
-    final lineColor = Theme.of(context).colorScheme.primary.withOpacity(0.5);
+    final lineColor = Theme.of(
+      context,
+    ).colorScheme.primary.withValues(alpha: 0.5);
     final dotColor = Theme.of(context).colorScheme.primary;
+    final isExchange = subShift.isExchange;
     final bg = highlight
         ? Theme.of(context).colorScheme.primary.withOpacity(0.06)
         : Colors.transparent;
@@ -62,14 +73,20 @@ class SubShiftItem extends StatelessWidget {
                       margin: const EdgeInsets.only(bottom: 6),
                     ),
                   ),
-                  Container(
-                    width: 10,
-                    height: 10,
-                    decoration: BoxDecoration(
-                      color: dotColor,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
+                  isExchange
+                      ? Icon(
+                          Icons.swap_horiz,
+                          size: 28,
+                          color: Colors.green[300],
+                        )
+                      : Container(
+                          width: 10,
+                          height: 10,
+                          decoration: BoxDecoration(
+                            color: dotColor,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
                   Expanded(
                     child: Container(
                       width: 2,
@@ -123,6 +140,26 @@ class SubShiftItem extends StatelessWidget {
                 ),
               ),
             ),
+
+            // Icône check à droite (visible uniquement si showCheckIcon)
+            if (showCheckIcon) ...[
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: onCheckTap,
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  child: Icon(
+                    subShift.checkedByChief
+                        ? Icons.check_circle
+                        : Icons.check_circle_outline,
+                    color: subShift.checkedByChief
+                        ? Colors.green
+                        : Colors.grey[400],
+                    size: 24,
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),

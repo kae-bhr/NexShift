@@ -252,19 +252,22 @@ class PlanningRepository {
   }
 
   /// Sauvegarde un planning
-  Future<void> save(Planning planning) async {
+  Future<void> save(Planning planning, {String? stationId}) async {
     try {
-      // Mode test
-      if (_directFirestore != null) {
-        await _directFirestore
-            .collection(_collectionName)
+      final collectionPath = _getCollectionPath(stationId);
+
+      // Mode test OU mode subcollections : utiliser FirebaseFirestore directement
+      if (_directFirestore != null || EnvironmentConfig.useStationSubcollections) {
+        final firestore = _directFirestore ?? FirebaseFirestore.instance;
+        await firestore
+            .collection(collectionPath)
             .doc(planning.id)
             .set(planning.toJson());
         return;
       }
-      // Mode production
+      // Mode production sans subcollections
       await _firestoreService.upsert(
-        _collectionName,
+        collectionPath,
         planning.id,
         planning.toJson(),
       );
