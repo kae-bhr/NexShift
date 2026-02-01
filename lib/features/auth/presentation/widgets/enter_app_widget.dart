@@ -4,6 +4,7 @@ import 'package:nexshift_app/core/data/datasources/notifiers.dart';
 import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/repositories/local_repositories.dart';
+import 'package:nexshift_app/core/services/subscription_service.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -37,6 +38,25 @@ class EnterApp {
           debugPrint('🟣 [ENTER_APP] Extracted SDIS ID from email: $sdisId');
         }
       }
+    }
+
+    // Vérifier l'abonnement de la caserne
+    if (sdisId != null && loadedUser.station.isNotEmpty) {
+      final subStatus = await SubscriptionService().checkOnce(
+        sdisId,
+        loadedUser.station,
+      );
+      debugPrint('🟣 [ENTER_APP] Subscription status: $subStatus');
+
+      if (subStatus == SubscriptionStatus.expired) {
+        debugPrint('🟣 [ENTER_APP] Subscription expired - blocking access');
+        subscriptionStatusNotifier.value = subStatus;
+        // On laisse passer : main.dart bloquera avec la page d'expiration
+      }
+
+      // Démarrer l'écoute en temps réel pour la bannière
+      SubscriptionService().startListening(sdisId, loadedUser.station);
+      subscriptionStatusNotifier.value = subStatus;
     }
 
     // Sauvegarder l'utilisateur ET le SDIS ID

@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 /// Mode de remplacement
 enum ReplacementMode {
   similarity, // Mode par similarité (système actuel)
@@ -31,6 +33,9 @@ class Station {
   final String nightPauseStart; // Format "HH:mm"
   final String nightPauseEnd;   // Format "HH:mm"
 
+  // Date de fin d'abonnement de la caserne (null = pas de limite)
+  final DateTime? subscriptionEndDate;
+
   const Station({
     required this.id,
     required this.name,
@@ -42,7 +47,27 @@ class Station {
     this.nightPauseEnabled = true, // Activé par défaut
     this.nightPauseStart = '23:00', // Début à 23h par défaut
     this.nightPauseEnd = '06:00', // Fin à 6h par défaut
+    this.subscriptionEndDate,
   });
+
+  /// Vérifie si l'abonnement est expiré
+  bool get isSubscriptionExpired {
+    if (subscriptionEndDate == null) return false;
+    return DateTime.now().isAfter(subscriptionEndDate!);
+  }
+
+  /// Vérifie si l'abonnement expire dans moins de 30 jours
+  bool get isSubscriptionExpiringSoon {
+    if (subscriptionEndDate == null) return false;
+    final daysUntilExpiry = subscriptionEndDate!.difference(DateTime.now()).inDays;
+    return daysUntilExpiry >= 0 && daysUntilExpiry <= 30;
+  }
+
+  /// Nombre de jours restants avant expiration
+  int get daysUntilSubscriptionExpiry {
+    if (subscriptionEndDate == null) return -1;
+    return subscriptionEndDate!.difference(DateTime.now()).inDays;
+  }
 
   Station copyWith({
     String? id,
@@ -55,6 +80,7 @@ class Station {
     bool? nightPauseEnabled,
     String? nightPauseStart,
     String? nightPauseEnd,
+    DateTime? subscriptionEndDate,
   }) =>
       Station(
         id: id ?? this.id,
@@ -67,6 +93,7 @@ class Station {
         nightPauseEnabled: nightPauseEnabled ?? this.nightPauseEnabled,
         nightPauseStart: nightPauseStart ?? this.nightPauseStart,
         nightPauseEnd: nightPauseEnd ?? this.nightPauseEnd,
+        subscriptionEndDate: subscriptionEndDate ?? this.subscriptionEndDate,
       );
 
   Map<String, dynamic> toJson() => {
@@ -80,6 +107,8 @@ class Station {
         'nightPauseEnabled': nightPauseEnabled,
         'nightPauseStart': nightPauseStart,
         'nightPauseEnd': nightPauseEnd,
+        if (subscriptionEndDate != null)
+          'subscriptionEndDate': Timestamp.fromDate(subscriptionEndDate!),
       };
 
   factory Station.fromJson(Map<String, dynamic> json) => Station(
@@ -101,5 +130,8 @@ class Station {
         nightPauseEnabled: json['nightPauseEnabled'] as bool? ?? true,
         nightPauseStart: json['nightPauseStart'] as String? ?? '23:00',
         nightPauseEnd: json['nightPauseEnd'] as String? ?? '06:00',
+        subscriptionEndDate: json['subscriptionEndDate'] != null
+            ? (json['subscriptionEndDate'] as Timestamp).toDate()
+            : null,
       );
 }

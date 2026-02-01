@@ -149,6 +149,7 @@ class _LogsViewerPageState extends State<LogsViewerPage>
             fontWeight: KTextStyle.regularTextStyle.fontWeight,
           ),
         ),
+        toolbarHeight: 40,
         bottom: TabBar(
           controller: _tabController,
           labelColor: Theme.of(context).colorScheme.primary,

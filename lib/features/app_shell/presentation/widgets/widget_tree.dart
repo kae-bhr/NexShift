@@ -16,6 +16,7 @@ import 'package:nexshift_app/features/teams/presentation/pages/team_page.dart';
 import 'package:nexshift_app/features/availability/presentation/pages/add_availability_page.dart';
 import 'package:nexshift_app/features/replacement/presentation/pages/replacement_requests_list_page.dart';
 import 'package:nexshift_app/core/services/badge_count_service.dart';
+import 'package:nexshift_app/core/services/subscription_service.dart';
 
 List<Widget> pages = [HomePage(), PlanningPage()];
 
@@ -48,7 +49,9 @@ class _WidgetTreeState extends State<WidgetTree> {
   void _initializeBadgeService() {
     final user = userNotifier.value;
     if (user != null && user.id.isNotEmpty && user.station.isNotEmpty) {
-      debugPrint('🏠 [WIDGET_TREE] Initializing BadgeCountService for user ${user.id}');
+      debugPrint(
+        '🏠 [WIDGET_TREE] Initializing BadgeCountService for user ${user.id}',
+      );
       BadgeCountService().initialize(user.id, user.station, user);
     }
   }
@@ -204,10 +207,9 @@ class _WidgetTreeState extends State<WidgetTree> {
               ),
             ],
           ),
+          toolbarHeight: 40,
           leading: DrawerButton(color: Theme.of(context).colorScheme.primary),
           actions: [
-            // Bouton de changement de station (affiché uniquement si multi-stations)
-            const StationSwitcherButton(),
             // Bouton paramètres
             IconButton(
               onPressed: () {
@@ -434,99 +436,139 @@ class _WidgetTreeState extends State<WidgetTree> {
                           );
                         },
                         child: ValueListenableBuilder<bool>(
-                              valueListenable: BadgeCountService().hasReplacementPending,
-                              builder: (context, hasReplacementPending, _) {
+                          valueListenable:
+                              BadgeCountService().hasReplacementPending,
+                          builder: (context, hasReplacementPending, _) {
+                            return ValueListenableBuilder<bool>(
+                              valueListenable:
+                                  BadgeCountService().hasExchangePending,
+                              builder: (context, hasExchangePending, _) {
                                 return ValueListenableBuilder<bool>(
-                                  valueListenable: BadgeCountService().hasExchangePending,
-                                  builder: (context, hasExchangePending, _) {
+                                  valueListenable: BadgeCountService()
+                                      .hasExchangeNeedingSelection,
+                                  builder: (context, hasExchangeNeedingSelection, _) {
                                     return ValueListenableBuilder<bool>(
-                                      valueListenable: BadgeCountService().hasExchangeNeedingSelection,
-                                      builder: (context, hasExchangeNeedingSelection, _) {
+                                      valueListenable: BadgeCountService()
+                                          .hasReplacementValidation,
+                                      builder: (context, hasReplacementValidation, _) {
                                         return ValueListenableBuilder<bool>(
-                                          valueListenable: BadgeCountService().hasReplacementValidation,
-                                          builder: (context, hasReplacementValidation, _) {
-                                            return ValueListenableBuilder<bool>(
-                                              valueListenable: BadgeCountService().hasExchangeValidation,
-                                              builder: (context, hasExchangeValidation, _) {
-                                                final hasValidation = hasReplacementValidation || hasExchangeValidation;
+                                          valueListenable: BadgeCountService()
+                                              .hasExchangeValidation,
+                                          builder: (context, hasExchangeValidation, _) {
+                                            final hasValidation =
+                                                hasReplacementValidation ||
+                                                hasExchangeValidation;
 
-                                                return ListTile(
-                                                  minTileHeight: 0.0,
-                                                  leading: Icon(
-                                                    Icons.swap_horiz,
-                                                    color: Theme.of(context).colorScheme.primary,
-                                                  ),
-                                                  title: Text(
-                                                    "Remplacements",
-                                                    style: TextStyle(
-                                                      color: Theme.of(context).colorScheme.tertiary,
-                                                      fontSize: KTextStyle.descriptionTextStyle.fontSize,
-                                                      fontFamily: KTextStyle.descriptionTextStyle.fontFamily,
-                                                      fontWeight: KTextStyle.descriptionTextStyle.fontWeight,
+                                            return ListTile(
+                                              minTileHeight: 0.0,
+                                              leading: Icon(
+                                                Icons.swap_horiz,
+                                                color: Theme.of(
+                                                  context,
+                                                ).colorScheme.primary,
+                                              ),
+                                              title: Text(
+                                                "Remplacements",
+                                                style: TextStyle(
+                                                  color: Theme.of(
+                                                    context,
+                                                  ).colorScheme.tertiary,
+                                                  fontSize: KTextStyle
+                                                      .descriptionTextStyle
+                                                      .fontSize,
+                                                  fontFamily: KTextStyle
+                                                      .descriptionTextStyle
+                                                      .fontFamily,
+                                                  fontWeight: KTextStyle
+                                                      .descriptionTextStyle
+                                                      .fontWeight,
+                                                ),
+                                              ),
+                                              trailing:
+                                                  (!hasReplacementPending &&
+                                                      !hasExchangePending &&
+                                                      !hasExchangeNeedingSelection &&
+                                                      !hasValidation)
+                                                  ? const SizedBox.shrink()
+                                                  : Row(
+                                                      mainAxisSize:
+                                                          MainAxisSize.min,
+                                                      children: [
+                                                        // Pastille ronde AppNameColor pour demandes de remplacement
+                                                        if (hasReplacementPending)
+                                                          Container(
+                                                            width: 12,
+                                                            height: 12,
+                                                            decoration: BoxDecoration(
+                                                              color:
+                                                                  Theme.of(
+                                                                        context,
+                                                                      )
+                                                                      .colorScheme
+                                                                      .primary,
+                                                              shape: BoxShape
+                                                                  .circle,
+                                                            ),
+                                                          ),
+                                                        if (hasReplacementPending &&
+                                                            (hasExchangePending ||
+                                                                hasExchangeNeedingSelection ||
+                                                                hasValidation))
+                                                          const SizedBox(
+                                                            width: 6,
+                                                          ),
+                                                        // Pastille ronde verte pour demandes d'échange
+                                                        if (hasExchangePending)
+                                                          Container(
+                                                            width: 12,
+                                                            height: 12,
+                                                            decoration:
+                                                                const BoxDecoration(
+                                                                  color: Colors
+                                                                      .green,
+                                                                  shape: BoxShape
+                                                                      .circle,
+                                                                ),
+                                                          ),
+                                                        if (hasExchangePending &&
+                                                            (hasExchangeNeedingSelection ||
+                                                                hasValidation))
+                                                          const SizedBox(
+                                                            width: 6,
+                                                          ),
+                                                        // Pastille ronde violette pour échanges avec propositions nécessitant sélection
+                                                        if (hasExchangeNeedingSelection)
+                                                          Container(
+                                                            width: 12,
+                                                            height: 12,
+                                                            decoration:
+                                                                const BoxDecoration(
+                                                                  color: Colors
+                                                                      .purple,
+                                                                  shape: BoxShape
+                                                                      .circle,
+                                                                ),
+                                                          ),
+                                                        if (hasExchangeNeedingSelection &&
+                                                            hasValidation)
+                                                          const SizedBox(
+                                                            width: 6,
+                                                          ),
+                                                        // Pastille ronde bleue pour validations en attente
+                                                        if (hasValidation)
+                                                          Container(
+                                                            width: 12,
+                                                            height: 12,
+                                                            decoration:
+                                                                const BoxDecoration(
+                                                                  color: Colors
+                                                                      .blue,
+                                                                  shape: BoxShape
+                                                                      .circle,
+                                                                ),
+                                                          ),
+                                                      ],
                                                     ),
-                                                  ),
-                                                  trailing: (!hasReplacementPending &&
-                                                          !hasExchangePending &&
-                                                          !hasExchangeNeedingSelection &&
-                                                          !hasValidation)
-                                                      ? const SizedBox.shrink()
-                                                      : Row(
-                                                          mainAxisSize: MainAxisSize.min,
-                                                          children: [
-                                                            // Pastille ronde AppNameColor pour demandes de remplacement
-                                                            if (hasReplacementPending)
-                                                              Container(
-                                                                width: 12,
-                                                                height: 12,
-                                                                decoration: BoxDecoration(
-                                                                  color: Theme.of(context).colorScheme.primary,
-                                                                  shape: BoxShape.circle,
-                                                                ),
-                                                              ),
-                                                            if (hasReplacementPending &&
-                                                                (hasExchangePending ||
-                                                                    hasExchangeNeedingSelection ||
-                                                                    hasValidation))
-                                                              const SizedBox(width: 6),
-                                                            // Pastille ronde verte pour demandes d'échange
-                                                            if (hasExchangePending)
-                                                              Container(
-                                                                width: 12,
-                                                                height: 12,
-                                                                decoration: const BoxDecoration(
-                                                                  color: Colors.green,
-                                                                  shape: BoxShape.circle,
-                                                                ),
-                                                              ),
-                                                            if (hasExchangePending &&
-                                                                (hasExchangeNeedingSelection || hasValidation))
-                                                              const SizedBox(width: 6),
-                                                            // Pastille ronde violette pour échanges avec propositions nécessitant sélection
-                                                            if (hasExchangeNeedingSelection)
-                                                              Container(
-                                                                width: 12,
-                                                                height: 12,
-                                                                decoration: const BoxDecoration(
-                                                                  color: Colors.purple,
-                                                                  shape: BoxShape.circle,
-                                                                ),
-                                                              ),
-                                                            if (hasExchangeNeedingSelection && hasValidation)
-                                                              const SizedBox(width: 6),
-                                                            // Pastille ronde bleue pour validations en attente
-                                                            if (hasValidation)
-                                                              Container(
-                                                                width: 12,
-                                                                height: 12,
-                                                                decoration: const BoxDecoration(
-                                                                  color: Colors.blue,
-                                                                  shape: BoxShape.circle,
-                                                                ),
-                                                              ),
-                                                          ],
-                                                        ),
-                                                );
-                                              },
                                             );
                                           },
                                         );
@@ -535,7 +577,9 @@ class _WidgetTreeState extends State<WidgetTree> {
                                   },
                                 );
                               },
-                            ),
+                            );
+                          },
+                        ),
                       ),
                     ],
                   ),
@@ -544,10 +588,17 @@ class _WidgetTreeState extends State<WidgetTree> {
             );
           },
         ),
-        body: PageView(
-          controller: _pageController,
-          onPageChanged: _onPageChanged,
-          children: pages,
+        body: Column(
+          children: [
+            const _SubscriptionBanner(),
+            Expanded(
+              child: PageView(
+                controller: _pageController,
+                onPageChanged: _onPageChanged,
+                children: pages,
+              ),
+            ),
+          ],
         ),
         floatingActionButton: ValueListenableBuilder<int>(
           valueListenable: selectedPageNotifier,
@@ -579,6 +630,104 @@ class _WidgetTreeState extends State<WidgetTree> {
         ),
         bottomNavigationBar: const NavbarWidget(),
       ),
+    );
+  }
+}
+
+/// Bannière affichée sous l'AppBar quand l'abonnement expire bientôt
+class _SubscriptionBanner extends StatefulWidget {
+  const _SubscriptionBanner();
+
+  @override
+  State<_SubscriptionBanner> createState() => _SubscriptionBannerState();
+}
+
+class _SubscriptionBannerState extends State<_SubscriptionBanner> {
+  bool _collapsed = false;
+
+  String _formatEndDate() {
+    final endDate = SubscriptionService().endDateNotifier.value;
+    if (endDate == null) return "Votre abonnement expire bientôt";
+    final d = endDate.toLocal();
+    final dd = d.day.toString().padLeft(2, '0');
+    final mm = d.month.toString().padLeft(2, '0');
+    final hh = d.hour.toString().padLeft(2, '0');
+    final min = d.minute.toString().padLeft(2, '0');
+    return "Votre abonnement expire le $dd/$mm $hh:$min";
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<SubscriptionStatus>(
+      valueListenable: subscriptionStatusNotifier,
+      builder: (context, status, _) {
+        if (status != SubscriptionStatus.expiringSoon) {
+          return const SizedBox.shrink();
+        }
+
+        if (_collapsed) {
+          return GestureDetector(
+            onTap: () => setState(() => _collapsed = false),
+            child: SizedBox(
+              width: double.infinity,
+              height: 18,
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  // Ligne horizontale orange
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    top: 0,
+                    child: Container(height: 2, color: Colors.orange[700]),
+                  ),
+                  // Encart arrondi en bas à droite avec icône
+                  Positioned(
+                    right: 16,
+                    top: 0,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.orange[700],
+                        borderRadius: const BorderRadius.only(
+                          bottomLeft: Radius.circular(8),
+                          bottomRight: Radius.circular(8),
+                        ),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      child: const Icon(
+                        Icons.timer_outlined,
+                        color: Colors.white,
+                        size: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        return GestureDetector(
+          onTap: () => setState(() => _collapsed = true),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
+            color: Colors.orange[700],
+            child: Text(
+              _formatEndDate(),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        );
+      },
     );
   }
 }

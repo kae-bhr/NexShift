@@ -38,6 +38,9 @@ class _TeamPageState extends State<TeamPage> {
   Color? _teamColor;
   String _searchQuery = '';
   TeamViewMode _viewMode = TeamViewMode.rolesBased;
+  bool _showAllStaff = false;
+  // Cache des couleurs d'équipe pour le mode "Effectif complet"
+  Map<String, Color> _teamColors = {};
 
   @override
   void initState() {
@@ -91,20 +94,41 @@ class _TeamPageState extends State<TeamPage> {
       }
 
       final users = await UserRepository().getByStation(stationId);
-      final filtered = users.where((u) => u.team == _teamId).toList();
-      filtered.sort((a, b) => a.lastName.compareTo(b.lastName));
+      final teams = await TeamRepository().getByStation(stationId);
 
-      final team = await TeamRepository().getById(_teamId, stationId: stationId);
+      // Construire le cache des couleurs d'équipe
+      final colorsMap = <String, Color>{};
+      for (final t in teams) {
+        colorsMap[t.id] = t.color;
+      }
+
+      final List<User> filtered;
+      if (_showAllStaff) {
+        filtered = List<User>.from(users)
+          ..sort((a, b) => a.lastName.compareTo(b.lastName));
+      } else {
+        filtered = users.where((u) => u.team == _teamId).toList()
+          ..sort((a, b) => a.lastName.compareTo(b.lastName));
+      }
+
+      final team = _showAllStaff
+          ? null
+          : await TeamRepository().getById(_teamId, stationId: stationId);
 
       // Load positions for the team's station
-      final positions = await _positionRepo.getPositionsByStation(stationId).first;
+      final positions = await _positionRepo
+          .getPositionsByStation(stationId)
+          .first;
 
       setState(() {
         _teamUsers = filtered;
         _filteredUsers = filtered;
         _positions = positions;
-        _teamName = team?.name ?? 'Équipe $_teamId';
-        _teamColor = team?.color;
+        _teamColors = colorsMap;
+        _teamName = _showAllStaff
+            ? 'Effectif complet'
+            : (team?.name ?? 'Équipe $_teamId');
+        _teamColor = _showAllStaff ? KColors.appNameColor : team?.color;
         _loading = false;
       });
       _applySearch();
@@ -199,7 +223,7 @@ class _TeamPageState extends State<TeamPage> {
       children: [
         // Search bar
         Padding(
-          padding: KSpacing.paddingL,
+          padding: KSpacing.paddingM,
           child: TextField(
             controller: _searchController,
             onChanged: (value) {
@@ -239,46 +263,6 @@ class _TeamPageState extends State<TeamPage> {
             ),
           ),
         ),
-        // Stats badge
-        if (_searchQuery.isEmpty) ...[
-          SizedBox(height: KSpacing.m),
-          Padding(
-            padding: KSpacing.paddingHorizontalL,
-            child: Container(
-              padding: KSpacing.paddingM,
-              decoration: BoxDecoration(
-                color: (_teamColor ?? Theme.of(context).colorScheme.primary)
-                    .withOpacity(0.1),
-                borderRadius: KBorderRadius.circularM,
-                border: Border.all(
-                  color: (_teamColor ?? Theme.of(context).colorScheme.primary)
-                      .withOpacity(0.3),
-                ),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _buildStatItem(context, Icons.groups, '$totalCount', 'Total'),
-                  Container(width: 1, height: 24, color: Colors.grey[300]),
-                  _buildStatItem(
-                    context,
-                    Icons.shield_moon,
-                    '$leaderCount',
-                    'Chefs',
-                  ),
-                  Container(width: 1, height: 24, color: Colors.grey[300]),
-                  _buildStatItem(
-                    context,
-                    Icons.person,
-                    '$agentCount',
-                    'Agents',
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-        SizedBox(height: KSpacing.l),
         // List
         Expanded(
           child: _filteredUsers.isEmpty
@@ -293,6 +277,62 @@ class _TeamPageState extends State<TeamPage> {
               : ListView(
                   padding: KSpacing.paddingL,
                   children: [
+                    // Stats badge
+                    if (_searchQuery.isEmpty) ...[
+                      Padding(
+                        padding: KSpacing.paddingHorizontalL,
+                        child: Container(
+                          padding: KSpacing.paddingM,
+                          decoration: BoxDecoration(
+                            color:
+                                (_teamColor ??
+                                        Theme.of(context).colorScheme.primary)
+                                    .withOpacity(0.1),
+                            borderRadius: KBorderRadius.circularM,
+                            border: Border.all(
+                              color:
+                                  (_teamColor ??
+                                          Theme.of(context).colorScheme.primary)
+                                      .withOpacity(0.3),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceAround,
+                            children: [
+                              _buildStatItem(
+                                context,
+                                Icons.groups,
+                                '$totalCount',
+                                'Total',
+                              ),
+                              Container(
+                                width: 1,
+                                height: 24,
+                                color: Colors.grey[300],
+                              ),
+                              _buildStatItem(
+                                context,
+                                Icons.shield_moon,
+                                '$leaderCount',
+                                'Chefs',
+                              ),
+                              Container(
+                                width: 1,
+                                height: 24,
+                                color: Colors.grey[300],
+                              ),
+                              _buildStatItem(
+                                context,
+                                Icons.person,
+                                '$agentCount',
+                                'Agents',
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                    SizedBox(height: KSpacing.xl),
                     if (leaders.isNotEmpty) ...[
                       _sectionHeader(
                         context,
@@ -339,7 +379,7 @@ class _TeamPageState extends State<TeamPage> {
       children: [
         // Search bar
         Padding(
-          padding: KSpacing.paddingL,
+          padding: KSpacing.paddingM,
           child: TextField(
             controller: _searchController,
             onChanged: (value) {
@@ -379,32 +419,6 @@ class _TeamPageState extends State<TeamPage> {
             ),
           ),
         ),
-        // Stats badge
-        if (_searchQuery.isEmpty) ...[
-          SizedBox(height: KSpacing.m),
-          Padding(
-            padding: KSpacing.paddingHorizontalL,
-            child: Container(
-              padding: KSpacing.paddingM,
-              decoration: BoxDecoration(
-                color: (_teamColor ?? Theme.of(context).colorScheme.primary)
-                    .withOpacity(0.1),
-                borderRadius: KBorderRadius.circularM,
-                border: Border.all(
-                  color: (_teamColor ?? Theme.of(context).colorScheme.primary)
-                      .withOpacity(0.3),
-                ),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _buildStatItem(context, Icons.groups, '$totalCount', 'Total'),
-                ],
-              ),
-            ),
-          ),
-        ],
-        SizedBox(height: KSpacing.l),
         // List
         Expanded(
           child: _filteredUsers.isEmpty
@@ -419,6 +433,40 @@ class _TeamPageState extends State<TeamPage> {
               : ListView(
                   padding: KSpacing.paddingL,
                   children: [
+                    // Stats badge
+                    if (_searchQuery.isEmpty) ...[
+                      Padding(
+                        padding: KSpacing.paddingHorizontalL,
+                        child: Container(
+                          padding: KSpacing.paddingM,
+                          decoration: BoxDecoration(
+                            color:
+                                (_teamColor ??
+                                        Theme.of(context).colorScheme.primary)
+                                    .withOpacity(0.1),
+                            borderRadius: KBorderRadius.circularM,
+                            border: Border.all(
+                              color:
+                                  (_teamColor ??
+                                          Theme.of(context).colorScheme.primary)
+                                      .withOpacity(0.3),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              _buildStatItem(
+                                context,
+                                Icons.groups,
+                                '$totalCount',
+                                'Total',
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                    SizedBox(height: KSpacing.xl),
                     // Display users grouped by position
                     ..._positions.map((position) {
                       final users = usersByPosition[position.id] ?? [];
@@ -537,7 +585,10 @@ class _TeamPageState extends State<TeamPage> {
   }
 
   Widget _userTile(BuildContext context, User user, {bool isLeader = false}) {
-    final accent = _teamColor ?? Theme.of(context).colorScheme.primary;
+    // En mode "Effectif complet", utiliser la couleur de l'équipe de l'agent
+    final accent = _showAllStaff
+        ? (_teamColors[user.team] ?? Theme.of(context).colorScheme.primary)
+        : (_teamColor ?? Theme.of(context).colorScheme.primary);
     final isDark = isDarkModeNotifier.value;
     Color avatarTextColor;
     double luminance = accent.computeLuminance();
@@ -675,16 +726,105 @@ class _TeamPageState extends State<TeamPage> {
                 ],
               ),
               SizedBox(height: KSpacing.xl),
+              // Option "Effectif complet"
+              Padding(
+                padding: EdgeInsets.only(bottom: KSpacing.m),
+                child: InkWell(
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    Navigator.pop(context);
+                    if (!_showAllStaff) {
+                      setState(() {
+                        _showAllStaff = true;
+                        _teamName = 'Effectif complet';
+                        _teamColor = KColors.appNameColor;
+                      });
+                      _init();
+                    }
+                  },
+                  borderRadius: KBorderRadius.circularM,
+                  child: AnimatedContainer(
+                    duration: KAnimations.durationFast,
+                    padding: KSpacing.paddingM,
+                    decoration: BoxDecoration(
+                      color: _showAllStaff
+                          ? KColors.appNameColor.withOpacity(0.15)
+                          : Colors.transparent,
+                      border: Border.all(
+                        color: _showAllStaff
+                            ? KColors.appNameColor
+                            : Theme.of(context).dividerColor.withOpacity(0.3),
+                        width: _showAllStaff ? 2 : 1,
+                      ),
+                      borderRadius: KBorderRadius.circularM,
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: KAvatarSize.m,
+                          height: KAvatarSize.m,
+                          decoration: BoxDecoration(
+                            color: KColors.appNameColor,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: KColors.appNameColor.withOpacity(0.4),
+                                blurRadius: 8,
+                                spreadRadius: 1,
+                              ),
+                            ],
+                          ),
+                          child: const Center(
+                            child: Icon(
+                              Icons.groups,
+                              color: Colors.white,
+                              size: 20,
+                            ),
+                          ),
+                        ),
+                        SizedBox(width: KSpacing.l),
+                        Expanded(
+                          child: Text(
+                            'Effectif complet',
+                            style: KTypography.bodyLarge(
+                              color: _showAllStaff
+                                  ? KColors.appNameColor
+                                  : Theme.of(
+                                      context,
+                                    ).textTheme.bodyLarge?.color,
+                              fontWeight: _showAllStaff
+                                  ? KTypography.fontWeightBold
+                                  : KTypography.fontWeightMedium,
+                            ),
+                          ),
+                        ),
+                        if (_showAllStaff)
+                          Icon(
+                            Icons.check_circle,
+                            color: KColors.appNameColor,
+                            size: KIconSize.m,
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              Divider(
+                height: KSpacing.m,
+                color: Theme.of(context).dividerColor.withOpacity(0.3),
+              ),
+              SizedBox(height: KSpacing.s),
               ...teams.map((team) {
-                final isSelected = team.id == _teamId;
+                final isSelected = !_showAllStaff && team.id == _teamId;
                 return Padding(
                   padding: EdgeInsets.only(bottom: KSpacing.m),
                   child: InkWell(
                     onTap: () {
                       HapticFeedback.selectionClick();
                       Navigator.pop(context);
-                      if (team.id != _teamId) {
+                      if (team.id != _teamId || _showAllStaff) {
                         setState(() {
+                          _showAllStaff = false;
                           _teamId = team.id;
                           _teamName = team.name;
                           _teamColor = team.color;

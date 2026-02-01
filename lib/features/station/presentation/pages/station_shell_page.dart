@@ -106,6 +106,7 @@ class _StationShellPageState extends State<StationShellPage>
             fontWeight: FontWeight.bold,
           ),
         ),
+        toolbarHeight: 40,
         backgroundColor: Colors.transparent,
         elevation: 0,
         iconTheme: IconThemeData(color: Theme.of(context).colorScheme.primary),

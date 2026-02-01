@@ -16,6 +16,10 @@ import 'package:nexshift_app/core/services/debug_logger.dart';
 import 'package:nexshift_app/core/services/connectivity_service.dart';
 import 'package:nexshift_app/core/services/log_service.dart';
 import 'package:nexshift_app/core/presentation/pages/offline_page.dart';
+import 'package:nexshift_app/core/presentation/pages/maintenance_page.dart';
+import 'package:nexshift_app/core/presentation/pages/subscription_expired_page.dart';
+import 'package:nexshift_app/core/services/maintenance_service.dart';
+import 'package:nexshift_app/core/services/subscription_service.dart';
 import 'package:nexshift_app/features/app_shell/presentation/widgets/widget_tree.dart';
 import 'package:nexshift_app/features/auth/presentation/pages/welcome_page.dart';
 import 'package:nexshift_app/features/auth/presentation/pages/profile_completion_page.dart';
@@ -193,6 +197,7 @@ class _NexShiftState extends State<NexShift> {
   final _authService = FirebaseAuthService();
   final _pushNotificationService = PushNotificationService();
   final _connectivityService = ConnectivityService();
+  final _maintenanceService = MaintenanceService();
 
   bool _isOnline = true;
 
@@ -202,6 +207,7 @@ class _NexShiftState extends State<NexShift> {
     initThemeMode();
     _checkAuthState();
     _startConnectivityMonitoring();
+    _maintenanceService.startListening();
   }
 
   /// Démarre la surveillance de la connectivité
@@ -223,6 +229,7 @@ class _NexShiftState extends State<NexShift> {
   @override
   void dispose() {
     _connectivityService.stopMonitoring();
+    _maintenanceService.stopListening();
     super.dispose();
   }
 
@@ -336,49 +343,67 @@ class _NexShiftState extends State<NexShift> {
         return ValueListenableBuilder(
           valueListenable: userNotifier,
           builder: (context, user, _) {
-            // debugPrint('🔴 [MATERIAL_APP] ========================================');
-            // debugPrint('🔴 [MATERIAL_APP] build() called');
-            // debugPrint('🔴 [MATERIAL_APP]   - isUserAuthentified: $isUserAuthentified');
-            // debugPrint('🔴 [MATERIAL_APP]   - user: ${user != null ? '${user.firstName} ${user.lastName} (id=${user.id}, station=${user.station})' : 'NULL'}');
-            // debugPrint('🔴 [MATERIAL_APP]   - isOnline: $_isOnline');
+            return ValueListenableBuilder2<bool, String>(
+              first: _maintenanceService.isMaintenanceNotifier,
+              second: _maintenanceService.maintenanceMessageNotifier,
+              builder: (context, isMaintenance, maintenanceMessage, _) {
+                return ValueListenableBuilder<SubscriptionStatus>(
+                  valueListenable: subscriptionStatusNotifier,
+                  builder: (context, subscriptionStatus, _) {
+                // Déterminer la page d'accueil en fonction de l'état
+                Widget homePage;
 
-            // Déterminer la page d'accueil en fonction de l'état
-            Widget homePage;
-            if (!_isOnline) {
-              homePage = const OfflinePage();
-            } else if (isUserAuthentified == true && user != null) {
-              // Vérifier si le profil est complet
-              if (user.firstName.isEmpty || user.lastName.isEmpty) {
-                homePage = ProfileCompletionPage(user: user);
-              } else {
-                homePage = const WidgetTree();
-              }
-            } else {
-              homePage = const WelcomePage();
-            }
+                // Mode maintenance : bloquer sauf utilisateurs autorisés
+                final isAllowed = _maintenanceService.isUserAllowed(user?.id);
+                if (isMaintenance && !isAllowed) {
+                  homePage = MaintenancePage(message: maintenanceMessage);
+                } else if (!_isOnline) {
+                  homePage = const OfflinePage();
+                } else if (isUserAuthentified == true &&
+                    user != null &&
+                    subscriptionStatus == SubscriptionStatus.expired) {
+                  // Abonnement expiré : bloquer l'accès
+                  homePage = const SubscriptionExpiredPage();
+                } else if (isUserAuthentified == true && user != null) {
+                  if (user.firstName.isEmpty || user.lastName.isEmpty) {
+                    homePage = ProfileCompletionPage(user: user);
+                  } else {
+                    homePage = const WidgetTree();
+                  }
+                } else {
+                  homePage = const WelcomePage();
+                }
 
-            return MaterialApp(
-              navigatorKey: navigatorKey,
-              debugShowCheckedModeBanner: false,
+                return MaterialApp(
+                  navigatorKey: navigatorKey,
+                  debugShowCheckedModeBanner: false,
 
-              // Localisation en français
-              locale: const Locale('fr', 'FR'),
-              supportedLocales: const [Locale('fr', 'FR'), Locale('en', 'US')],
-              localizationsDelegates: const [
-                GlobalMaterialLocalizations.delegate,
-                GlobalWidgetsLocalizations.delegate,
-                GlobalCupertinoLocalizations.delegate,
-              ],
+                  // Localisation en français
+                  locale: const Locale('fr', 'FR'),
+                  supportedLocales: const [
+                    Locale('fr', 'FR'),
+                    Locale('en', 'US'),
+                  ],
+                  localizationsDelegates: const [
+                    GlobalMaterialLocalizations.delegate,
+                    GlobalWidgetsLocalizations.delegate,
+                    GlobalCupertinoLocalizations.delegate,
+                  ],
 
-              theme: KTheme.lightTheme,
-              darkTheme: KTheme.darkTheme,
-              themeMode: isDarkMode == true ? ThemeMode.dark : ThemeMode.light,
-              builder: (context, child) {
-                return EnvironmentBanner(
-                  child: child ?? const SizedBox.shrink(),
+                  theme: KTheme.lightTheme,
+                  darkTheme: KTheme.darkTheme,
+                  themeMode:
+                      isDarkMode == true ? ThemeMode.dark : ThemeMode.light,
+                  builder: (context, child) {
+                    return EnvironmentBanner(
+                      child: child ?? const SizedBox.shrink(),
+                    );
+                  },
+                  home: homePage,
+                );
+                  },
                 );
               },
-              home: homePage,
             );
           },
         );

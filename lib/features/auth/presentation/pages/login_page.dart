@@ -5,6 +5,9 @@ import 'package:nexshift_app/core/repositories/local_repositories.dart';
 import 'package:nexshift_app/core/services/firebase_auth_service.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:nexshift_app/features/auth/presentation/pages/confirmation_page.dart';
+import 'package:nexshift_app/core/data/datasources/notifiers.dart';
+import 'package:nexshift_app/core/presentation/pages/subscription_expired_page.dart';
+import 'package:nexshift_app/core/services/subscription_service.dart';
 import 'package:nexshift_app/features/auth/presentation/widgets/enter_app_widget.dart';
 import 'package:nexshift_app/features/auth/presentation/widgets/password_strength_field_widget.dart';
 import 'package:nexshift_app/features/auth/presentation/widgets/snake_bar_widget.dart';
@@ -218,10 +221,21 @@ class _LoginPageState extends State<LoginPage> {
       debugPrint('🟢 [LOGIN] Updating notifiers');
       await EnterApp.build(context, userId, user: user);
 
-      debugPrint('🟢 [LOGIN] Force navigation to WidgetTree');
+      debugPrint('🟢 [LOGIN] Force navigation');
       if (!mounted) return;
+
+      // Vérifier si l'abonnement est expiré avant de naviguer
+      final Widget destination;
+      if (subscriptionStatusNotifier.value == SubscriptionStatus.expired) {
+        debugPrint('🟢 [LOGIN] Redirecting to SubscriptionExpiredPage');
+        destination = const SubscriptionExpiredPage();
+      } else {
+        debugPrint('🟢 [LOGIN] Redirecting to WidgetTree');
+        destination = const WidgetTree();
+      }
+
       Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (context) => const WidgetTree()),
+        MaterialPageRoute(builder: (context) => destination),
         (route) => false,
       );
     }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
+import 'package:nexshift_app/core/services/subscription_service.dart';
 
 // Custom ValueNotifier avec logs pour debugging
 class LoggingBoolNotifier extends ValueNotifier<bool> {
@@ -39,3 +40,7 @@ final ValueNotifier<bool> stationViewNotifier = ValueNotifier<bool>(false);
 
 // Team data change notifier - increment this value to trigger reload across the app
 final ValueNotifier<int> teamDataChangedNotifier = ValueNotifier<int>(0);
+
+// Subscription status notifier - état de l'abonnement de la caserne
+final ValueNotifier<SubscriptionStatus> subscriptionStatusNotifier =
+    ValueNotifier<SubscriptionStatus>(SubscriptionStatus.unknown);

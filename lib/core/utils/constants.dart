@@ -169,36 +169,140 @@ class KSkills {
     'COD',
   ];
 
-  /// Icons available for position selection
+  /// Icons available for position selection (50 icons)
   static const Map<String, IconData> positionIcons = {
-    'local_fire_department': Icons.local_fire_department, // INC
-    'healing_outlined': Icons.healing_outlined, // SUAP
-    'build': Icons.build, // PPBE
-    'album': Icons.album, // COD
-    'car_crash_sharp': Icons.car_crash_sharp, // VPS
-    'shield_moon': Icons.shield_moon, // Chef de centre
-    'verified_user': Icons.verified_user, // Chef de garde
-    'person': Icons.person, // Agent
-    'emergency': Icons.emergency, // Urgence
-    'stairs': Icons.stairs, // EPA
-    'forest': Icons.forest, // CCF
-    'route': Icons.route, // VSR
+    // Opérationnel / Secours
+    'local_fire_department': Icons.local_fire_department,
+    'healing_outlined': Icons.healing_outlined,
+    'emergency': Icons.emergency,
+    'medical_services': Icons.medical_services,
+    'medication': Icons.medication,
+    'vaccines': Icons.vaccines,
+    'health_and_safety': Icons.health_and_safety,
+    'monitor_heart': Icons.monitor_heart,
+    // Véhicules / Conduite
+    'album': Icons.album,
+    'car_crash_sharp': Icons.car_crash_sharp,
+    'local_shipping': Icons.local_shipping,
+    'directions_car': Icons.directions_car,
+    'fire_truck': Icons.fire_truck,
+    'airport_shuttle': Icons.airport_shuttle,
+    // Technique / Matériel
+    'build': Icons.build,
+    'engineering': Icons.engineering,
+    'handyman': Icons.handyman,
+    'construction': Icons.construction,
+    'plumbing': Icons.plumbing,
+    'hardware': Icons.hardware,
+    'inventory': Icons.inventory,
+    'warehouse': Icons.warehouse,
+    // Hiérarchie / Rôles
+    'shield_moon': Icons.shield_moon,
+    'verified_user': Icons.verified_user,
+    'person': Icons.person,
+    'supervisor_account': Icons.supervisor_account,
+    'admin_panel_settings': Icons.admin_panel_settings,
+    'military_tech': Icons.military_tech,
+    'stars': Icons.stars,
+    // Sport / EAP
+    'fitness_center': Icons.fitness_center,
+    'sports': Icons.sports,
+    'sports_martial_arts': Icons.sports_martial_arts,
+    'pool': Icons.pool,
+    'directions_run': Icons.directions_run,
+    // Environnement / Terrain
+    'stairs': Icons.stairs,
+    'forest': Icons.forest,
+    'route': Icons.route,
+    'terrain': Icons.terrain,
+    'water': Icons.water,
+    // Formation / Administratif
+    'school': Icons.school,
+    'cast_for_education': Icons.cast_for_education,
+    'psychology': Icons.psychology,
+    'menu_book': Icons.menu_book,
+    'description': Icons.description,
+    'folder': Icons.folder,
+    'assignment': Icons.assignment,
+    // Prévention / Sécurité
+    'shield': Icons.shield,
+    'security': Icons.security,
+    'gpp_good': Icons.gpp_good,
+    // Communication / Logistique
+    'campaign': Icons.campaign,
+    'phone': Icons.phone,
+    'email': Icons.email,
+    // Habillement
+    'checkroom': Icons.checkroom,
+    'shopping_bag': Icons.shopping_bag,
   };
 
   /// Display names for position icons
   static const Map<String, String> positionIconNames = {
+    // Opérationnel / Secours
     'local_fire_department': 'Incendie',
     'healing_outlined': 'Secours',
-    'build': 'Technique',
+    'emergency': 'Urgence',
+    'medical_services': 'Services médicaux',
+    'medication': 'Pharmacie',
+    'vaccines': 'Vaccination',
+    'health_and_safety': 'Santé & sécurité',
+    'monitor_heart': 'Monitoring',
+    // Véhicules / Conduite
     'album': 'Conduite',
     'car_crash_sharp': 'VPS',
+    'local_shipping': 'Transport',
+    'directions_car': 'Véhicule léger',
+    'fire_truck': 'Engin incendie',
+    'airport_shuttle': 'Navette',
+    // Technique / Matériel
+    'build': 'Technique',
+    'engineering': 'Ingénierie',
+    'handyman': 'Maintenance',
+    'construction': 'Construction',
+    'plumbing': 'Plomberie',
+    'hardware': 'Outillage',
+    'inventory': 'Inventaire',
+    'warehouse': 'Magasin',
+    // Hiérarchie / Rôles
     'shield_moon': 'Chef de centre',
     'verified_user': 'Chef de garde',
     'person': 'Agent',
-    'emergency': 'Urgence',
+    'supervisor_account': 'Encadrement',
+    'admin_panel_settings': 'Administration',
+    'military_tech': 'Grade',
+    'stars': 'Distinction',
+    // Sport / EAP
+    'fitness_center': 'Sport / EAP',
+    'sports': 'Activités sportives',
+    'sports_martial_arts': 'Arts martiaux',
+    'pool': 'Natation',
+    'directions_run': 'Course',
+    // Environnement / Terrain
     'stairs': 'EPA',
     'forest': 'Feux de forêt',
     'route': 'Route',
+    'terrain': 'Terrain',
+    'water': 'Milieu aquatique',
+    // Formation / Administratif
+    'school': 'Formation',
+    'cast_for_education': 'Enseignement',
+    'psychology': 'Psychologie',
+    'menu_book': 'Documentation',
+    'description': 'Rédaction',
+    'folder': 'Dossiers',
+    'assignment': 'Missions',
+    // Prévention / Sécurité
+    'shield': 'Prévention',
+    'security': 'Sécurité',
+    'gpp_good': 'Conformité',
+    // Communication / Logistique
+    'campaign': 'Communication',
+    'phone': 'Téléphonie',
+    'email': 'Messagerie',
+    // Habillement
+    'checkroom': 'Habillement',
+    'shopping_bag': 'Équipements',
   };
 }
 

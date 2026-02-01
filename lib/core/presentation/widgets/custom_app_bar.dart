@@ -98,15 +98,18 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
       centerTitle: true,
       title: titleWidget,
       actions: actions,
-      bottom: bottom ?? (bottomColor != null
-          ? PreferredSize(
-              preferredSize: Size.fromHeight(bottomHeight),
-              child: Container(
-                height: bottomHeight,
-                color: bottomColor!.withOpacity(bottomOpacity),
-              ),
-            )
-          : null),
+      toolbarHeight: 40,
+      bottom:
+          bottom ??
+          (bottomColor != null
+              ? PreferredSize(
+                  preferredSize: Size.fromHeight(bottomHeight),
+                  child: Container(
+                    height: bottomHeight,
+                    color: bottomColor!.withOpacity(bottomOpacity),
+                  ),
+                )
+              : null),
     );
   }
 }
