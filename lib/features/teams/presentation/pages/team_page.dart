@@ -149,7 +149,7 @@ class _TeamPageState extends State<TeamPage> {
       final query = _searchQuery.toLowerCase();
       setState(() {
         _filteredUsers = _teamUsers.where((user) {
-          final fullName = '${user.firstName} ${user.lastName}'.toLowerCase();
+          final fullName = user.displayName.toLowerCase();
           return fullName.contains(query);
         }).toList();
       });
@@ -638,7 +638,7 @@ class _TeamPageState extends State<TeamPage> {
                   radius: KAvatarSize.s / 2,
                   backgroundColor: accent.withOpacity(isLeader ? 0.25 : 0.15),
                   child: Text(
-                    _initials(user.firstName, user.lastName),
+                    user.initials,
                     style: KTypography.body(
                       color: avatarTextColor,
                       fontWeight: KTypography.fontWeightBold,
@@ -652,7 +652,7 @@ class _TeamPageState extends State<TeamPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '${user.firstName} ${user.lastName}',
+                      user.displayName,
                       style: KTypography.body(
                         fontWeight: KTypography.fontWeightSemiBold,
                       ),
@@ -670,12 +670,6 @@ class _TeamPageState extends State<TeamPage> {
         ),
       ),
     );
-  }
-
-  String _initials(String first, String last) {
-    final f = first.isNotEmpty ? first[0] : '';
-    final l = last.isNotEmpty ? last[0] : '';
-    return (f + l).toUpperCase();
   }
 
   void _openSkills(BuildContext context, User user) {

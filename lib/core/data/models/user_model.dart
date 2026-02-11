@@ -1,5 +1,7 @@
 class User {
-  final String id;
+  final String id; // Matricule
+  final String? authUid; // Firebase Auth UID (nouveau)
+  final String? email; // Email pro pompier (nouveau)
   final String lastName;
   final String firstName;
   final String station;
@@ -22,6 +24,8 @@ class User {
 
   User({
     required this.id,
+    this.authUid,
+    this.email,
     required this.lastName,
     required this.firstName,
     required this.station,
@@ -42,6 +46,8 @@ class User {
   /// Permet de dupliquer l'objet avec des champs modifiés
   User copyWith({
     String? id,
+    String? authUid,
+    String? email,
     String? lastName,
     String? firstName,
     String? station,
@@ -60,6 +66,8 @@ class User {
   }) {
     return User(
       id: id ?? this.id,
+      authUid: authUid ?? this.authUid,
+      email: email ?? this.email,
       lastName: lastName ?? this.lastName,
       firstName: firstName ?? this.firstName,
       station: station ?? this.station,
@@ -81,8 +89,12 @@ class User {
     );
   }
 
+  /// Sérialisation complète (pour stockage local uniquement — SharedPreferences).
+  /// NE PAS utiliser pour écrire dans Firestore : les PII seraient en clair.
   Map<String, dynamic> toJson() => {
     'id': id,
+    if (authUid != null) 'authUid': authUid,
+    if (email != null) 'email': email,
     'lastName': lastName,
     'firstName': firstName,
     'station': station,
@@ -100,15 +112,37 @@ class User {
     'anomalyAlertDaysBefore': anomalyAlertDaysBefore,
   };
 
+  /// Sérialisation pour Firestore : exclut les PII (firstName, lastName, email).
+  /// Le chiffrement de ces champs est géré exclusivement par les Cloud Functions.
+  Map<String, dynamic> toFirestoreJson() => {
+    'id': id,
+    if (authUid != null) 'authUid': authUid,
+    'station': station,
+    'status': status,
+    'admin': admin,
+    'team': team,
+    'skills': skills,
+    if (positionId != null) 'positionId': positionId,
+    'keySkills': keySkills,
+    'personalAlertEnabled': personalAlertEnabled,
+    'personalAlertBeforeShiftHours': personalAlertBeforeShiftHours,
+    'chiefAlertEnabled': chiefAlertEnabled,
+    'chiefAlertBeforeShiftHours': chiefAlertBeforeShiftHours,
+    'anomalyAlertEnabled': anomalyAlertEnabled,
+    'anomalyAlertDaysBefore': anomalyAlertDaysBefore,
+  };
+
   factory User.fromJson(Map<String, dynamic> json) => User(
-    id: json['id'],
-    lastName: json['lastName'],
-    firstName: json['firstName'],
-    station: json['station'],
-    status: json['status'],
+    id: json['id'] ?? json['matricule'] ?? '',
+    authUid: json['authUid'] as String?,
+    email: json['email'] as String?,
+    lastName: json['lastName'] ?? '',
+    firstName: json['firstName'] ?? '',
+    station: json['station'] ?? '',
+    status: json['status'] ?? 'agent',
     admin: json['admin'] ?? false,
-    team: json['team'],
-    skills: List<String>.from(json['skills']),
+    team: json['team'] ?? '',
+    skills: json['skills'] != null ? List<String>.from(json['skills']) : [],
     positionId: json['positionId'] as String?,
     keySkills: json['keySkills'] != null
         ? List<String>.from(json['keySkills'])
@@ -124,6 +158,8 @@ class User {
 
   static User empty() => User(
     id: "",
+    authUid: null,
+    email: null,
     firstName: "Inconnu",
     lastName: "",
     station: "",
@@ -132,4 +168,31 @@ class User {
     team: "",
     skills: [],
   );
+
+  /// Vérifie si l'utilisateur a un compte Firebase Auth lié
+  bool get hasAuthAccount => authUid != null && authUid!.isNotEmpty;
+
+  /// Nom complet de l'utilisateur
+  String get fullName => '$firstName $lastName'.trim();
+
+  /// Nom d'affichage : nom complet si disponible, sinon "Agent {matricule}"
+  String get displayName {
+    if (firstName.isEmpty && lastName.isEmpty) return 'Agent $id';
+    return '$firstName $lastName'.trim();
+  }
+
+  /// Initiales pour avatar. '?' si aucun nom.
+  String get initials {
+    final fi = firstName.isNotEmpty ? firstName[0] : '';
+    final li = lastName.isNotEmpty ? lastName[0] : '';
+    if (fi.isEmpty && li.isEmpty) return '?';
+    return '$fi$li'.toUpperCase();
+  }
+
+  /// Vrai si l'utilisateur est pré-enregistré (pas encore de compte Firebase Auth).
+  bool get isPreRegistered => !hasAuthAccount;
+
+  /// Retourne le nom de la station (à charger via StationNameCache)
+  /// IMPORTANT: Ceci est l'ID - utilisez StationNameCache.getStationName() pour le nom
+  String get stationId => station;
 }

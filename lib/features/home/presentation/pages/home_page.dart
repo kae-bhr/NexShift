@@ -1050,7 +1050,7 @@ class _HomePageState extends State<HomePage> {
             (u) => u.id == request.replacerId,
             orElse: () => noneUser,
           );
-          targetName = "${target.firstName} ${target.lastName}";
+          targetName = target.displayName;
         }
       } else {
         // Remplacement automatique (similarity)
@@ -1063,7 +1063,7 @@ class _HomePageState extends State<HomePage> {
       final item = _buildRequestItem(
         icon: icon,
         iconColor: iconColor,
-        requesterName: "${requester.firstName} ${requester.lastName}",
+        requesterName: requester.displayName,
         targetName: targetName,
         startTime: request.startTime,
         endTime: request.endTime,
@@ -1104,7 +1104,7 @@ class _HomePageState extends State<HomePage> {
       final item = _buildRequestItem(
         icon: Icons.swap_horiz,
         iconColor: Colors.green,
-        requesterName: "${initiator.firstName} ${initiator.lastName}",
+        requesterName: initiator.displayName,
         targetName: null,
         startTime: exchange.initiatorStartTime,
         endTime: exchange.initiatorEndTime,
@@ -1200,7 +1200,7 @@ class _HomePageState extends State<HomePage> {
       (u) => u.id == request.requesterId,
       orElse: () => _allUsers.first,
     );
-    final initiatorName = '${requester.firstName} ${requester.lastName}';
+    final initiatorName = requester.displayName;
 
     RequestActionsBottomSheet.show(
       context: context,

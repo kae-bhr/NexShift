@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:nexshift_app/core/data/datasources/notifiers.dart';
+import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/core/data/models/station_model.dart';
 import 'package:nexshift_app/core/data/models/position_model.dart';
+import 'package:nexshift_app/core/data/models/membership_request_model.dart';
 import 'package:nexshift_app/core/repositories/position_repository.dart';
 import 'package:nexshift_app/core/repositories/station_repository.dart';
 import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:nexshift_app/core/utils/station_name_cache.dart';
+import 'package:nexshift_app/core/services/cloud_functions_service.dart';
 
 class AdminPage extends StatefulWidget {
   const AdminPage({super.key});
@@ -17,9 +21,11 @@ class AdminPage extends StatefulWidget {
 class _AdminPageState extends State<AdminPage> {
   final PositionRepository _positionRepository = PositionRepository();
   final StationRepository _stationRepository = StationRepository();
+  final CloudFunctionsService _cloudFunctionsService = CloudFunctionsService();
 
   Station? _currentStation;
   bool _isLoading = true;
+  int _pendingRequestsCount = 0;
 
   @override
   void initState() {
@@ -41,18 +47,21 @@ class _AdminPageState extends State<AdminPage> {
           _currentStation = station;
         });
       } else {
+        // Charger le nom de la station depuis le cache
+        final sdisId = SDISContext().currentSDISId;
+        final stationName = sdisId != null
+            ? await StationNameCache().getStationName(sdisId, user.station)
+            : user.station;
+
         // Créer la station si elle n'existe pas
-        _currentStation = Station(
-          id: user.station,
-          name: user.station,
-        );
+        _currentStation = Station(id: user.station, name: stationName);
         await _saveStationConfig();
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur de chargement: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erreur de chargement: $e')));
       }
     } finally {
       setState(() => _isLoading = false);
@@ -64,7 +73,9 @@ class _AdminPageState extends State<AdminPage> {
 
     try {
       // Nettoyer les skillWeights pour supprimer les clés vides
-      final cleanedWeights = Map<String, double>.from(_currentStation!.skillWeights);
+      final cleanedWeights = Map<String, double>.from(
+        _currentStation!.skillWeights,
+      );
       cleanedWeights.removeWhere((key, value) => key.isEmpty);
 
       // Créer une station avec les poids nettoyés
@@ -81,9 +92,9 @@ class _AdminPageState extends State<AdminPage> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur de sauvegarde: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erreur de sauvegarde: $e')));
       }
     }
   }
@@ -98,24 +109,27 @@ class _AdminPageState extends State<AdminPage> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _currentStation == null
-              ? const Center(child: Text('Erreur de chargement de la caserne'))
-              : ListView(
-                  padding: const EdgeInsets.all(16.0),
-                  children: [
-                    _buildSectionHeader(context, 'Configuration de la caserne'),
-                    _buildStationConfigSection(context),
-                    const SizedBox(height: 24),
-                    _buildSectionHeader(context, 'Mode de remplacement'),
-                    _buildReplacementModeSection(context),
-                    const SizedBox(height: 24),
-                    _buildSectionHeader(context, 'Pondération des compétences'),
-                    _buildSkillWeightsSection(context),
-                    const SizedBox(height: 24),
-                    _buildSectionHeader(context, 'Gestion des postes'),
-                    _buildPositionsSection(context),
-                    const SizedBox(height: 24),
-                  ],
-                ),
+          ? const Center(child: Text('Erreur de chargement de la caserne'))
+          : ListView(
+              padding: const EdgeInsets.all(16.0),
+              children: [
+                _buildSectionHeader(context, 'Configuration de la caserne'),
+                _buildStationConfigSection(context),
+                const SizedBox(height: 24),
+                _buildSectionHeader(context, 'Demandes d\'adhésion'),
+                _buildMembershipRequestsSection(context),
+                const SizedBox(height: 24),
+                _buildSectionHeader(context, 'Mode de remplacement'),
+                _buildReplacementModeSection(context),
+                const SizedBox(height: 24),
+                _buildSectionHeader(context, 'Pondération des compétences'),
+                _buildSkillWeightsSection(context),
+                const SizedBox(height: 24),
+                _buildSectionHeader(context, 'Gestion des postes'),
+                _buildPositionsSection(context),
+                const SizedBox(height: 24),
+              ],
+            ),
     );
   }
 
@@ -151,7 +165,9 @@ class _AdminPageState extends State<AdminPage> {
           ListTile(
             leading: const Icon(Icons.timer),
             title: const Text('Délai entre les vagues'),
-            subtitle: Text('${_currentStation!.notificationWaveDelayMinutes} minutes'),
+            subtitle: Text(
+              '${_currentStation!.notificationWaveDelayMinutes} minutes',
+            ),
             trailing: IconButton(
               icon: const Icon(Icons.edit),
               onPressed: () => _editWaveDelay(context),
@@ -258,7 +274,10 @@ class _AdminPageState extends State<AdminPage> {
     );
   }
 
-  Future<void> _editNightPauseTime(BuildContext context, {required bool isStart}) async {
+  Future<void> _editNightPauseTime(
+    BuildContext context, {
+    required bool isStart,
+  }) async {
     final currentTime = isStart
         ? _currentStation!.nightPauseStart
         : _currentStation!.nightPauseEnd;
@@ -284,13 +303,81 @@ class _AdminPageState extends State<AdminPage> {
           '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
       setState(() {
         if (isStart) {
-          _currentStation = _currentStation!.copyWith(nightPauseStart: timeString);
+          _currentStation = _currentStation!.copyWith(
+            nightPauseStart: timeString,
+          );
         } else {
-          _currentStation = _currentStation!.copyWith(nightPauseEnd: timeString);
+          _currentStation = _currentStation!.copyWith(
+            nightPauseEnd: timeString,
+          );
         }
       });
       await _saveStationConfig();
     }
+  }
+
+  Widget _buildMembershipRequestsSection(BuildContext context) {
+    final user = userNotifier.value;
+    if (user == null) return const SizedBox.shrink();
+
+    return FutureBuilder<int>(
+      future: _cloudFunctionsService.getPendingMembershipRequestsCount(
+        stationId: user.station,
+      ),
+      builder: (context, snapshot) {
+        final count = snapshot.data ?? 0;
+
+        return Card(
+          child: ListTile(
+            leading: Badge(
+              isLabelVisible: count > 0,
+              label: Text('$count'),
+              child: const Icon(Icons.person_add),
+            ),
+            title: const Text('Demandes en attente'),
+            subtitle: Text(
+              count == 0
+                  ? 'Aucune demande en attente'
+                  : '$count demande${count > 1 ? 's' : ''} en attente',
+            ),
+            trailing: count > 0
+                ? FilledButton.icon(
+                    onPressed: () => _showMembershipRequestsDialog(context),
+                    icon: const Icon(Icons.visibility),
+                    label: const Text('Voir'),
+                  )
+                : null,
+            onTap: count > 0
+                ? () => _showMembershipRequestsDialog(context)
+                : null,
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showMembershipRequestsDialog(BuildContext context) async {
+    final user = userNotifier.value;
+    if (user == null) return;
+
+    final requests = await _cloudFunctionsService.getMembershipRequests(
+      stationId: user.station,
+    );
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (context) => _MembershipRequestsDialog(
+        requests: requests,
+        stationId: user.station,
+        onRequestHandled: () {
+          setState(() {
+            // Rafraîchir le compteur
+          });
+        },
+      ),
+    );
   }
 
   Widget _buildReplacementModeSection(BuildContext context) {
@@ -299,8 +386,12 @@ class _AdminPageState extends State<AdminPage> {
         children: [
           SwitchListTile(
             secondary: const Icon(Icons.how_to_reg),
-            title: const Text('Acceptation automatique d\'agents sous-qualifiés'),
-            subtitle: const Text('Permettre aux agents sous-qualifiés d\'accepter automatiquement les demandes de remplacement'),
+            title: const Text(
+              'Acceptation automatique d\'agents sous-qualifiés',
+            ),
+            subtitle: const Text(
+              'Permettre aux agents sous-qualifiés d\'accepter automatiquement les demandes de remplacement',
+            ),
             value: _currentStation!.allowUnderQualifiedAutoAcceptance,
             activeThumbColor: KColors.appNameColor,
             activeTrackColor: KColors.appNameColor.withValues(alpha: 0.5),
@@ -325,7 +416,9 @@ class _AdminPageState extends State<AdminPage> {
       final categorySkills = KSkills.skillLevels[category];
       if (categorySkills != null) {
         // Filtrer les skills vides
-        final validSkills = categorySkills.where((skill) => skill.isNotEmpty).toList();
+        final validSkills = categorySkills
+            .where((skill) => skill.isNotEmpty)
+            .toList();
         if (validSkills.isNotEmpty) {
           skillsByCategory[category] = validSkills;
         }
@@ -338,7 +431,9 @@ class _AdminPageState extends State<AdminPage> {
           ListTile(
             leading: const Icon(Icons.tune),
             title: const Text('Pondération des compétences'),
-            subtitle: const Text('Ajuster l\'importance de chaque compétence dans le calcul de similarité (1.0 = normal, 2.0 = double importance)'),
+            subtitle: const Text(
+              'Ajuster l\'importance de chaque compétence dans le calcul de similarité (1.0 = normal, 2.0 = double importance)',
+            ),
           ),
           const Divider(height: 1),
           Padding(
@@ -383,59 +478,69 @@ class _AdminPageState extends State<AdminPage> {
                         if (skill.isNotEmpty) // Filtrer les skills vides
                           Builder(
                             builder: (context) {
-                              final currentWeight = _currentStation!.skillWeights[skill] ?? 1.0;
-                              final isModified = _currentStation!.skillWeights.containsKey(skill);
+                              final currentWeight =
+                                  _currentStation!.skillWeights[skill] ?? 1.0;
+                              final isModified = _currentStation!.skillWeights
+                                  .containsKey(skill);
 
                               return ListTile(
-                              dense: true,
-                              title: Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      skill,
-                                      style: TextStyle(
-                                        fontWeight: isModified ? FontWeight.w600 : FontWeight.normal,
-                                        color: isModified ? KColors.appNameColor : null,
+                                dense: true,
+                                title: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        skill,
+                                        style: TextStyle(
+                                          fontWeight: isModified
+                                              ? FontWeight.w600
+                                              : FontWeight.normal,
+                                          color: isModified
+                                              ? KColors.appNameColor
+                                              : null,
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                  Text(
-                                    '${currentWeight.toStringAsFixed(1)}x',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      color: isModified ? KColors.appNameColor : Colors.grey,
+                                    Text(
+                                      '${currentWeight.toStringAsFixed(1)}x',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: isModified
+                                            ? KColors.appNameColor
+                                            : Colors.grey,
+                                      ),
                                     ),
-                                  ),
-                                ],
-                              ),
-                              subtitle: Slider(
-                                value: currentWeight,
-                                min: 0.0,
-                                max: 3.0,
-                                divisions: 30,
-                                activeColor: KColors.appNameColor,
-                                label: currentWeight.toStringAsFixed(1),
-                                onChanged: (value) {
-                                  setState(() {
-                                    final newWeights = Map<String, double>.from(_currentStation!.skillWeights);
-                                    if (value == 1.0) {
-                                      // Si on revient à 1.0, retirer de la map
-                                      newWeights.remove(skill);
-                                    } else {
-                                      newWeights[skill] = value;
-                                    }
-                                    _currentStation = _currentStation!.copyWith(
-                                      skillWeights: newWeights,
-                                    );
-                                  });
-                                },
-                                onChangeEnd: (value) {
-                                  _saveStationConfig();
-                                },
-                              ),
-                            );
-                          },
-                        ),
+                                  ],
+                                ),
+                                subtitle: Slider(
+                                  value: currentWeight,
+                                  min: 0.0,
+                                  max: 3.0,
+                                  divisions: 30,
+                                  activeColor: KColors.appNameColor,
+                                  label: currentWeight.toStringAsFixed(1),
+                                  onChanged: (value) {
+                                    setState(() {
+                                      final newWeights =
+                                          Map<String, double>.from(
+                                            _currentStation!.skillWeights,
+                                          );
+                                      if (value == 1.0) {
+                                        // Si on revient à 1.0, retirer de la map
+                                        newWeights.remove(skill);
+                                      } else {
+                                        newWeights[skill] = value;
+                                      }
+                                      _currentStation = _currentStation!
+                                          .copyWith(skillWeights: newWeights);
+                                    });
+                                  },
+                                  onChangeEnd: (value) {
+                                    _saveStationConfig();
+                                  },
+                                ),
+                              );
+                            },
+                          ),
                     ],
                   );
                 }).toList(),
@@ -489,7 +594,9 @@ class _AdminPageState extends State<AdminPage> {
               ),
               if (positions.isNotEmpty) ...[
                 const Divider(height: 1),
-                ...positions.map((position) => _buildPositionTile(context, position)),
+                ...positions.map(
+                  (position) => _buildPositionTile(context, position),
+                ),
               ],
             ],
           ),
@@ -646,7 +753,7 @@ class _AdminPageState extends State<AdminPage> {
                   controller: nameController,
                   decoration: const InputDecoration(
                     labelText: 'Nom du poste',
-                    hintText: 'Ex: Chef d\'agrès',
+                    hintText: 'Ex: Pharmacie, EAP, Habillement, ...',
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -755,7 +862,9 @@ class _AdminPageState extends State<AdminPage> {
           name: result['name']!,
           stationId: user.station,
           order: currentPositions.length,
-          description: result['description']!.isEmpty ? null : result['description'],
+          description: result['description']!.isEmpty
+              ? null
+              : result['description'],
           iconName: result['iconName'],
         );
 
@@ -768,9 +877,7 @@ class _AdminPageState extends State<AdminPage> {
         }
       } catch (e) {
         if (mounted) {
-          messenger.showSnackBar(
-            SnackBar(content: Text('Erreur: $e')),
-          );
+          messenger.showSnackBar(SnackBar(content: Text('Erreur: $e')));
         }
       }
     }
@@ -796,9 +903,7 @@ class _AdminPageState extends State<AdminPage> {
               children: [
                 TextField(
                   controller: nameController,
-                  decoration: const InputDecoration(
-                    labelText: 'Nom du poste',
-                  ),
+                  decoration: const InputDecoration(labelText: 'Nom du poste'),
                 ),
                 const SizedBox(height: 16),
                 TextField(
@@ -894,7 +999,9 @@ class _AdminPageState extends State<AdminPage> {
       try {
         final updatedPosition = position.copyWith(
           name: result['name']!,
-          description: result['description']!.isEmpty ? null : result['description'],
+          description: result['description']!.isEmpty
+              ? null
+              : result['description'],
           iconName: result['iconName'],
         );
 
@@ -907,9 +1014,7 @@ class _AdminPageState extends State<AdminPage> {
         }
       } catch (e) {
         if (mounted) {
-          messenger.showSnackBar(
-            SnackBar(content: Text('Erreur: $e')),
-          );
+          messenger.showSnackBar(SnackBar(content: Text('Erreur: $e')));
         }
       }
     }
@@ -957,10 +1062,216 @@ class _AdminPageState extends State<AdminPage> {
         }
       } catch (e) {
         if (mounted) {
-          messenger.showSnackBar(
-            SnackBar(content: Text('Erreur: $e')),
-          );
+          messenger.showSnackBar(SnackBar(content: Text('Erreur: $e')));
         }
+      }
+    }
+  }
+}
+
+class _MembershipRequestsDialog extends StatefulWidget {
+  final List<MembershipRequest> requests;
+  final String stationId;
+  final VoidCallback onRequestHandled;
+
+  const _MembershipRequestsDialog({
+    required this.requests,
+    required this.stationId,
+    required this.onRequestHandled,
+  });
+
+  @override
+  State<_MembershipRequestsDialog> createState() =>
+      _MembershipRequestsDialogState();
+}
+
+class _MembershipRequestsDialogState extends State<_MembershipRequestsDialog> {
+  final CloudFunctionsService _cloudFunctionsService = CloudFunctionsService();
+  bool _isHandling = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Row(
+        children: [
+          const Icon(Icons.person_add, color: KColors.appNameColor),
+          const SizedBox(width: 8),
+          const Text('Demandes d\'adhésion'),
+          const Spacer(),
+          if (widget.requests.isNotEmpty)
+            Chip(
+              label: Text('${widget.requests.length}'),
+              backgroundColor: KColors.appNameColor.withValues(alpha: 0.2),
+            ),
+        ],
+      ),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: widget.requests.isEmpty
+            ? const Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.check_circle, size: 48, color: Colors.green),
+                    SizedBox(height: 16),
+                    Text('Aucune demande en attente'),
+                  ],
+                ),
+              )
+            : ListView.builder(
+                shrinkWrap: true,
+                itemCount: widget.requests.length,
+                itemBuilder: (context, index) {
+                  final request = widget.requests[index];
+                  return _buildRequestCard(request);
+                },
+              ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _isHandling ? null : () => Navigator.pop(context),
+          child: const Text('Fermer'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRequestCard(MembershipRequest request) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: KColors.appNameColor.withValues(alpha: 0.1),
+                  child: Text(
+                    request.firstName[0].toUpperCase(),
+                    style: const TextStyle(
+                      color: KColors.appNameColor,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${request.firstName} ${request.lastName}',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      Text(
+                        'Matricule: ${request.matricule}',
+                        style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                      ),
+                      Text(
+                        'Demande le ${_formatDate(request.requestedAt)}',
+                        style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton.icon(
+                  onPressed: _isHandling
+                      ? null
+                      : () => _handleRequest(request, accept: false),
+                  icon: const Icon(Icons.close),
+                  label: const Text('Refuser'),
+                  style: TextButton.styleFrom(foregroundColor: Colors.red),
+                ),
+                const SizedBox(width: 8),
+                FilledButton.icon(
+                  onPressed: _isHandling
+                      ? null
+                      : () => _handleRequest(
+                          request,
+                          accept: true,
+                          role: 'agent',
+                        ),
+                  icon: const Icon(Icons.check),
+                  label: const Text('Accepter'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: KColors.appNameColor,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatDate(DateTime date) {
+    return '${date.day}/${date.month}/${date.year} à ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
+  }
+
+  Future<void> _handleRequest(
+    MembershipRequest request, {
+    required bool accept,
+    String? role,
+    String? team,
+  }) async {
+    setState(() {
+      _isHandling = true;
+    });
+
+    try {
+      await _cloudFunctionsService.handleMembershipRequest(
+        stationId: widget.stationId,
+        requestAuthUid: request.authUid,
+        accept: accept,
+        role: role,
+        team: team,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              accept
+                  ? '${request.firstName} ${request.lastName} a été ajouté à la caserne'
+                  : 'Demande refusée',
+            ),
+            backgroundColor: accept ? Colors.green : Colors.orange,
+          ),
+        );
+
+        // Retirer la demande de la liste
+        widget.requests.remove(request);
+        widget.onRequestHandled();
+
+        if (widget.requests.isEmpty) {
+          Navigator.pop(context);
+        } else {
+          setState(() {});
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isHandling = false;
+        });
       }
     }
   }

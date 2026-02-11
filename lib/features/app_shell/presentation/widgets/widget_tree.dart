@@ -17,6 +17,7 @@ import 'package:nexshift_app/features/availability/presentation/pages/add_availa
 import 'package:nexshift_app/features/replacement/presentation/pages/replacement_requests_list_page.dart';
 import 'package:nexshift_app/core/services/badge_count_service.dart';
 import 'package:nexshift_app/core/services/subscription_service.dart';
+import 'package:nexshift_app/core/services/cloud_functions_service.dart';
 
 List<Widget> pages = [HomePage(), PlanningPage()];
 
@@ -252,9 +253,7 @@ class _WidgetTreeState extends State<WidgetTree> {
                               style: TextStyle(fontWeight: FontWeight.w300),
                             ),
                             TextSpan(
-                              text: user != null
-                                  ? "${user.firstName} ${user.lastName}"
-                                  : "",
+                              text: user?.displayName ?? "",
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
                                 color: Theme.of(context).colorScheme.primary,
@@ -395,34 +394,46 @@ class _WidgetTreeState extends State<WidgetTree> {
                       if (user != null &&
                           (user.admin ||
                               user.status == KConstants.statusLeader))
-                        TextButton(
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => const AdminPage(),
+                        FutureBuilder<int>(
+                          future: CloudFunctionsService().getPendingMembershipRequestsCount(
+                            stationId: user.station,
+                          ),
+                          builder: (context, snapshot) {
+                            final pendingCount = snapshot.data ?? 0;
+                            return TextButton(
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => const AdminPage(),
+                                  ),
+                                );
+                              },
+                              child: ListTile(
+                                minTileHeight: 0.0,
+                                leading: Badge(
+                                  isLabelVisible: pendingCount > 0,
+                                  label: Text('$pendingCount'),
+                                  child: Icon(
+                                    Icons.admin_panel_settings,
+                                    color: Theme.of(context).colorScheme.primary,
+                                  ),
+                                ),
+                                title: Text(
+                                  "Administration",
+                                  style: TextStyle(
+                                    color: Theme.of(context).colorScheme.tertiary,
+                                    fontSize:
+                                        KTextStyle.descriptionTextStyle.fontSize,
+                                    fontFamily:
+                                        KTextStyle.descriptionTextStyle.fontFamily,
+                                    fontWeight:
+                                        KTextStyle.descriptionTextStyle.fontWeight,
+                                  ),
+                                ),
                               ),
                             );
                           },
-                          child: ListTile(
-                            minTileHeight: 0.0,
-                            leading: Icon(
-                              Icons.admin_panel_settings,
-                              color: Theme.of(context).colorScheme.primary,
-                            ),
-                            title: Text(
-                              "Administration",
-                              style: TextStyle(
-                                color: Theme.of(context).colorScheme.tertiary,
-                                fontSize:
-                                    KTextStyle.descriptionTextStyle.fontSize,
-                                fontFamily:
-                                    KTextStyle.descriptionTextStyle.fontFamily,
-                                fontWeight:
-                                    KTextStyle.descriptionTextStyle.fontWeight,
-                              ),
-                            ),
-                          ),
                         ),
                       // Utiliser le BadgeCountService pour les pastilles du drawer
                       TextButton(

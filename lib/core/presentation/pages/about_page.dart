@@ -191,15 +191,6 @@ class AboutPage extends StatelessWidget {
             child: Column(
               children: [
                 Text(
-                  "Développé avec ❤️ pour les sapeurs-pompiers",
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
                   "NexShift - L'avenir de la gestion d'astreinte",
                   style: TextStyle(fontSize: 11, color: Colors.grey[500]),
                 ),

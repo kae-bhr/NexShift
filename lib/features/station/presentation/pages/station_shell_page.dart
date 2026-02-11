@@ -8,7 +8,9 @@ import 'package:nexshift_app/core/repositories/truck_repository.dart';
 import 'package:nexshift_app/core/repositories/user_repository.dart';
 import 'package:nexshift_app/core/repositories/position_repository.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:nexshift_app/core/utils/station_name_cache.dart';
 import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
+import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/features/station/presentation/pages/agents_tab_page.dart';
 import 'package:nexshift_app/features/station/presentation/pages/teams_tab_page.dart';
 import 'package:nexshift_app/features/station/presentation/pages/vehicles_tab_page.dart';
@@ -27,6 +29,7 @@ class _StationShellPageState extends State<StationShellPage>
   late TabController _tabController;
   bool _isLoading = true;
   User? _currentUser;
+  String? _stationName;
 
   // Data
   List<User> _allUsers = [];
@@ -59,6 +62,15 @@ class _StationShellPageState extends State<StationShellPage>
       final currentUser = await UserStorageHelper.loadUser();
       final userStation = currentUser?.station ?? KConstants.station;
 
+      // Charger le nom de la station
+      String? stationName;
+      if (currentUser != null) {
+        final sdisId = SDISContext().currentSDISId;
+        if (sdisId != null) {
+          stationName = await StationNameCache().getStationName(sdisId, currentUser.station);
+        }
+      }
+
       // Filtrer toutes les données par station de l'utilisateur
       final users = await userRepo.getByStation(userStation);
       final teams = await teamRepo.getByStation(userStation);
@@ -79,6 +91,7 @@ class _StationShellPageState extends State<StationShellPage>
 
       setState(() {
         _currentUser = currentUser;
+        _stationName = stationName;
         _allUsers = users;
         _allTeams = teams;
         _allTrucks = trucks;
@@ -100,7 +113,7 @@ class _StationShellPageState extends State<StationShellPage>
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          _currentUser?.station ?? KConstants.station,
+          _stationName ?? _currentUser?.station ?? KConstants.station,
           style: TextStyle(
             color: Theme.of(context).colorScheme.primary,
             fontWeight: FontWeight.bold,

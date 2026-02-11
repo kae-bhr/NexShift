@@ -22,6 +22,8 @@ import 'package:nexshift_app/features/replacement/presentation/pages/skill_searc
 import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
 import 'package:nexshift_app/features/planning/presentation/widgets/vehicle_detail_dialog.dart';
 import 'package:nexshift_app/core/utils/subshift_normalizer.dart';
+import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
+import 'package:nexshift_app/core/utils/station_name_cache.dart';
 
 class PlanningTeamDetailsPage extends StatefulWidget {
   final DateTime at;
@@ -55,6 +57,7 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
   List<Planning> _allPlannings = []; // Tous les plannings chargés
   // Cached rule sets for the current station, by vehicle type
   final Map<String, VehicleRuleSet> _ruleSetsByType = {};
+  String? _stationName; // Nom de la station (déchiffré)
 
   @override
   void initState() {
@@ -266,6 +269,16 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
       stationId: trucks.isNotEmpty ? trucks.first.station : '',
     );
 
+    // Charger le nom de la station
+    String? stationName;
+    final sdisId = SDISContext().currentSDISId;
+    if (sdisId != null) {
+      stationName = await StationNameCache().getStationName(
+        sdisId,
+        chosenStation,
+      );
+    }
+
     setState(() {
       _agents = agents;
       _effectiveAgents = effectiveAgents;
@@ -274,6 +287,7 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
       _stationTrucks = trucks;
       _crewResults = crewResults;
       _teamLabel = teamLabel;
+      _stationName = stationName;
       _isLoading = false;
     });
   }
@@ -530,7 +544,8 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final stationLabel = _currentPlanning?.station ?? KConstants.station;
+    final stationLabel =
+        _stationName ?? _currentPlanning?.station ?? KConstants.station;
     final teamLabel = _currentPlanning != null
         ? (_teamLabel ?? "Équipe ${_currentPlanning!.team}")
         : "Aucune astreinte";
@@ -563,15 +578,18 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
     return Scaffold(
       appBar: CustomAppBar(
         title: Text(
-          'Opérations',
+          'Vue opérationnelle',
           style: TextStyle(
             color: Theme.of(context).colorScheme.primary,
-            fontSize: KTextStyle.regularTextStyle.fontSize,
+            fontSize: 18,
           ),
         ),
         bottomColor: KColors.appNameColor,
         actions: [
           IconButton(
+            iconSize: 24,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
             onPressed: hasPreviousEvent ? _goToPreviousEvent : null,
             icon: Icon(
               Icons.chevron_left,
@@ -583,12 +601,15 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
             onPressed: _pickAt,
             style: TextButton.styleFrom(
               foregroundColor: Theme.of(context).colorScheme.primary,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.access_time, size: 20),
-                const SizedBox(width: 6),
+                const Icon(Icons.access_time, size: 18),
+                const SizedBox(width: 4),
                 Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -596,13 +617,14 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
                     Text(
                       _formatDate(_at),
                       style: const TextStyle(
-                        fontSize: 13,
+                        fontSize: 12,
                         fontWeight: FontWeight.w600,
+                        height: 1.0,
                       ),
                     ),
                     Text(
                       _formatTime(_at),
-                      style: const TextStyle(fontSize: 11),
+                      style: const TextStyle(fontSize: 11, height: 1.0),
                     ),
                   ],
                 ),
@@ -610,6 +632,9 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
             ),
           ),
           IconButton(
+            iconSize: 24,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
             onPressed: hasNextEvent ? _goToNextEvent : null,
             icon: Icon(
               Icons.chevron_right,
@@ -737,6 +762,8 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
                                           style: Theme.of(
                                             context,
                                           ).textTheme.bodySmall,
+                                          overflow: TextOverflow.ellipsis,
+                                          maxLines: 2,
                                         ),
                                       ),
                                     ],
@@ -797,7 +824,7 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
                                     children: [
                                       Expanded(
                                         child: Text(
-                                          "${a.firstName} ${a.lastName}",
+                                          a.displayName,
                                           style: _replacedNameStyle(context),
                                         ),
                                       ),
@@ -813,7 +840,7 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
                                       Expanded(
                                         child: Text(
                                           replacer != null
-                                              ? "${replacer.firstName} ${replacer.lastName}"
+                                              ? replacer.displayName
                                               : "Remplaçant inconnu",
                                           style: const TextStyle(
                                             fontWeight: FontWeight.w600,
@@ -828,7 +855,7 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
                                   padding: const EdgeInsets.symmetric(
                                     vertical: 4.0,
                                   ),
-                                  child: Text("${a.firstName} ${a.lastName}"),
+                                  child: Text(a.displayName),
                                 );
                               }
                             }),
@@ -857,7 +884,7 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
                                 child: Row(
                                   children: [
                                     Text(
-                                      "${a.firstName} ${a.lastName}",
+                                      a.displayName,
                                       style: TextStyle(
                                         fontStyle: FontStyle.italic,
                                         color: Colors.blue[700],
@@ -1077,7 +1104,7 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
                           const SizedBox(width: 10),
                           Expanded(
                             child: Text(
-                              "${a.firstName} ${a.lastName}",
+                              a.displayName,
                               style: const TextStyle(
                                 fontWeight: FontWeight.w500,
                               ),
@@ -1125,7 +1152,7 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
                           const SizedBox(width: 10),
                           Expanded(
                             child: Text(
-                              "${a.firstName} ${a.lastName}",
+                              a.displayName,
                               style: TextStyle(
                                 fontWeight: FontWeight.w500,
                                 color: Colors.blue.shade700,

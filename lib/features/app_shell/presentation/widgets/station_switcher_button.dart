@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 import 'package:nexshift_app/core/data/datasources/notifiers.dart';
+import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/core/repositories/local_repositories.dart';
 import 'package:nexshift_app/core/repositories/user_stations_repository.dart';
+import 'package:nexshift_app/core/utils/station_name_cache.dart';
 import 'package:nexshift_app/features/auth/presentation/widgets/station_selection_dialog.dart';
 import 'package:nexshift_app/features/auth/presentation/widgets/snake_bar_widget.dart';
 
@@ -87,10 +89,18 @@ class _StationSwitcherButtonState extends State<StationSwitcherButton> {
 
       if (!mounted) return;
 
+      // Charger le nom de la station pour le message
+      final sdisId = SDISContext().currentSDISId;
+      final stationName = sdisId != null
+          ? await StationNameCache().getStationName(sdisId, newUser.station)
+          : newUser.station;
+
+      if (!mounted) return;
+
       // Afficher un message de confirmation
       SnakebarWidget.showSnackBar(
         context,
-        'Station changée: ${newUser.station}',
+        'Station changée: $stationName',
         Theme.of(context).colorScheme.primary,
       );
     } else {

@@ -174,7 +174,7 @@ class _ShiftExchangePageState extends State<ShiftExchangePage> {
                     .map(
                       (u) => DropdownMenuItem(
                         value: u.id,
-                        child: Text("${u.lastName} ${u.firstName}"),
+                        child: Text(u.displayName),
                       ),
                     )
                     .toList(),
@@ -188,7 +188,7 @@ class _ShiftExchangePageState extends State<ShiftExchangePage> {
               // Lecture seule pour les agents normaux
               TextFormField(
                 initialValue:
-                    "${widget.currentUser.lastName} ${widget.currentUser.firstName}",
+                    widget.currentUser.displayName,
                 decoration: const InputDecoration(labelText: "Agent à échanger"),
                 readOnly: true,
                 enabled: false,

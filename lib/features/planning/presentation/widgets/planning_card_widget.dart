@@ -17,6 +17,8 @@ import 'package:nexshift_app/features/replacement/services/crew_allocator.dart';
 import 'package:nexshift_app/core/repositories/vehicle_rules_repository.dart';
 import 'package:nexshift_app/features/replacement/presentation/pages/skill_search_page.dart';
 import 'package:nexshift_app/core/utils/subshift_normalizer.dart';
+import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
+import 'package:nexshift_app/core/utils/station_name_cache.dart';
 
 class PlanningCard extends StatefulWidget {
   final Planning planning;
@@ -52,12 +54,14 @@ class _PlanningCardState extends State<PlanningCard> {
   Team? _team;
   List<Map<String, dynamic>>? _userOnCallSlots;
   bool _loadingSlots = false;
+  String? _stationName;
 
   @override
   void initState() {
     super.initState();
     _loadTeam();
     _loadUserOnCallSlots();
+    _loadStationName();
     teamDataChangedNotifier.addListener(_onTeamDataChanged);
   }
 
@@ -81,6 +85,21 @@ class _PlanningCardState extends State<PlanningCard> {
       setState(() {
         _team = team;
       });
+    }
+  }
+
+  Future<void> _loadStationName() async {
+    final sdisId = SDISContext().currentSDISId;
+    if (sdisId != null) {
+      final name = await StationNameCache().getStationName(
+        sdisId,
+        widget.planning.station,
+      );
+      if (mounted) {
+        setState(() {
+          _stationName = name;
+        });
+      }
     }
   }
 
@@ -125,7 +144,7 @@ class _PlanningCardState extends State<PlanningCard> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        widget.planning.station,
+                        _stationName ?? widget.planning.station,
                         style: TextStyle(
                           color: Theme.of(context).colorScheme.primary,
                           fontSize: KTextStyle.regularTextStyle.fontSize,

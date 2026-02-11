@@ -550,7 +550,7 @@ class _EditPlanningDialogState extends State<_EditPlanningDialog> {
   List<User> _getFilteredUsers() {
     final query = _searchQuery.toLowerCase();
     final filtered = widget.allUsers.where((user) {
-      final fullName = '${user.firstName} ${user.lastName}'.toLowerCase();
+      final fullName = user.displayName.toLowerCase();
       return fullName.contains(query);
     }).toList();
 
@@ -745,7 +745,7 @@ class _EditPlanningDialogState extends State<_EditPlanningDialog> {
                         vertical: 4,
                       ),
                       title: Text(
-                        '${user.firstName} ${user.lastName}',
+                        user.displayName,
                         style: TextStyle(
                           fontWeight: isSelected
                               ? FontWeight.w600
@@ -816,7 +816,7 @@ class _EditPlanningDialogState extends State<_EditPlanningDialog> {
                         ),
                         child: Center(
                           child: Text(
-                            '${user.firstName[0]}${user.lastName[0]}',
+                            user.initials,
                             style: const TextStyle(
                               color: Colors.white,
                               fontWeight: FontWeight.bold,

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart' as models;
 import 'package:nexshift_app/core/presentation/widgets/hero_widget.dart';
 import 'package:nexshift_app/core/repositories/local_repositories.dart';
@@ -12,8 +14,12 @@ import 'package:nexshift_app/features/auth/presentation/widgets/enter_app_widget
 import 'package:nexshift_app/features/auth/presentation/widgets/password_strength_field_widget.dart';
 import 'package:nexshift_app/features/auth/presentation/widgets/snake_bar_widget.dart';
 import 'package:nexshift_app/features/auth/presentation/widgets/station_selection_dialog.dart';
+import 'package:nexshift_app/features/auth/presentation/pages/station_search_page.dart';
 import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
 import 'package:nexshift_app/features/app_shell/presentation/widgets/widget_tree.dart';
+import 'package:nexshift_app/core/services/cloud_functions_service.dart';
+import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
+import 'package:nexshift_app/core/utils/station_name_cache.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({
@@ -66,6 +72,7 @@ class _LoginPageState extends State<LoginPage> {
               SizedBox(height: 10.0),
               TextField(
                 controller: controllerId,
+                keyboardType: TextInputType.text,
                 style: TextStyle(
                   color: Theme.of(context).colorScheme.tertiary,
                   fontSize: KTextStyle.descriptionTextStyle.fontSize,
@@ -73,11 +80,14 @@ class _LoginPageState extends State<LoginPage> {
                   fontWeight: KTextStyle.descriptionTextStyle.fontWeight,
                 ),
                 decoration: InputDecoration(
-                  hintText: 'Matricule',
+                  hintText: 'Matricule ou Email',
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(15.0),
                   ),
-                  prefixIcon: const Icon(Icons.person, color: Colors.grey),
+                  prefixIcon: Icon(
+                    Icons.person,
+                    color: Colors.grey,
+                  ),
                 ),
                 onEditingComplete: () {
                   setState(() {});
@@ -102,6 +112,14 @@ class _LoginPageState extends State<LoginPage> {
                 ),
                 child: Text("Se connecter", style: TextStyle(fontSize: 16)),
               ),
+              SizedBox(height: 8.0),
+              TextButton(
+                onPressed: () => _showPasswordResetDialog(),
+                child: Text(
+                  'Mot de passe oublié ?',
+                  style: TextStyle(fontSize: 14),
+                ),
+              ),
             ],
           ),
         ),
@@ -124,63 +142,200 @@ class _LoginPageState extends State<LoginPage> {
     }
 
     final repo = LocalRepository();
-    try {
-      // Login with Firebase Auth - nouvelle version avec gestion multi-stations et multi-SDIS
-      debugPrint('🔵 [LOGIN] Attempting login for matricule=$id');
-      final authResult = await repo.loginWithStations(id, pw, sdisId: widget.sdisId);
+    final authService = FirebaseAuthService();
 
-      // Cas 1: Utilisateur avec une seule station
-      if (authResult.hasSingleStation && authResult.user != null) {
-        _navigateAfterLogin(authResult.user!.id, user: authResult.user);
+    try {
+      late final AuthenticationResult authResult;
+
+      // Détecter si c'est un matricule ou un email
+      String emailToUse = id;
+
+      if (!id.contains('@')) {
+        // C'est un matricule, récupérer l'email
+        debugPrint('🔵 [LOGIN] Attempting login for matricule=$id');
+
+        final sdisId = widget.sdisId ?? SDISContext().currentSDISId;
+        if (sdisId == null) {
+          SnakebarWidget.showSnackBar(
+            context,
+            'SDIS non défini',
+            colorScheme.error,
+          );
+          return;
+        }
+
+        // Vérifier le cache local d'abord
+        final prefs = await SharedPreferences.getInstance();
+        final cacheKey = 'matricule_email_${sdisId}_$id';
+        final cachedEmail = prefs.getString(cacheKey);
+
+        String? email;
+        if (cachedEmail != null) {
+          debugPrint('⚡ [LOGIN] Email found in cache for matricule: $id');
+          email = cachedEmail;
+        } else {
+          // Pas en cache, appeler la Cloud Function
+          final cloudFunctions = CloudFunctionsService();
+          try {
+            email = await cloudFunctions.getEmailByMatricule(
+              matricule: id,
+              sdisId: sdisId,
+            );
+          } catch (e) {
+            debugPrint('❌ [LOGIN] Error getting email by matricule: $e');
+
+            if (!mounted) return;
+
+            SnakebarWidget.showSnackBar(
+              context,
+              'Erreur lors de la recherche du matricule',
+              colorScheme.error,
+            );
+            return;
+          }
+        }
+
+        if (!mounted) return;
+
+        if (email == null) {
+          SnakebarWidget.showSnackBar(
+            context,
+            'Matricule non trouvé',
+            colorScheme.error,
+          );
+          return;
+        }
+
+        // Sauvegarder dans le cache pour les prochaines connexions
+        await prefs.setString(cacheKey, email);
+
+        debugPrint('✅ [LOGIN] Email found for matricule: $email');
+        emailToUse = email;
+      } else {
+        debugPrint('🔵 [LOGIN] Attempting email login for: $id');
+      }
+
+      // Se connecter avec l'email (récupéré ou fourni)
+      try {
+        authResult = await authService.signInWithRealEmail(
+          email: emailToUse,
+          password: pw,
+        );
+      } catch (e) {
+        // Si credential invalide et qu'on utilisait un email du cache (connexion par matricule),
+        // l'email a peut-être changé en base : vérifier et retenter avec l'email frais
+        if (!id.contains('@')) {
+          final sdisId = widget.sdisId ?? SDISContext().currentSDISId;
+          if (sdisId != null) {
+            final prefs = await SharedPreferences.getInstance();
+            final cacheKey = 'matricule_email_${sdisId}_$id';
+            final cachedEmail = prefs.getString(cacheKey);
+
+            debugPrint('🔄 [LOGIN] Credential failed with cached email, fetching fresh email from server');
+            final cloudFunctions = CloudFunctionsService();
+            final freshEmail = await cloudFunctions.getEmailByMatricule(
+              matricule: id,
+              sdisId: sdisId,
+            );
+
+            if (freshEmail != null && freshEmail != cachedEmail) {
+              debugPrint('🔄 [LOGIN] Email changed: $cachedEmail -> $freshEmail, retrying');
+              await prefs.setString(cacheKey, freshEmail);
+              emailToUse = freshEmail;
+              authResult = await authService.signInWithRealEmail(
+                email: emailToUse,
+                password: pw,
+              );
+            } else {
+              // L'email n'a pas changé, c'est bien un mauvais mot de passe
+              rethrow;
+            }
+          } else {
+            rethrow;
+          }
+        } else {
+          rethrow;
+        }
+      }
+
+      // Vérifier si l'utilisateur a des stations dans ses claims
+      if (authResult.claims == null || authResult.claims!.stations.isEmpty) {
+        // L'utilisateur n'a pas de station (nouveau compte sans affiliation)
+        // Rediriger vers la page de recherche de caserne
+        if (!mounted) return;
+        debugPrint('🔵 [LOGIN] User has no stations, redirecting to StationSearchPage');
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => const StationSearchPage(),
+          ),
+        );
         return;
       }
 
-      // Cas 2: Utilisateur avec plusieurs stations - afficher le menu de sélection
-      if (authResult.needsStationSelection && authResult.userStations != null) {
-        if (!mounted) return;
+      final claims = authResult.claims!;
+      final currentUser = firebase_auth.FirebaseAuth.instance.currentUser;
 
-        debugPrint('🔵 [LOGIN] Showing station selection dialog with ${authResult.userStations!.stations.length} stations: ${authResult.userStations!.stations}');
+      if (currentUser == null) {
+        debugPrint('❌ [LOGIN] No Firebase user after authentication');
+        return;
+      }
 
-        final selectedStation = await StationSelectionDialog.show(
-          context: context,
-          stations: authResult.userStations!.stations,
+      // Cas 1: Une seule station
+      if (claims.stations.length == 1) {
+        final stationId = claims.stations.keys.first;
+        final user = await repo.loadUserByAuthUidForStation(
+          currentUser.uid,
+          claims.sdisId,
+          stationId,
         );
 
-        debugPrint('🔵 [LOGIN] User selected station: $selectedStation');
+        if (!mounted) return;
 
-        if (selectedStation != null) {
-          debugPrint('🔵 [LOGIN] Loading user profile for matricule=$id, station=$selectedStation');
-
-          // Charger le profil utilisateur pour la station sélectionnée
-          final user = await repo.loadUserForStation(id, selectedStation);
-
-          debugPrint('🔵 [LOGIN] User profile loaded: ${user != null ? 'SUCCESS (id=${user.id}, station=${user.station})' : 'NULL'}');
-
-          if (!mounted) return;
-
-          if (user != null) {
-            debugPrint('🔵 [LOGIN] Calling _navigateAfterLogin with userId=${user.id} and user object');
-            _navigateAfterLogin(user.id, user: user);
-          } else {
-            debugPrint('❌ [LOGIN] User is null, showing error');
-            SnakebarWidget.showSnackBar(
-              context,
-              'Erreur lors du chargement du profil pour cette station.',
-              colorScheme.error,
-            );
-          }
+        if (user != null) {
+          _navigateAfterLogin(user.id, user: user);
         } else {
-          debugPrint('⚠️ [LOGIN] User cancelled station selection (selectedStation is null)');
+          // Profil introuvable (ex: retiré de la caserne, claims pas encore rafraîchis)
+          debugPrint('🔵 [LOGIN] Profile not found for station $stationId, redirecting to StationSearchPage');
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const StationSearchPage(),
+            ),
+          );
         }
         return;
       }
 
-      // Cas imprévu
-      SnakebarWidget.showSnackBar(
-        context,
-        'Erreur lors de la connexion.',
-        colorScheme.error,
+      // Cas 2: Plusieurs stations
+      if (!mounted) return;
+      final selectedStation = await StationSelectionDialog.show(
+        context: context,
+        stations: claims.stations.keys.toList(),
       );
+
+      if (selectedStation != null) {
+        final user = await repo.loadUserByAuthUidForStation(
+          currentUser.uid,
+          claims.sdisId,
+          selectedStation,
+        );
+
+        if (!mounted) return;
+
+        if (user != null) {
+          _navigateAfterLogin(user.id, user: user);
+        } else {
+          // Profil introuvable pour cette station, rediriger vers gestion des casernes
+          debugPrint('🔵 [LOGIN] Profile not found for station $selectedStation, redirecting to StationSearchPage');
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const StationSearchPage(),
+            ),
+          );
+        }
+      }
     } on UserProfileNotFoundException catch (e) {
       // L'authentification a réussi mais pas de profil dans Firestore
       // Afficher popup pour créer le profil
@@ -345,6 +500,84 @@ class _LoginPageState extends State<LoginPage> {
       // Déconnecter l'utilisateur si annulation
       final authService = FirebaseAuthService();
       await authService.signOut();
+    }
+  }
+
+  /// Affiche un dialog pour réinitialiser le mot de passe
+  Future<void> _showPasswordResetDialog() async {
+    final emailController = TextEditingController();
+    final colorScheme = Theme.of(context).colorScheme;
+
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Réinitialiser le mot de passe'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Entrez votre email professionnel pour recevoir un lien de réinitialisation.',
+              style: TextStyle(fontSize: 14),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: emailController,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(
+                labelText: 'Email professionnel',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.email),
+              ),
+              autofocus: true,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final email = emailController.text.trim();
+              if (email.isNotEmpty && email.contains('@')) {
+                Navigator.pop(context, email);
+              } else {
+                SnakebarWidget.showSnackBar(
+                  context,
+                  'Veuillez entrer une adresse email valide.',
+                  colorScheme.error,
+                );
+              }
+            },
+            child: const Text('Envoyer'),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null) {
+      try {
+        final authService = FirebaseAuthService();
+        await authService.sendPasswordResetEmailReal(result);
+
+        if (!mounted) return;
+
+        SnakebarWidget.showSnackBar(
+          context,
+          'Email de réinitialisation envoyé à $result',
+          colorScheme.primary,
+        );
+      } catch (e) {
+        if (!mounted) return;
+
+        SnakebarWidget.showSnackBar(
+          context,
+          'Erreur: ${e.toString()}',
+          colorScheme.error,
+        );
+      }
     }
   }
 }

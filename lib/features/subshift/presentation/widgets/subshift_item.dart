@@ -117,7 +117,7 @@ class SubShiftItem extends StatelessWidget {
                         ),
                         children: [
                           TextSpan(
-                            text: "${replacer.firstName} ${replacer.lastName}",
+                            text: replacer.displayName,
                             style: TextStyle(
                               color: Theme.of(context).colorScheme.primary,
                               fontWeight: FontWeight.bold,
@@ -125,7 +125,7 @@ class SubShiftItem extends StatelessWidget {
                           ),
                           const TextSpan(text: " ← "),
                           TextSpan(
-                            text: "${replaced.firstName} ${replaced.lastName}",
+                            text: replaced.displayName,
                             style: const TextStyle(fontWeight: FontWeight.w500),
                           ),
                         ],

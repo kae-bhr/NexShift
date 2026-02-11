@@ -1099,7 +1099,7 @@ class _ReplacementRequestsListPageState
                                     ),
                                     const SizedBox(height: 2),
                                     Text(
-                                      '${replacer.firstName} ${replacer.lastName}',
+                                      replacer.displayName,
                                       style: const TextStyle(
                                         fontSize: 15,
                                         fontWeight: FontWeight.bold,
@@ -1569,7 +1569,7 @@ class _ReplacementRequestsListPageState
   Future<String> _getRequesterName(String userId) async {
     try {
       final user = await _userRepository.getById(userId);
-      return user != null ? '${user.firstName} ${user.lastName}' : 'Inconnu';
+      return user != null ? user.displayName : 'Inconnu';
     } catch (e) {
       return 'Inconnu';
     }
@@ -2221,7 +2221,7 @@ class _ReplacementRequestsListPageState
                           leading: CircleAvatar(
                             backgroundColor: Colors.purple.shade100,
                             child: Text(
-                              user.firstName[0].toUpperCase(),
+                              user.initials,
                               style: TextStyle(
                                 color: Colors.purple.shade700,
                                 fontWeight: FontWeight.bold,
@@ -2229,7 +2229,7 @@ class _ReplacementRequestsListPageState
                             ),
                           ),
                           title: Text(
-                            '${user.firstName} ${user.lastName}',
+                            user.displayName,
                             style: const TextStyle(fontWeight: FontWeight.w600),
                           ),
                           subtitle: Row(
@@ -2407,7 +2407,7 @@ class _ReplacementRequestsListPageState
       stationId: request.station,
     );
     final requesterName = requester != null
-        ? '${requester.firstName} ${requester.lastName}'
+        ? requester.displayName
         : 'Un agent';
 
     // Créer un trigger de notification pour la relance
@@ -2867,7 +2867,7 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: Text(
-                                        '${user.firstName} ${user.lastName}',
+                                        user.displayName,
                                         style: TextStyle(
                                           fontSize: 14,
                                           color: hasDeclined
@@ -3004,7 +3004,7 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              '${user.firstName} ${user.lastName}',
+                              user.displayName,
                               style: TextStyle(
                                 fontSize: 14,
                                 color: Colors.grey.shade700,

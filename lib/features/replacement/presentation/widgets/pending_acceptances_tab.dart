@@ -350,7 +350,7 @@ class _AcceptanceCardState extends State<_AcceptanceCard> {
                   ).style.copyWith(fontSize: 16, fontWeight: FontWeight.w500),
                   children: [
                     TextSpan(
-                      text: '${_acceptor!.firstName} ${_acceptor!.lastName}',
+                      text: _acceptor!.displayName,
                       style: TextStyle(
                         color: Theme.of(context).colorScheme.primary,
                         fontWeight: FontWeight.bold,
@@ -358,7 +358,7 @@ class _AcceptanceCardState extends State<_AcceptanceCard> {
                     ),
                     const TextSpan(text: " ← "),
                     TextSpan(
-                      text: '${_requester!.firstName} ${_requester!.lastName}',
+                      text: _requester!.displayName,
                       style: const TextStyle(fontWeight: FontWeight.w500),
                     ),
                   ],

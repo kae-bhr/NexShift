@@ -9,6 +9,7 @@ import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:nexshift_app/core/utils/design_system.dart';
 import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
 import 'package:nexshift_app/core/data/datasources/notifiers.dart';
+import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 
 class EditSkillsPage extends StatefulWidget {
   final User user;
@@ -51,13 +52,7 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
     });
 
     try {
-      final updatedUser = User(
-        id: widget.user.id,
-        firstName: widget.user.firstName,
-        lastName: widget.user.lastName,
-        station: widget.user.station,
-        team: widget.user.team,
-        status: widget.user.status,
+      final updatedUser = widget.user.copyWith(
         skills: _selectedSkills.toList(),
         keySkills: _selectedKeySkills.toList(),
       );
@@ -67,9 +62,10 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
       // Synchroniser les compétences sur toutes les stations de l'utilisateur
       await _syncSkillsAcrossStations(updatedUser);
 
-      // Si c'est l'utilisateur actuel, mettre à jour le notifier
+      // Si c'est l'utilisateur actuel, mettre à jour le notifier + stockage local
       if (userNotifier.value?.id == updatedUser.id) {
         userNotifier.value = updatedUser;
+        await UserStorageHelper.saveUser(updatedUser);
       }
 
       if (mounted) {
@@ -148,17 +144,9 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
 
           if (userInStation != null) {
             // Mettre à jour les compétences ET les compétences-clés
-            final updatedUserInStation = User(
-              id: userInStation.id,
-              firstName: userInStation.firstName,
-              lastName: userInStation.lastName,
-              station: userInStation.station,
-              team: userInStation.team,
-              status: userInStation.status,
-              skills: user.skills, // Compétences synchronisées
-              keySkills: user.keySkills, // Compétences-clés synchronisées
-              admin: userInStation.admin,
-              positionId: userInStation.positionId,
+            final updatedUserInStation = userInStation.copyWith(
+              skills: user.skills,
+              keySkills: user.keySkills,
             );
 
             await userRepo.upsert(updatedUserInStation);
@@ -729,7 +717,7 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
   @override
   Widget build(BuildContext context) {
     final userName =
-        "${widget.user.firstName} ${widget.user.lastName.toUpperCase()}";
+        widget.user.displayName;
 
     return WillPopScope(
       onWillPop: () async {

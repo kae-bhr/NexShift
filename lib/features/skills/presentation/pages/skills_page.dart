@@ -47,6 +47,8 @@ class _SkillsPageState extends State<SkillsPage> {
 
     try {
       if (widget.userId != null) {
+        // Autre utilisateur : charger via repository
+        // Note: getUserProfile devrait utiliser Cloud Functions pour déchiffrer
         final user = await _repository.getUserProfile(widget.userId!);
         await _loadPosition(user);
         setState(() {
@@ -54,14 +56,13 @@ class _SkillsPageState extends State<SkillsPage> {
           _isLoading = false;
         });
       } else {
-        // Pour l'utilisateur actuel, on recharge depuis le repository
-        // pour s'assurer d'avoir les données à jour
+        // Pour l'utilisateur connecté, utiliser directement userNotifier
+        // Les données sont déjà déchiffrées après le login
         final currentUser = userNotifier.value;
         if (currentUser != null) {
-          final user = await _repository.getUserProfile(currentUser.id);
-          await _loadPosition(user);
+          await _loadPosition(currentUser);
           setState(() {
-            _displayedUser = user;
+            _displayedUser = currentUser;
             _isLoading = false;
           });
         } else {
@@ -154,7 +155,7 @@ class _SkillsPageState extends State<SkillsPage> {
   @override
   Widget build(BuildContext context) {
     final String userName = _displayedUser != null
-        ? "${_displayedUser!.firstName} ${_displayedUser!.lastName.toUpperCase()}"
+        ? _displayedUser!.displayName
         : "";
 
     return PopScope(

@@ -13,6 +13,33 @@ export {
   sendAnomalyAlerts,
 } from "./alerts";
 
+// Auth & User Management Functions
+export {
+  createAccount,
+  requestMembership,
+  handleMembershipRequest,
+  reserveMatricule,
+  preRegisterAgent,
+  addExistingUserToStation,
+  updateUserRole,
+  removeUserFromStation,
+  deleteUser,
+  createStationWithCode,
+} from "./auth-functions.js";
+
+// User Data Functions (avec déchiffrement PII)
+export {
+  getUserProfile,
+  getStationUsers,
+  getMembershipRequests,
+  getPendingMembershipRequestsCount,
+  getSDISStations,
+  getMyMembershipRequests,
+  getUserByAuthUidForStation,
+  getUsersByStation,
+  getEmailByMatricule,
+} from "./user-functions.js";
+
 initializeApp();
 
 /**

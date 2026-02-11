@@ -97,7 +97,7 @@ class _ReplacementTileWrapperState extends State<ReplacementTileWrapper> {
       // Charger le nom du demandeur
       final requester = await _userRepository.getById(widget.request.requesterId);
       final requesterName = requester != null
-          ? '${requester.firstName} ${requester.lastName}'
+          ? requester.displayName
           : 'Inconnu';
 
       // Charger le remplaçant si accepté

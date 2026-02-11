@@ -35,7 +35,7 @@ class ReplacementRequestAdapter {
       rightColumn: replacer != null
           ? AgentColumnData(
               agentId: replacer.id,
-              agentName: '${replacer.firstName} ${replacer.lastName}',
+              agentName: replacer.displayName,
               team: replacer.team,
               startTime: request.acceptedStartTime ?? request.startTime,
               endTime: request.acceptedEndTime ?? request.endTime,

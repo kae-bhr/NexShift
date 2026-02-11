@@ -125,7 +125,7 @@ class ReplacementSearchService {
         teamMembers.map((u) {
           return DropdownMenuItem(
             value: u.id,
-            child: Text("${u.lastName} ${u.firstName}"),
+            child: Text(u.displayName),
           );
         }),
       );
@@ -142,7 +142,7 @@ class ReplacementSearchService {
       nonTeamMembers.map((u) {
         return DropdownMenuItem(
           value: u.id,
-          child: Text("${u.lastName} ${u.firstName}"),
+          child: Text(u.displayName),
         );
       }),
     );

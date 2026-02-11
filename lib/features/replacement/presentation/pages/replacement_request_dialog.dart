@@ -102,7 +102,7 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
       // Charger le nom du demandeur
       final requester = await _userRepository.getById(request.requesterId);
       final requesterName = requester != null
-          ? '${requester.firstName} ${requester.lastName}'
+          ? requester.displayName
           : 'Inconnu';
 
       // Vérifier si l'utilisateur peut accepter le remplacement

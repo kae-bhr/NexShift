@@ -761,7 +761,7 @@ class _ReplacementPageState extends State<ReplacementPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              "Proposition envoyée à ${replacerUser.firstName} ${replacerUser.lastName}",
+              "Proposition envoyée à ${replacerUser.displayName}",
             ),
           ),
         );
@@ -876,7 +876,7 @@ class _ReplacementPageState extends State<ReplacementPage> {
                     .map(
                       (u) => DropdownMenuItem(
                         value: u.id,
-                        child: Text("${u.lastName} ${u.firstName}"),
+                        child: Text(u.displayName),
                       ),
                     )
                     .toList(),
@@ -892,7 +892,7 @@ class _ReplacementPageState extends State<ReplacementPage> {
               // Show read-only field with current user's name
               TextFormField(
                 initialValue:
-                    "${widget.currentUser!.lastName} ${widget.currentUser!.firstName}",
+                    widget.currentUser!.displayName,
                 decoration: const InputDecoration(labelText: "Remplacé"),
                 readOnly: true,
                 enabled: false,
@@ -1085,7 +1085,7 @@ class _ReplacementPageState extends State<ReplacementPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            "Périodes non couvertes pour ${user.firstName} ${user.lastName} :",
+                            "Périodes non couvertes pour ${user.displayName} :",
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
                               color: textColor,
@@ -1156,7 +1156,7 @@ class _ReplacementPageState extends State<ReplacementPage> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              "Périodes où ${user.firstName} ${user.lastName} est indisponible :",
+                              "Périodes où ${user.displayName} est indisponible :",
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
                                 color: textColor,

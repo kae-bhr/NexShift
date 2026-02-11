@@ -2,8 +2,20 @@ import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/services/firestore_service.dart';
+import 'package:nexshift_app/core/services/cloud_functions_service.dart';
 import 'package:nexshift_app/core/config/environment_config.dart';
 
+/// Repository pour gérer les données utilisateur dans Firestore
+///
+/// IMPORTANT - Système hybride:
+/// - Les données PII (nom, prénom, email, matricule) sont chiffrées côté serveur
+///   et doivent être lues via les callable functions (cloud_functions_service.dart)
+/// - Ce repository gère principalement les données NON-PII spécifiques aux stations
+///   (équipe, statut, compétences, etc.)
+///
+/// Pour lire des profils utilisateur avec PII déchiffrées, utilisez:
+/// - CloudFunctionsService.getUserProfile() pour un utilisateur
+/// - CloudFunctionsService.getStationUsers() pour tous les utilisateurs d'une station
 class UserRepository {
   static const _collectionName = 'users';
   final FirestoreService _firestoreService;
@@ -49,6 +61,21 @@ class UserRepository {
   /// Récupère les utilisateurs d'une station spécifique
   Future<List<User>> getByStation(String stationId) async {
     try {
+      // IMPORTANT : Utiliser CloudFunctionsService pour obtenir les données déchiffrées
+      // Les PII (firstName, lastName, email) sont chiffrées dans Firestore
+      // et ne peuvent être déchiffrées que par les Cloud Functions
+      final cloudFunctionsService = CloudFunctionsService();
+      final users = await cloudFunctionsService.getUsersByStation(stationId: stationId);
+
+      debugPrint('📥 UserRepository.getByStation: loaded ${users.length} users (decrypted) from station $stationId');
+      return users;
+    } catch (e) {
+      debugPrint('❌ Error in getByStation (trying Cloud Functions): $e');
+
+      // Fallback : lecture Firestore directe (données chiffrées)
+      // Cela ne devrait être utilisé qu'en mode test/dev
+      debugPrint('⚠️ Falling back to direct Firestore read (encrypted data)');
+
       final collectionPath = _getCollectionPath(stationId);
 
       // Mode test : utiliser directement FirebaseFirestore
@@ -75,7 +102,7 @@ class UserRepository {
         }
       }
 
-      // Mode production : utiliser FirestoreService
+      // Mode production : utiliser FirestoreService (fallback)
       // En mode dev (sous-collections), on récupère tous les users de la sous-collection
       // En mode prod (collections plates), on filtre par station
       if (EnvironmentConfig.useStationSubcollections) {
@@ -89,9 +116,6 @@ class UserRepository {
         );
         return data.map((e) => User.fromJson(e)).toList();
       }
-    } catch (e) {
-      debugPrint('Firestore error in getByStation: $e');
-      rethrow;
     }
   }
 
@@ -162,6 +186,7 @@ class UserRepository {
   }
 
   /// Sauvegarde tous les utilisateurs
+  /// IMPORTANT : utilise toFirestoreJson() pour ne JAMAIS écrire de PII en clair.
   Future<void> saveAll(List<User> users) async {
     try {
       // Mode test : utiliser directement FirebaseFirestore
@@ -170,7 +195,8 @@ class UserRepository {
         for (final user in users) {
           batch.set(
             _directFirestore.collection(_collectionName).doc(user.id),
-            user.toJson(),
+            user.toFirestoreJson(),
+            SetOptions(merge: true),
           );
         }
         await batch.commit();
@@ -182,7 +208,7 @@ class UserRepository {
         'type': 'set',
         'collection': _collectionName,
         'id': user.id,
-        'data': user.toJson(),
+        'data': user.toFirestoreJson(),
       }).toList();
       await _firestoreService.batchWrite(operations);
     } catch (e) {
@@ -192,22 +218,24 @@ class UserRepository {
   }
 
   /// Met à jour ou insère un utilisateur
+  /// IMPORTANT : utilise toFirestoreJson() pour ne JAMAIS écrire de PII en clair.
   Future<void> upsert(User user) async {
     try {
       debugPrint('🔄 [UserRepository] Upserting user ${user.id}');
-      debugPrint('   Data: firstName=${user.firstName}, lastName=${user.lastName}, team=${user.team}, status=${user.status}, station=${user.station}');
+      debugPrint('   Data: team=${user.team}, status=${user.status}, station=${user.station} (PII excluded)');
 
       final collectionPath = _getCollectionPath(user.station);
+      final data = user.toFirestoreJson();
 
       // Mode test : utiliser directement FirebaseFirestore
       if (_directFirestore != null) {
-        await _directFirestore.collection(collectionPath).doc(user.id).set(user.toJson());
+        await _directFirestore.collection(collectionPath).doc(user.id).set(data, SetOptions(merge: true));
         debugPrint('✅ [UserRepository] User ${user.id} upserted successfully');
         return;
       }
 
       // Mode production : utiliser FirestoreService
-      await _firestoreService.upsert(collectionPath, user.id, user.toJson());
+      await _firestoreService.upsert(collectionPath, user.id, data);
       debugPrint('✅ [UserRepository] User ${user.id} upserted successfully');
     } catch (e) {
       debugPrint('❌ [UserRepository] Firestore error during upsert: $e');

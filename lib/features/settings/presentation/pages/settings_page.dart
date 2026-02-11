@@ -9,8 +9,8 @@ import 'package:nexshift_app/core/repositories/team_repository.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:nexshift_app/core/services/push_notification_service.dart';
 import 'package:nexshift_app/features/auth/presentation/pages/login_page.dart';
+import 'package:nexshift_app/features/auth/presentation/pages/station_search_page.dart';
 import 'package:nexshift_app/features/auth/presentation/pages/welcome_page.dart';
-import 'package:nexshift_app/features/app_shell/presentation/widgets/widget_tree.dart';
 import 'package:nexshift_app/features/settings/presentation/pages/logs_viewer_page.dart';
 import 'package:nexshift_app/features/skills/presentation/pages/skills_page.dart';
 import 'package:nexshift_app/features/settings/presentation/pages/notification_settings_page.dart';
@@ -20,10 +20,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:nexshift_app/core/repositories/user_stations_repository.dart';
-import 'package:nexshift_app/core/repositories/local_repositories.dart';
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
-import 'package:nexshift_app/features/auth/presentation/widgets/station_selection_dialog.dart';
 
 const String appVersion = '1.0.0';
 
@@ -118,7 +114,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 leading: CircleAvatar(
                   backgroundColor: teamColor.withOpacity(0.2),
                   child: Text(
-                    _getUserInitials(user),
+                    user.initials,
                     style: TextStyle(
                       color: teamColor,
                       fontWeight: FontWeight.bold,
@@ -126,7 +122,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   ),
                 ),
                 title: Text(
-                  _getUserFullName(user),
+                  user.displayName,
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 subtitle: Column(
@@ -137,7 +133,12 @@ class _SettingsPageState extends State<SettingsPage> {
                       children: [
                         Icon(Icons.badge, size: 14, color: Colors.grey[600]),
                         const SizedBox(width: 4),
-                        Text('Matricule : ${user.id}'),
+                        Expanded(
+                          child: Text(
+                            'Matricule : ${user.id}',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 2),
@@ -477,93 +478,11 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   /// Gère le changement de caserne pour les utilisateurs multi-affectés
-  void _gestionChangementCaserne() async {
-    final user = userNotifier.value;
-    if (user == null) return;
-
-    try {
-      final userStationsRepo = UserStationsRepository();
-      final sdisId = SDISContext().currentSDISId;
-
-      // Récupérer les stations de l'utilisateur
-      final userStations = await userStationsRepo.getUserStations(
-        user.id,
-        sdisId: sdisId,
-      );
-
-      if (userStations == null || userStations.stations.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Aucune station trouvée pour cet utilisateur'),
-            ),
-          );
-        }
-        return;
-      }
-
-      // Si une seule station, informer l'utilisateur
-      if (userStations.stations.length == 1) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Vous n\'êtes affecté qu\'à une seule caserne'),
-            ),
-          );
-        }
-        return;
-      }
-
-      // Afficher le dialog de sélection de station
-      if (!mounted) return;
-      final selectedStation = await StationSelectionDialog.show(
-        context: context,
-        stations: userStations.stations,
-      );
-
-      if (selectedStation != null && selectedStation != user.station) {
-        // Charger le profil utilisateur pour la station sélectionnée
-        final localRepo = LocalRepository();
-        final newUser = await localRepo.loadUserForStation(user.id, selectedStation);
-
-        if (newUser != null) {
-          // Mettre à jour l'utilisateur dans le contexte
-          await UserStorageHelper.saveUser(newUser);
-          userNotifier.value = newUser;
-
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Station changée vers: $selectedStation'),
-                backgroundColor: Colors.green,
-              ),
-            );
-
-            // Recharger la page pour rafraîchir l'interface
-            Navigator.of(context).pushAndRemoveUntil(
-              MaterialPageRoute(
-                builder: (_) => const WidgetTree(),
-              ),
-              (route) => false,
-            );
-          }
-        } else {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Erreur lors du chargement du profil pour cette station'),
-              ),
-            );
-          }
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e')),
-        );
-      }
-    }
+  void _gestionChangementCaserne() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const StationSearchPage()),
+    );
   }
 
   void _gestionChangementMotDePasse() {
@@ -1027,37 +946,4 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  /// Retourne les initiales de l'utilisateur de manière sûre
-  String _getUserInitials(dynamic user) {
-    final firstName = user.firstName ?? '';
-    final lastName = user.lastName ?? '';
-    final firstInitial = firstName.isNotEmpty ? firstName[0] : '';
-    final lastInitial = lastName.isNotEmpty ? lastName[0] : '';
-
-    if (firstInitial.isEmpty && lastInitial.isEmpty) {
-      return '?';
-    }
-
-    return '$firstInitial$lastInitial'.toUpperCase();
-  }
-
-  /// Retourne le nom complet de l'utilisateur ou son matricule si le nom est vide
-  String _getUserFullName(dynamic user) {
-    final firstName = user.firstName ?? '';
-    final lastName = user.lastName ?? '';
-
-    if (firstName.isEmpty && lastName.isEmpty) {
-      return 'Agent ${user.id}';
-    }
-
-    if (firstName.isEmpty) {
-      return lastName;
-    }
-
-    if (lastName.isEmpty) {
-      return firstName;
-    }
-
-    return '$firstName $lastName';
-  }
 }

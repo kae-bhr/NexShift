@@ -2,9 +2,11 @@ import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:flutter/foundation.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/data/models/user_stations_model.dart';
+import 'package:nexshift_app/core/data/models/user_claims_model.dart';
 import 'package:nexshift_app/core/repositories/user_repository.dart';
 import 'package:nexshift_app/core/repositories/user_stations_repository.dart';
 import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
+import 'package:nexshift_app/core/services/cloud_functions_service.dart';
 
 /// Exception lancée quand l'utilisateur existe dans Firebase Auth
 /// mais n'a pas de profil dans Firestore
@@ -17,24 +19,43 @@ class UserProfileNotFoundException implements Exception {
   String toString() => 'User profile not found in Firestore for matricule: $matricule';
 }
 
+/// Exception lancée quand l'utilisateur n'est affilié à aucune caserne
+class NoStationAffiliationException implements Exception {
+  final String authUid;
+
+  NoStationAffiliationException(this.authUid);
+
+  @override
+  String toString() => 'User has no station affiliation: $authUid';
+}
+
 /// Résultat de l'authentification avec informations de stations
 /// Utilisé quand un utilisateur appartient à plusieurs stations
 class AuthenticationResult {
   final User? user;
   final UserStations? userStations;
+  final UserClaims? claims; // Nouveau: custom claims
 
   AuthenticationResult({
     this.user,
     this.userStations,
+    this.claims,
   });
 
   /// L'utilisateur doit-il sélectionner une station ?
   bool get needsStationSelection =>
-      userStations != null && userStations!.stations.length >= 2;
+      (userStations != null && userStations!.stations.length >= 2) ||
+      (claims != null && claims!.stations.length >= 2);
 
   /// L'utilisateur n'a qu'une seule station
   bool get hasSingleStation =>
-      userStations != null && userStations!.stations.length == 1;
+      (userStations != null && userStations!.stations.length == 1) ||
+      (claims != null && claims!.stations.length == 1);
+
+  /// L'utilisateur n'a aucune station (doit chercher une caserne)
+  bool get hasNoStation =>
+      (claims != null && claims!.stations.isEmpty) ||
+      (userStations != null && userStations!.stations.isEmpty);
 }
 
 /// Service d'authentification Firebase
@@ -45,6 +66,9 @@ class FirebaseAuthService {
   final UserRepository _userRepository = UserRepository();
   final UserStationsRepository _userStationsRepository = UserStationsRepository();
 
+  // Cache des claims pour éviter les appels répétés
+  UserClaims? _cachedClaims;
+
   /// Récupère l'utilisateur Firebase actuellement connecté
   firebase_auth.User? get currentFirebaseUser => _auth.currentUser;
 
@@ -54,8 +78,193 @@ class FirebaseAuthService {
   /// Vérifie si un utilisateur est connecté
   bool get isAuthenticated => _auth.currentUser != null;
 
+  /// Récupère les custom claims de l'utilisateur courant (avec cache)
+  UserClaims? get cachedClaims => _cachedClaims;
+
   /// Récupère l'ID de l'utilisateur actuellement connecté
   String? get currentUserId => _auth.currentUser?.uid;
+
+  // ============================================================
+  // NOUVELLES MÉTHODES - Authentification avec email réel
+  // ============================================================
+
+  /// Connexion avec email réel et mot de passe (nouveau système)
+  /// Charge automatiquement les custom claims après connexion
+  Future<AuthenticationResult> signInWithRealEmail({
+    required String email,
+    required String password,
+  }) async {
+    try {
+      debugPrint('Attempting Firebase sign in with real email: $email');
+
+      // Authentification Firebase
+      final credential = await _auth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+
+      if (credential.user == null) {
+        throw Exception('Authentication failed: no user returned');
+      }
+
+      debugPrint('Firebase sign in successful: ${credential.user!.uid}');
+
+      // Charger les custom claims
+      final claims = await getUserClaims(forceRefresh: true);
+
+      if (claims == null) {
+        debugPrint('Warning: No custom claims found for user');
+        // L'utilisateur n'a pas encore de claims (nouveau compte sans affiliation)
+        return AuthenticationResult(
+          user: null,
+          userStations: null,
+          claims: null,
+        );
+      }
+
+      debugPrint('Claims loaded: sdisId=${claims.sdisId}, role=${claims.role}, stations=${claims.stations.keys.toList()}');
+
+      // Définir le contexte SDIS global
+      if (claims.sdisId != null) {
+        SDISContext().setCurrentSDISId(claims.sdisId!);
+      }
+
+      // Retourner le résultat avec les claims
+      return AuthenticationResult(
+        user: null, // Le profil sera chargé via callable function
+        userStations: null,
+        claims: claims,
+      );
+    } on firebase_auth.FirebaseAuthException catch (e) {
+      debugPrint('Firebase Auth error: ${e.code} - ${e.message}');
+
+      switch (e.code) {
+        case 'user-not-found':
+          throw Exception('Aucun compte ne correspond à cette adresse email');
+        case 'wrong-password':
+        case 'invalid-credential':
+          throw Exception('Mot de passe incorrect');
+        case 'invalid-email':
+          throw Exception('Adresse email invalide');
+        case 'user-disabled':
+          throw Exception('Ce compte a été désactivé');
+        case 'too-many-requests':
+          throw Exception(
+            'Trop de tentatives de connexion. Veuillez réessayer plus tard',
+          );
+        case 'network-request-failed':
+          throw Exception(
+            'Erreur réseau. Vérifiez votre connexion internet',
+          );
+        default:
+          throw Exception('Erreur d\'authentification: ${e.message}');
+      }
+    } catch (e) {
+      debugPrint('Sign in error: $e');
+      rethrow;
+    }
+  }
+
+  /// Récupère les custom claims de l'utilisateur courant
+  /// [forceRefresh] force le rafraîchissement du token (après modification des claims)
+  Future<UserClaims?> getUserClaims({bool forceRefresh = false}) async {
+    try {
+      final firebaseUser = _auth.currentUser;
+      if (firebaseUser == null) {
+        _cachedClaims = null;
+        return null;
+      }
+
+      // Forcer le rafraîchissement du token si demandé
+      final idTokenResult = await firebaseUser.getIdTokenResult(forceRefresh);
+      final claimsMap = idTokenResult.claims;
+
+      if (claimsMap == null) {
+        _cachedClaims = null;
+        return null;
+      }
+
+      // Parser les claims
+      _cachedClaims = UserClaims.fromIdTokenClaims(claimsMap);
+      return _cachedClaims;
+    } catch (e) {
+      debugPrint('Error getting user claims: $e');
+      return null;
+    }
+  }
+
+  /// Rafraîchit les custom claims (après modification côté serveur)
+  Future<UserClaims?> refreshClaims() async {
+    return getUserClaims(forceRefresh: true);
+  }
+
+  /// Envoie un email de réinitialisation de mot de passe (nouvelle version avec email réel)
+  Future<void> sendPasswordResetEmailReal(String email) async {
+    try {
+      debugPrint('Sending password reset email to: $email');
+
+      await _auth.sendPasswordResetEmail(email: email);
+
+      debugPrint('Password reset email sent');
+    } on firebase_auth.FirebaseAuthException catch (e) {
+      debugPrint('Password reset error: ${e.code} - ${e.message}');
+
+      switch (e.code) {
+        case 'user-not-found':
+          throw Exception('Aucun compte ne correspond à cette adresse email');
+        case 'invalid-email':
+          throw Exception('Adresse email invalide');
+        default:
+          throw Exception(
+            'Erreur lors de l\'envoi de l\'email: ${e.message}',
+          );
+      }
+    } catch (e) {
+      debugPrint('Password reset error: $e');
+      throw Exception('Erreur lors de l\'envoi de l\'email de réinitialisation: $e');
+    }
+  }
+
+  /// Réauthentifie l'utilisateur actuel avec son email réel
+  Future<void> reauthenticateWithRealEmail({
+    required String email,
+    required String password,
+  }) async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null) {
+        throw Exception('Aucun utilisateur connecté');
+      }
+
+      final credential = firebase_auth.EmailAuthProvider.credential(
+        email: email,
+        password: password,
+      );
+
+      debugPrint('Reauthenticating user: $email');
+
+      await user.reauthenticateWithCredential(credential);
+
+      debugPrint('Reauthentication successful');
+    } on firebase_auth.FirebaseAuthException catch (e) {
+      debugPrint('Reauthentication error: ${e.code} - ${e.message}');
+
+      switch (e.code) {
+        case 'wrong-password':
+        case 'invalid-credential':
+          throw Exception('Mot de passe incorrect');
+        case 'user-mismatch':
+          throw Exception('L\'email ne correspond pas à l\'utilisateur connecté');
+        case 'user-not-found':
+          throw Exception('Utilisateur introuvable');
+        default:
+          throw Exception('Erreur de réauthentification: ${e.message}');
+      }
+    } catch (e) {
+      debugPrint('Reauthentication error: $e');
+      throw Exception('Erreur lors de la réauthentification: $e');
+    }
+  }
 
   /// Connexion avec email et mot de passe (nouvelle version avec gestion multi-stations et multi-SDIS)
   /// Retourne AuthenticationResult avec les informations de stations
@@ -305,6 +514,10 @@ class FirebaseAuthService {
   Future<void> signOut() async {
     try {
       debugPrint('Signing out user: ${_auth.currentUser?.email}');
+
+      // Nettoyer le cache
+      _cachedClaims = null;
+
       await _auth.signOut();
       debugPrint('Sign out successful');
     } catch (e) {
@@ -514,6 +727,37 @@ class FirebaseAuthService {
       return mergedUser;
     } catch (e) {
       debugPrint('❌ [AUTH_SERVICE] Error loading user profile for station: $e');
+      return null;
+    }
+  }
+
+  /// Charge le profil utilisateur par authUid pour une station spécifique
+  /// Utilisé avec le nouveau système d'authentification par email avec données chiffrées
+  /// Utilise une Cloud Function pour déchiffrer les PII
+  Future<User?> loadUserByAuthUidForStation(
+    String authUid,
+    String sdisId,
+    String stationId,
+  ) async {
+    try {
+      debugPrint('🟡 [AUTH_SERVICE] loadUserByAuthUidForStation called: authUid=$authUid, sdisId=$sdisId, stationId=$stationId');
+
+      // Utiliser la Cloud Function qui déchiffre les données
+      final cloudFunctions = CloudFunctionsService();
+      final user = await cloudFunctions.getUserByAuthUidForStation(
+        authUid: authUid,
+        stationId: stationId,
+      );
+
+      if (user == null) {
+        debugPrint('❌ [AUTH_SERVICE] User not found by authUid in station: $stationId');
+        return null;
+      }
+
+      debugPrint('✅ [AUTH_SERVICE] User loaded by authUid: ${user.firstName} ${user.lastName} (${user.station})');
+      return user;
+    } catch (e) {
+      debugPrint('❌ [AUTH_SERVICE] Error loading user by authUid: $e');
       return null;
     }
   }

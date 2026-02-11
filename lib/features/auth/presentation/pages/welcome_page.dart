@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:nexshift_app/core/presentation/pages/about_page.dart';
 import 'package:nexshift_app/features/auth/presentation/pages/sdis_selection_page.dart';
 import 'package:nexshift_app/core/presentation/widgets/hero_widget.dart';
-import 'package:nexshift_app/features/auth/presentation/pages/discover_page.dart';
+import 'package:nexshift_app/features/auth/presentation/pages/sdis_selection_for_create_account_page.dart';
 
 class WelcomePage extends StatelessWidget {
   const WelcomePage({super.key});
@@ -23,13 +23,13 @@ class WelcomePage extends StatelessWidget {
                   context,
                   MaterialPageRoute(
                     builder: (context) {
-                      return DiscoverPage();
+                      return const SDISSelectionForCreateAccountPage();
                     },
                   ),
                 );
               },
-              child: Text(
-                "Je découvre NexShift",
+              child: const Text(
+                "Créer un compte",
                 style: TextStyle(fontSize: 16),
               ),
             ),
@@ -44,7 +44,7 @@ class WelcomePage extends StatelessWidget {
                   ),
                 );
               },
-              child: Text("Je me connecte", style: TextStyle(fontSize: 16)),
+              child: const Text("Se connecter", style: TextStyle(fontSize: 16)),
             ),
           ],
         ),

@@ -47,6 +47,20 @@ class LocalRepository {
     return await _authService.loadUserProfileForStation(matricule, stationId);
   }
 
+  /// Charge le profil utilisateur par authUid pour une station spécifique
+  /// Utilisé avec le nouveau système d'authentification par email
+  Future<User?> loadUserByAuthUidForStation(
+    String authUid,
+    String sdisId,
+    String stationId,
+  ) async {
+    return await _authService.loadUserByAuthUidForStation(
+      authUid,
+      sdisId,
+      stationId,
+    );
+  }
+
   /// Authentifie un utilisateur avec Firebase Authentication
   /// Retourne le profil utilisateur complet depuis Firestore
   /// @deprecated Utilisez loginWithStations() pour gérer les utilisateurs multi-stations

@@ -871,7 +871,7 @@ class _SkillSearchPageState extends State<SkillSearchPage> {
                                     ),
                                     child: ListTile(
                                       title: Text(
-                                        '${user.firstName} ${user.lastName}',
+                                        user.displayName,
                                         style: const TextStyle(
                                           fontWeight: FontWeight.bold,
                                         ),

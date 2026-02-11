@@ -324,7 +324,7 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
                       radius: 30,
                       backgroundColor: teamColor.withOpacity(0.2),
                       child: Text(
-                        '${_currentUser!.firstName[0]}${_currentUser!.lastName[0]}',
+                        _currentUser!.initials,
                         style: TextStyle(
                           color: teamColor,
                           fontWeight: FontWeight.bold,
@@ -338,7 +338,7 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '${_currentUser!.firstName} ${_currentUser!.lastName}',
+                            _currentUser!.displayName,
                             style: const TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.bold,
@@ -659,7 +659,7 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
                     radius: 24,
                     backgroundColor: teamColor.withOpacity(0.2),
                     child: Text(
-                      '${agent.firstName[0]}${agent.lastName[0]}',
+                      agent.initials,
                       style: TextStyle(
                         color: teamColor,
                         fontWeight: FontWeight.bold,
@@ -673,7 +673,7 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '${agent.firstName} ${agent.lastName}',
+                          agent.displayName,
                           style: const TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.w600,
@@ -822,7 +822,7 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
                           radius: 30,
                           backgroundColor: teamColor.withOpacity(0.2),
                           child: Text(
-                            '${agent.firstName[0]}${agent.lastName[0]}',
+                            agent.initials,
                             style: TextStyle(
                               color: teamColor,
                               fontWeight: FontWeight.bold,
@@ -836,7 +836,7 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                '${agent.firstName} ${agent.lastName}',
+                                agent.displayName,
                                 style: const TextStyle(
                                   fontSize: 20,
                                   fontWeight: FontWeight.bold,

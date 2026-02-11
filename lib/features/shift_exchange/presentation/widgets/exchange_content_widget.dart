@@ -548,10 +548,7 @@ class _ExchangeContentWidgetState extends State<ExchangeContentWidget>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _currentUser?.firstName != null &&
-                                _currentUser?.lastName != null
-                            ? '${_currentUser!.firstName} ${_currentUser!.lastName}'
-                            : 'Utilisateur',
+                        _currentUser?.displayName ?? 'Utilisateur',
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 16,
@@ -1592,7 +1589,7 @@ class _ExchangeContentWidgetState extends State<ExchangeContentWidget>
                 (leader) => Padding(
                   padding: const EdgeInsets.only(bottom: 4),
                   child: Text(
-                    '${leader.firstName} ${leader.lastName}',
+                    leader.displayName,
                     style: const TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w500,

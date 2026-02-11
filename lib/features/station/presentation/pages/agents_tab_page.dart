@@ -12,6 +12,8 @@ import 'package:nexshift_app/core/services/firebase_auth_service.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
+import 'package:nexshift_app/core/utils/station_name_cache.dart';
+import 'package:nexshift_app/core/services/cloud_functions_service.dart';
 import 'package:nexshift_app/core/config/environment_config.dart';
 import 'package:nexshift_app/features/skills/presentation/pages/skills_page.dart';
 import 'package:nexshift_app/features/settings/presentation/pages/similar_agents_page.dart';
@@ -509,12 +511,222 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
       ),
       floatingActionButton: _isLeader
           ? FloatingActionButton.extended(
-              onPressed: _showAgentTypeSelectionDialog,
+              onPressed: _showAddAgentDialog,
               icon: const Icon(Icons.person_add),
               label: const Text('Ajouter un agent'),
               backgroundColor: Theme.of(context).colorScheme.primary,
             )
           : null,
+    );
+  }
+
+  void _showAddAgentDialog() {
+    final matriculeController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        bool isLoading = false;
+
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return Dialog(
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20)),
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Header
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .primaryContainer,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            Icons.person_add,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onPrimaryContainer,
+                            size: 28,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Ajouter un agent',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleLarge
+                                    ?.copyWith(fontWeight: FontWeight.bold),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Pré-enregistrement par matricule',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodyMedium
+                                    ?.copyWith(color: Colors.grey[600]),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+
+                    // Matricule input
+                    TextField(
+                      controller: matriculeController,
+                      decoration: InputDecoration(
+                        labelText: 'Matricule',
+                        hintText: 'Entrez le matricule de l\'agent',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        prefixIcon: const Icon(Icons.badge),
+                      ),
+                      keyboardType: TextInputType.text,
+                      textCapitalization: TextCapitalization.characters,
+                      enabled: !isLoading,
+                      autofocus: true,
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Info box
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        border: Border.all(color: Colors.blue.shade200),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.info_outline,
+                              color: Colors.blue.shade700, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'L\'agent apparaîtra dans l\'effectif. '
+                              'Il pourra créer son compte plus tard et sera automatiquement affilié.',
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.blue.shade700),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    if (isLoading) ...[
+                      const SizedBox(height: 16),
+                      const CircularProgressIndicator(),
+                    ],
+                    const SizedBox(height: 24),
+
+                    // Buttons
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: isLoading
+                                ? null
+                                : () => Navigator.pop(dialogContext),
+                            style: OutlinedButton.styleFrom(
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            child: const Text('Annuler'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: isLoading
+                                ? null
+                                : () async {
+                                    final matricule =
+                                        matriculeController.text.trim();
+                                    if (matricule.isEmpty) {
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
+                                        const SnackBar(
+                                            content: Text(
+                                                'Veuillez entrer un matricule')),
+                                      );
+                                      return;
+                                    }
+
+                                    setState(() => isLoading = true);
+
+                                    try {
+                                      await CloudFunctionsService()
+                                          .preRegisterAgent(
+                                        stationId:
+                                            widget.currentUser!.station,
+                                        matricule: matricule,
+                                      );
+
+                                      if (dialogContext.mounted) {
+                                        Navigator.pop(dialogContext);
+                                      }
+
+                                      if (mounted) {
+                                        widget.onDataChanged();
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                                'Agent $matricule pré-enregistré'),
+                                            backgroundColor: Colors.green,
+                                          ),
+                                        );
+                                      }
+                                    } catch (e) {
+                                      setState(() => isLoading = false);
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
+                                          SnackBar(
+                                            content: Text('Erreur: $e'),
+                                            backgroundColor: Colors.red,
+                                          ),
+                                        );
+                                      }
+                                    }
+                                  },
+                            style: FilledButton.styleFrom(
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            child: const Text('Ajouter'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -552,8 +764,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
               radius: 24,
               backgroundColor: teamColor.withOpacity(0.2),
               child: Text(
-                (user.firstName.isNotEmpty ? user.firstName[0] : '') +
-                    (user.lastName.isNotEmpty ? user.lastName[0] : ''),
+                user.initials,
                 style: TextStyle(
                   color: teamColor,
                   fontWeight: FontWeight.bold,
@@ -569,11 +780,14 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '${user.firstName} ${user.lastName}',
-                    style: const TextStyle(
+                    user.displayName,
+                    style: TextStyle(
                       color: Colors.black,
                       fontWeight: FontWeight.bold,
                       fontSize: 15,
+                      fontStyle: user.isPreRegistered
+                          ? FontStyle.italic
+                          : FontStyle.normal,
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -733,16 +947,6 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                 ),
                 itemBuilder: (context) => [
                   const PopupMenuItem(
-                    value: 'edit',
-                    child: Row(
-                      children: [
-                        Icon(Icons.edit, size: 18),
-                        SizedBox(width: 8),
-                        Text('Modifier'),
-                      ],
-                    ),
-                  ),
-                  const PopupMenuItem(
                     value: 'team',
                     child: Row(
                       children: [
@@ -816,14 +1020,14 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                     child: Row(
                       children: [
                         Icon(
-                          Icons.delete,
+                          Icons.person_remove,
                           size: 18,
-                          color: Colors.red.shade700,
+                          color: Colors.orange.shade700,
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          'Supprimer',
-                          style: TextStyle(color: Colors.red.shade700),
+                          'Retirer de l\'effectif',
+                          style: TextStyle(color: Colors.orange.shade700),
                         ),
                       ],
                     ),
@@ -874,8 +1078,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                 radius: 20,
                 backgroundColor: (team?.color ?? Colors.grey).withOpacity(0.2),
                 child: Text(
-                  (user.firstName.isNotEmpty ? user.firstName[0] : '') +
-                      (user.lastName.isNotEmpty ? user.lastName[0] : ''),
+                  user.initials,
                   style: TextStyle(
                     color: team?.color ?? Colors.grey,
                     fontWeight: FontWeight.bold,
@@ -885,10 +1088,13 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  '${user.firstName} ${user.lastName}',
-                  style: const TextStyle(
+                  user.displayName,
+                  style: TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 15,
+                    fontStyle: user.isPreRegistered
+                        ? FontStyle.italic
+                        : FontStyle.normal,
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -933,7 +1139,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
       // Show snackbar only when the team actually changes
       scaffoldMessenger.showSnackBar(
         SnackBar(
-          content: Text('${user.firstName} ${user.lastName} → $teamName'),
+          content: Text('${user.displayName} → $teamName'),
         ),
       );
     }
@@ -941,9 +1147,6 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
 
   void _handleAgentAction(String action, User user) async {
     switch (action) {
-      case 'edit':
-        _showEditAgentDialog(user);
-        break;
       case 'team':
         _showChangeTeamDialog(user);
         break;
@@ -980,593 +1183,58 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
     }
   }
 
-  /// Shows dialog to select between adding a new agent or an existing agent
-  void _showAgentTypeSelectionDialog() {
-    showDialog(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text(
-          'Ajouter un agent',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Option 1: Add new agent
-            Card(
-              elevation: 2,
-              child: InkWell(
-                onTap: () {
-                  Navigator.pop(dialogContext);
-                  _showCreateCompleteUserDialog();
-                },
-                borderRadius: BorderRadius.circular(12),
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.primaryContainer,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Icon(
-                          Icons.person_add_alt_1,
-                          size: 32,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Ajouter un nouvel agent',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: Theme.of(context).colorScheme.onSurface,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Créer un nouveau compte utilisateur',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Icon(
-                        Icons.chevron_right,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            // Option 2: Add existing agent
-            Card(
-              elevation: 2,
-              child: InkWell(
-                onTap: () {
-                  Navigator.pop(dialogContext);
-                  _showAddExistingAgentDialog();
-                },
-                borderRadius: BorderRadius.circular(12),
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.secondaryContainer,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Icon(
-                          Icons.people_alt,
-                          size: 32,
-                          color: Theme.of(context).colorScheme.secondary,
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Ajouter un agent existant',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: Theme.of(context).colorScheme.onSurface,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Affecter un agent à cette caserne',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Icon(
-                        Icons.chevron_right,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Annuler'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Shows dialog to add an existing agent to the current station
-  void _showAddExistingAgentDialog() {
-    final matriculeController = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Ajouter un agent existant'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'Saisissez le matricule d\'un agent déjà enregistré dans le SDIS pour l\'affecter à cette caserne.',
-                style: TextStyle(fontSize: 14),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: matriculeController,
-                decoration: const InputDecoration(
-                  labelText: 'Matricule de l\'agent',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.badge),
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Annuler'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              final matricule = matriculeController.text.trim();
-
-              // Validation
-              if (matricule.isEmpty) {
-                ScaffoldMessenger.of(dialogContext).showSnackBar(
-                  const SnackBar(content: Text('Veuillez saisir un matricule')),
-                );
-                return;
-              }
-
-              // Vérifier si l'agent existe déjà dans la station actuelle
-              if (widget.allUsers.any((u) => u.id == matricule)) {
-                ScaffoldMessenger.of(dialogContext).showSnackBar(
-                  const SnackBar(
-                    content: Text('Cet agent est déjà affecté à cette caserne'),
-                  ),
-                );
-                return;
-              }
-
-              final currentStation = widget.currentUser?.station;
-              if (currentStation == null) {
-                if (dialogContext.mounted) {
-                  ScaffoldMessenger.of(dialogContext).showSnackBar(
-                    const SnackBar(
-                      content: Text('Erreur: station non définie'),
-                    ),
-                  );
-                }
-                return;
-              }
-
-              try {
-                final userRepo = UserRepository();
-                final userStationsRepo = UserStationsRepository();
-                final sdisId = SDISContext().currentSDISId;
-
-                // 1. Récupérer l'utilisateur existant (chercher dans toutes les stations)
-                final existingUser = await userRepo.getById(matricule);
-
-                if (existingUser == null) {
-                  if (dialogContext.mounted) {
-                    ScaffoldMessenger.of(dialogContext).showSnackBar(
-                      const SnackBar(
-                        content: Text('Aucun agent trouvé avec ce matricule'),
-                      ),
-                    );
-                  }
-                  return;
-                }
-
-                DebugLogger().log('✅ Found existing user: ${existingUser.id}');
-
-                // 2. Ajouter la station actuelle à la liste des stations de l'utilisateur
-                await userStationsRepo.addStationToUser(
-                  matricule,
-                  currentStation,
-                  sdisId: sdisId,
-                );
-                DebugLogger().log(
-                  '✅ Added station $currentStation to user_stations',
-                );
-
-                // 3. Créer une nouvelle instance de l'utilisateur pour la station actuelle
-                // Reprendre firstName, lastName, id, skills de l'utilisateur existant
-                // Valeurs par défaut: status=agent, team=vide, positionId=vide, admin=false
-                final newUserInstance = User(
-                  id: existingUser.id,
-                  firstName: existingUser.firstName,
-                  lastName: existingUser.lastName,
-                  station: currentStation,
-                  status: KConstants.statusAgent,
-                  team: '', // Vide par défaut
-                  admin: false, // Non-admin par défaut
-                  positionId: null, // Pas de poste par défaut
-                  skills: existingUser.skills, // Copier les compétences
-                );
-
-                await userRepo.upsert(newUserInstance);
-                DebugLogger().log(
-                  '✅ Created user instance for station $currentStation',
-                );
-
-                // 4. Créer une notification pour informer l'utilisateur
-                try {
-                  final notificationPath = EnvironmentConfig.userNotificationsCollectionPath;
-                  await FirebaseFirestore.instance
-                      .collection(notificationPath)
-                      .add({
-                    'userId': existingUser.id,
-                    'type': 'station_added',
-                    'title': 'Nouvelle affectation',
-                    'message':
-                        'Vous avez été affecté(e) à la caserne $currentStation par ${widget.currentUser?.firstName} ${widget.currentUser?.lastName}',
-                    'stationId': currentStation,
-                    'timestamp': FieldValue.serverTimestamp(),
-                    'read': false,
-                  });
-                  DebugLogger().log('✅ Notification created for user at $notificationPath');
-                } catch (e) {
-                  DebugLogger().logError(
-                    '⚠️ Could not create notification: $e',
-                  );
-                }
-
-                if (dialogContext.mounted) {
-                  Navigator.pop(dialogContext);
-                }
-                if (mounted) {
-                  widget.onDataChanged();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        'Agent ${existingUser.firstName} ${existingUser.lastName} affecté à la caserne',
-                      ),
-                    ),
-                  );
-                }
-              } catch (e) {
-                if (dialogContext.mounted) {
-                  ScaffoldMessenger.of(
-                    dialogContext,
-                  ).showSnackBar(SnackBar(content: Text('Erreur: $e')));
-                }
-                DebugLogger().logError('❌ Error adding existing agent: $e');
-              }
-            },
-            child: const Text('Ajouter'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showCreateCompleteUserDialog() {
-    final matriculeController = TextEditingController();
-    final passwordController = TextEditingController();
-    final firstNameController = TextEditingController();
-    final lastNameController = TextEditingController();
-    final adminPasswordController = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Créer un nouveau compte'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: matriculeController,
-                decoration: const InputDecoration(
-                  labelText: 'Matricule du nouvel agent',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: passwordController,
-                decoration: const InputDecoration(
-                  labelText: 'Mot de passe du nouvel agent',
-                  border: OutlineInputBorder(),
-                ),
-                obscureText: true,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: firstNameController,
-                decoration: const InputDecoration(
-                  labelText: 'Prénom',
-                  border: OutlineInputBorder(),
-                ),
-                textCapitalization: TextCapitalization.words,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: lastNameController,
-                decoration: const InputDecoration(
-                  labelText: 'Nom',
-                  border: OutlineInputBorder(),
-                ),
-                textCapitalization: TextCapitalization.words,
-              ),
-              const SizedBox(height: 20),
-              const Divider(),
-              const SizedBox(height: 12),
-              const Text(
-                'Pour créer ce compte, veuillez confirmer votre mot de passe administrateur :',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: adminPasswordController,
-                decoration: const InputDecoration(
-                  labelText: 'Votre mot de passe',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.admin_panel_settings),
-                ),
-                obscureText: true,
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Annuler'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              final matricule = matriculeController.text.trim();
-              final password = passwordController.text.trim();
-              final firstName = firstNameController.text.trim();
-              final lastName = lastNameController.text.trim();
-              final adminPassword = adminPasswordController.text.trim();
-
-              // Validation
-              if (matricule.isEmpty ||
-                  password.isEmpty ||
-                  firstName.isEmpty ||
-                  lastName.isEmpty ||
-                  adminPassword.isEmpty) {
-                ScaffoldMessenger.of(dialogContext).showSnackBar(
-                  const SnackBar(
-                    content: Text('Veuillez remplir tous les champs'),
-                  ),
-                );
-                return;
-              }
-
-              if (password.length < 6) {
-                ScaffoldMessenger.of(dialogContext).showSnackBar(
-                  const SnackBar(
-                    content: Text(
-                      'Le mot de passe doit contenir au moins 6 caractères',
-                    ),
-                  ),
-                );
-                return;
-              }
-
-              // Vérifier si le matricule existe déjà
-              if (widget.allUsers.any((u) => u.id == matricule)) {
-                ScaffoldMessenger.of(dialogContext).showSnackBar(
-                  const SnackBar(content: Text('Ce matricule existe déjà')),
-                );
-                return;
-              }
-
-              if (widget.currentUser == null) {
-                ScaffoldMessenger.of(dialogContext).showSnackBar(
-                  const SnackBar(
-                    content: Text('Erreur: utilisateur non connecté'),
-                  ),
-                );
-                return;
-              }
-
-              final authService = FirebaseAuthService();
-
-              try {
-                // Créer le compte Firebase Auth en préservant la session admin
-                await authService.createUserAsAdmin(
-                  adminMatricule: widget.currentUser!.id,
-                  adminPassword: adminPassword,
-                  newUserMatricule: matricule,
-                  newUserPassword: password,
-                  sdisId: SDISContext().currentSDISId,
-                );
-                DebugLogger().log('✅ Firebase Auth user created: $matricule');
-
-                // Créer le profil utilisateur dans Firestore
-                // Hériter de la station de l'utilisateur créateur
-                await authService.createUserProfile(
-                  matricule: matricule,
-                  firstName: firstName,
-                  lastName: lastName,
-                  station: widget.currentUser?.station,
-                  sdisId: SDISContext().currentSDISId,
-                );
-                DebugLogger().log(
-                  '✅ Firebase user profile created: $matricule',
-                );
-
-                Navigator.pop(dialogContext);
-                if (mounted) {
-                  widget.onDataChanged();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Agent $matricule créé avec succès'),
-                    ),
-                  );
-                }
-              } catch (e) {
-                ScaffoldMessenger.of(
-                  dialogContext,
-                ).showSnackBar(SnackBar(content: Text('Erreur: $e')));
-                DebugLogger().logError('❌ Error creating user: $e');
-              }
-            },
-            child: const Text('Créer'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showEditAgentDialog(User user) {
-    final firstNameController = TextEditingController(text: user.firstName);
-    final lastNameController = TextEditingController(text: user.lastName);
-    final scaffoldMessenger = ScaffoldMessenger.of(context);
-    final navigator = Navigator.of(context);
-
-    showDialog(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Modifier l\'agent'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: firstNameController,
-              decoration: const InputDecoration(
-                labelText: 'Prénom',
-                border: OutlineInputBorder(),
-              ),
-              textCapitalization: TextCapitalization.words,
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: lastNameController,
-              decoration: const InputDecoration(
-                labelText: 'Nom',
-                border: OutlineInputBorder(),
-              ),
-              textCapitalization: TextCapitalization.words,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => navigator.pop(),
-            child: const Text('Annuler'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              final firstName = firstNameController.text.trim();
-              final lastName = lastNameController.text.trim();
-
-              final updatedUser = user.copyWith(
-                firstName: firstName,
-                lastName: lastName,
-              );
-
-              final userRepo = UserRepository();
-              await userRepo.upsert(updatedUser);
-
-              // Mettre à jour userNotifier si c'est l'utilisateur connecté
-              if (widget.currentUser?.id == user.id) {
-                await UserStorageHelper.saveUser(updatedUser);
-              }
-
-              navigator.pop();
-
-              if (mounted) {
-                widget.onDataChanged();
-
-                scaffoldMessenger.showSnackBar(
-                  const SnackBar(content: Text('Agent modifié avec succès')),
-                );
-              }
-            },
-            child: const Text('Enregistrer'),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _showDeleteAgentDialog(User user) async {
-    final scaffoldMessenger = ScaffoldMessenger.of(context);
-    final navigator = Navigator.of(context);
-
-    // Vérifier si l'agent est présent dans d'autres stations
+    // Récupérer les informations de l'utilisateur
     final userStationsRepo = UserStationsRepository();
     final sdisId = SDISContext().currentSDISId;
-    final userStations = await userStationsRepo.getUserStations(user.id, sdisId: sdisId);
-
-    final isMultiStation = userStations != null && userStations.stations.length > 1;
     final currentStation = widget.currentUser?.station;
 
-    if (isMultiStation && currentStation != null) {
-      // Cas multi-affectation: suppression partielle
-      _showRemoveFromStationDialog(user, userStations.stations, currentStation);
-    } else {
-      // Cas simple: suppression définitive
-      _showCompleteDeleteDialog(user);
+    if (currentStation == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Erreur : station actuelle introuvable')),
+      );
+      return;
     }
+
+    final userStations = await userStationsRepo.getUserStations(
+      user.id,
+      sdisId: sdisId,
+    );
+
+    final allStations = userStations?.stations ?? [currentStation];
+
+    // TOUJOURS retirer de la station (ne jamais supprimer le compte complètement)
+    // La suppression du compte doit être faite par l'utilisateur lui-même
+    _showRemoveFromStationDialog(user, allStations, currentStation);
   }
 
   /// Dialog pour supprimer l'agent de la station actuelle uniquement
-  void _showRemoveFromStationDialog(User user, List<String> allStations, String currentStation) {
+  void _showRemoveFromStationDialog(
+    User user,
+    List<String> allStations,
+    String currentStation,
+  ) async {
     final scaffoldMessenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
-    final otherStations = allStations.where((s) => s != currentStation).toList();
+    final otherStationIds = allStations
+        .where((s) => s != currentStation)
+        .toList();
+
+    // Résoudre les noms de stations
+    final sdisId = SDISContext().currentSDISId;
+    final cache = StationNameCache();
+    String currentStationName = currentStation;
+    final otherStationNames = <String>[];
+    if (sdisId != null) {
+      currentStationName = await cache.getStationName(sdisId, currentStation);
+      for (final id in otherStationIds) {
+        otherStationNames.add(await cache.getStationName(sdisId, id));
+      }
+    } else {
+      otherStationNames.addAll(otherStationIds);
+    }
+
+    if (!mounted) return;
 
     showDialog(
       context: context,
@@ -1578,7 +1246,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Retirer ${user.firstName} ${user.lastName} de la caserne $currentStation ?',
+                'Retirer ${user.displayName} de la caserne de $currentStationName ?',
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 12),
@@ -1611,10 +1279,8 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Cet agent est également affecté à :\n'
-                      '${otherStations.map((s) => '• $s').join('\n')}\n\n'
                       'Cette action va :\n'
-                      '• Retirer l\'agent de la caserne $currentStation\n'
+                      '• Retirer l\'agent de la caserne de $currentStationName\n'
                       '• Conserver son profil dans les autres casernes\n'
                       '• Conserver son compte d\'accès',
                       style: const TextStyle(fontSize: 12),
@@ -1634,41 +1300,12 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
             style: FilledButton.styleFrom(backgroundColor: Colors.orange),
             onPressed: () async {
               try {
-                final userRepo = UserRepository();
-                final userStationsRepo = UserStationsRepository();
-                final sdisId = SDISContext().currentSDISId;
-
-                // 1. Supprimer l'utilisateur de la station courante
-                await userRepo.deleteFromStation(user.id, currentStation);
-                debugPrint('✅ Utilisateur retiré de la station $currentStation');
-
-                // 2. Retirer la station de user_stations
-                await userStationsRepo.removeStationFromUser(
-                  user.id,
-                  currentStation,
-                  sdisId: sdisId,
+                // Appeler la Cloud Function qui gère tout :
+                // suppression profil station, claims, acceptedStations
+                await CloudFunctionsService().removeUserFromStation(
+                  stationId: currentStation,
+                  userMatricule: user.id,
                 );
-                debugPrint('✅ Station retirée de user_stations');
-
-                // 3. Créer une notification pour informer l'utilisateur
-                try {
-                  final notificationPath = EnvironmentConfig.userNotificationsCollectionPath;
-                  await FirebaseFirestore.instance
-                      .collection(notificationPath)
-                      .add({
-                    'userId': user.id,
-                    'type': 'station_removed',
-                    'title': 'Retrait d\'affectation',
-                    'message':
-                        'Vous avez été retiré(e) de la caserne $currentStation par ${widget.currentUser?.firstName} ${widget.currentUser?.lastName}',
-                    'stationId': currentStation,
-                    'timestamp': FieldValue.serverTimestamp(),
-                    'read': false,
-                  });
-                  debugPrint('✅ Notification created for user at $notificationPath');
-                } catch (e) {
-                  debugPrint('⚠️ Could not create notification: $e');
-                }
 
                 if (dialogContext.mounted) {
                   Navigator.pop(dialogContext);
@@ -1679,7 +1316,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                   scaffoldMessenger.showSnackBar(
                     SnackBar(
                       content: Text(
-                        '${user.firstName} ${user.lastName} retiré(e) de la caserne $currentStation',
+                        '${user.displayName} retiré(e) de la caserne $currentStationName',
                       ),
                       backgroundColor: Colors.green,
                     ),
@@ -1704,225 +1341,6 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
     );
   }
 
-  /// Dialog pour supprimer définitivement l'agent
-  void _showCompleteDeleteDialog(User user) {
-    final scaffoldMessenger = ScaffoldMessenger.of(context);
-    final navigator = Navigator.of(context);
-    final userPasswordController = TextEditingController();
-    final adminPasswordController = TextEditingController();
-    bool isLoading = false;
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: const Text('Supprimer l\'agent'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Êtes-vous sûr de vouloir supprimer ${user.firstName} ${user.lastName} ?',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.red.shade50,
-                    border: Border.all(color: Colors.red.shade300),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.warning,
-                            color: Colors.red.shade700,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Suppression complète',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.red.shade700,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Cette action est IRRÉVERSIBLE et supprimera :\n\n'
-                        '• Le profil Firestore (données, équipes, etc.)\n'
-                        '• Le compte Firebase Authentication\n'
-                        '• L\'accès à l\'application\n\n'
-                        'Matricule: ${user.id}',
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: userPasswordController,
-                  decoration: InputDecoration(
-                    labelText: 'Mot de passe de l\'utilisateur',
-                    hintText: 'Mot de passe de ${user.id}',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    prefixIcon: const Icon(Icons.person),
-                  ),
-                  obscureText: true,
-                  enabled: !isLoading,
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: adminPasswordController,
-                  decoration: InputDecoration(
-                    labelText: 'Votre mot de passe (admin)',
-                    hintText: 'Pour vous reconnecter après',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    prefixIcon: const Icon(Icons.lock),
-                  ),
-                  obscureText: true,
-                  enabled: !isLoading,
-                ),
-                if (isLoading) ...[
-                  const SizedBox(height: 16),
-                  const Center(child: CircularProgressIndicator()),
-                ],
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: isLoading ? null : () => navigator.pop(),
-              child: const Text('Annuler'),
-            ),
-            FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: Colors.red),
-              onPressed: isLoading
-                  ? null
-                  : () async {
-                      final userPassword = userPasswordController.text;
-                      final adminPassword = adminPasswordController.text;
-
-                      if (userPassword.isEmpty || adminPassword.isEmpty) {
-                        scaffoldMessenger.showSnackBar(
-                          const SnackBar(
-                            content: Text('Les deux mots de passe sont requis'),
-                            backgroundColor: Colors.orange,
-                          ),
-                        );
-                        return;
-                      }
-
-                      setState(() => isLoading = true);
-
-                      try {
-                        final authService = FirebaseAuthService();
-                        final userRepo = UserRepository();
-                        final userStationsRepo = UserStationsRepository();
-                        final currentUserId = widget.currentUser?.id;
-                        final sdisId = SDISContext().currentSDISId;
-
-                        if (currentUserId == null) {
-                          throw Exception(
-                            'Impossible d\'identifier l\'admin actuel',
-                          );
-                        }
-
-                        debugPrint(
-                          '🔥 Début de la suppression de l\'utilisateur: ${user.id}',
-                        );
-
-                        // 1. Supprimer le document Firestore
-                        debugPrint('🗑️ Suppression du document Firestore...');
-                        await userRepo.delete(user.id);
-                        debugPrint('✅ Document Firestore supprimé');
-
-                        // 2. Supprimer de user_stations
-                        try {
-                          await userStationsRepo.removeStationFromUser(
-                            user.id,
-                            user.station,
-                            sdisId: sdisId,
-                          );
-                          debugPrint('✅ Retiré de user_stations');
-                        } catch (e) {
-                          debugPrint('⚠️ Erreur user_stations (non bloquant): $e');
-                        }
-
-                        // 3. Supprimer le compte Firebase Authentication
-                        debugPrint(
-                          '🗑️ Suppression du compte Authentication...',
-                        );
-                        await authService.deleteUserByCredentials(
-                          matricule: user.id,
-                          password: userPassword,
-                          adminMatricule: currentUserId,
-                          adminPassword: adminPassword,
-                        );
-                        debugPrint('✅ Compte Authentication supprimé');
-
-                        navigator.pop();
-
-                        if (mounted) {
-                          widget.onDataChanged();
-
-                          scaffoldMessenger.showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                '${user.firstName} ${user.lastName} supprimé(e) complètement (Firestore + Authentication)',
-                              ),
-                              backgroundColor: Colors.green,
-                              duration: const Duration(seconds: 5),
-                            ),
-                          );
-                        }
-                      } catch (e) {
-                        setState(() => isLoading = false);
-                        debugPrint('❌ Erreur lors de la suppression: $e');
-
-                        String errorMessage = 'Erreur lors de la suppression';
-
-                        if (e.toString().contains('wrong-password')) {
-                          errorMessage = 'Mot de passe incorrect';
-                        } else if (e.toString().contains('user-not-found')) {
-                          errorMessage =
-                              'Compte Authentication introuvable (peut-être déjà supprimé)';
-                        } else if (e.toString().contains('too-many-requests')) {
-                          errorMessage =
-                              'Trop de tentatives. Réessayez plus tard';
-                        } else {
-                          errorMessage = e.toString();
-                        }
-
-                        scaffoldMessenger.showSnackBar(
-                          SnackBar(
-                            content: Text(errorMessage),
-                            backgroundColor: Colors.red,
-                            duration: const Duration(seconds: 5),
-                          ),
-                        );
-                      }
-                    },
-              child: const Text('Supprimer définitivement'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   void _showChangeRoleDialog(User user) {
     final scaffoldMessenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
@@ -1932,12 +1350,15 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
       final repo = UserRepository();
 
       // Protection : si on retire le statut leader, vérifier qu'il reste au moins un autre admin/leader
-      if (user.status == KConstants.statusLeader && status != KConstants.statusLeader) {
+      if (user.status == KConstants.statusLeader &&
+          status != KConstants.statusLeader) {
         final canRemove = await repo.canRemovePrivileges(user.station, user.id);
         if (!canRemove) {
           scaffoldMessenger.showSnackBar(
             const SnackBar(
-              content: Text('Impossible : il doit rester au moins un chef de centre ou admin dans la caserne.'),
+              content: Text(
+                'Impossible : il doit rester au moins un chef de centre ou admin dans la caserne.',
+              ),
               backgroundColor: Colors.red,
             ),
           );
@@ -1995,7 +1416,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          '${user.firstName} ${user.lastName}',
+                          user.displayName,
                           style: Theme.of(context).textTheme.bodyMedium
                               ?.copyWith(color: Colors.grey[600]),
                         ),
@@ -2046,11 +1467,16 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
 
                       // Protection : si on retire le rôle admin, vérifier qu'il reste au moins un autre admin/leader
                       if (user.admin) {
-                        final canRemove = await repo.canRemovePrivileges(user.station, user.id);
+                        final canRemove = await repo.canRemovePrivileges(
+                          user.station,
+                          user.id,
+                        );
                         if (!canRemove) {
                           scaffoldMessenger.showSnackBar(
                             const SnackBar(
-                              content: Text('Impossible : il doit rester au moins un chef de centre ou admin dans la caserne.'),
+                              content: Text(
+                                'Impossible : il doit rester au moins un chef de centre ou admin dans la caserne.',
+                              ),
                               backgroundColor: Colors.red,
                             ),
                           );
@@ -2258,7 +1684,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          '${user.firstName} ${user.lastName}',
+                          user.displayName,
                           style: Theme.of(context).textTheme.bodyMedium
                               ?.copyWith(color: Colors.grey[600]),
                         ),
@@ -2502,7 +1928,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                     scaffoldMessenger.showSnackBar(
                       SnackBar(
                         content: Text(
-                          '${user.firstName} ${user.lastName} n\'est plus dans aucune équipe',
+                          '${user.displayName} n\'est plus dans aucune équipe',
                         ),
                       ),
                     );
@@ -2539,7 +1965,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                       scaffoldMessenger.showSnackBar(
                         SnackBar(
                           content: Text(
-                            '${user.firstName} ${user.lastName} affecté à ${team.name}',
+                            '${user.displayName} affecté à ${team.name}',
                           ),
                         ),
                       );
@@ -2589,7 +2015,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
       builder: (context) => AlertDialog(
         title: const Text('Notification de test'),
         content: Text(
-          'Envoyer une notification de test à ${targetUser.firstName} ${targetUser.lastName} ?',
+          'Envoyer une notification de test à ${targetUser.displayName} ?',
         ),
         actions: [
           TextButton(
@@ -2646,7 +2072,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
       scaffoldMessenger.showSnackBar(
         SnackBar(
           content: Text(
-            '✅ Notification de test envoyée à ${targetUser.firstName} ${targetUser.lastName}',
+            '✅ Notification de test envoyée à ${targetUser.displayName}',
           ),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 4),
