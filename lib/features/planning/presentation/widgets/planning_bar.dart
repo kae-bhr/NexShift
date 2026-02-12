@@ -63,98 +63,82 @@ class PlanningBar extends StatelessWidget {
     // compute bar width after clamping (used both for layout and for tap mapping)
     final double barWidth = width.clamp(2.0, double.infinity);
 
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // Helper to compute time from local dx
+    DateTime timeFromDx(double dx) {
+      final clampedDx = dx.isNaN ? 0.0 : dx.clamp(0.0, barWidth);
+      final proportion = (barWidth > 0) ? (clampedDx / barWidth) : 0.0;
+      final secondsOffset = (duration.inSeconds * proportion).round();
+      return start.add(Duration(seconds: secondsOffset));
+    }
+
     return Positioned(
       left: left,
-      top: 0,
-      height: 35,
+      top: 2,
+      height: 34,
       width: barWidth,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTapUp: onTap != null
-            ? (details) {
-                // localPosition.dx is relative to the left edge of the bar (0..barWidth)
-                double dx = details.localPosition.dx;
-                if (dx.isNaN) dx = 0.0;
-                dx = dx.clamp(0.0, barWidth);
-
-                final proportion = (barWidth > 0) ? (dx / barWidth) : 0.0;
-                final secondsOffset = (duration.inSeconds * proportion).round();
-                final at = start.add(Duration(seconds: secondsOffset));
-                onTap!(at);
-              }
+            ? (details) => onTap!(timeFromDx(details.localPosition.dx))
             : null,
         onLongPressStart: onLongPressStart != null
-            ? (details) {
-                double dx = details.localPosition.dx;
-                if (dx.isNaN) dx = 0.0;
-                dx = dx.clamp(0.0, barWidth);
-
-                final proportion = (barWidth > 0) ? (dx / barWidth) : 0.0;
-                final secondsOffset = (duration.inSeconds * proportion).round();
-                final at = start.add(Duration(seconds: secondsOffset));
-                onLongPressStart!(at, details.globalPosition);
-              }
+            ? (details) => onLongPressStart!(
+                  timeFromDx(details.localPosition.dx),
+                  details.globalPosition,
+                )
             : null,
         onLongPressMoveUpdate: onLongPressMove != null
-            ? (details) {
-                double dx = details.localPosition.dx;
-                if (dx.isNaN) dx = 0.0;
-                dx = dx.clamp(0.0, barWidth);
-
-                final proportion = (barWidth > 0) ? (dx / barWidth) : 0.0;
-                final secondsOffset = (duration.inSeconds * proportion).round();
-                final at = start.add(Duration(seconds: secondsOffset));
-                onLongPressMove!(at, details.globalPosition);
-              }
+            ? (details) => onLongPressMove!(
+                  timeFromDx(details.localPosition.dx),
+                  details.globalPosition,
+                )
             : null,
         onLongPressEnd: onLongPressEnd != null
-            ? (details) {
-                double dx = details.localPosition.dx;
-                if (dx.isNaN) dx = 0.0;
-                dx = dx.clamp(0.0, barWidth);
-
-                final proportion = (barWidth > 0) ? (dx / barWidth) : 0.0;
-                final secondsOffset = (duration.inSeconds * proportion).round();
-                final at = start.add(Duration(seconds: secondsOffset));
-                onLongPressEnd!(at, details.globalPosition);
-              }
+            ? (details) => onLongPressEnd!(
+                  timeFromDx(details.localPosition.dx),
+                  details.globalPosition,
+                )
             : null,
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: BorderRadius.circular(8),
           child: Stack(
             children: [
-              // Motif hachuré pour les disponibilités
               if (isAvailability)
                 Positioned.fill(
                   child: CustomPaint(
                     painter: _DiagonalStripePainter(
-                      color1: color!,
-                      color2: Colors.white,
+                      color1: color!.withValues(alpha: 0.6),
+                      color2: isDark
+                          ? Colors.grey.shade800
+                          : Colors.white,
                     ),
                   ),
                 ),
-              // Container avec couleur et bordures
               Container(
                 decoration: BoxDecoration(
                   color: isAvailability
-                      ? null // Transparent pour montrer le motif
+                      ? null
                       : (isSubtle && color != null
                             ? Color.alphaBlend(
-                                color!.withValues(alpha: 0.1),
-                                Colors.grey.shade200,
+                                color!.withValues(alpha: isDark ? 0.2 : 0.12),
+                                isDark
+                                    ? Colors.grey.shade900
+                                    : Colors.grey.shade100,
                               )
                             : (color ?? Theme.of(context).colorScheme.primary)),
                   border: isSubtle && color != null
                       ? Border(
                           left: showLeftBorder
-                              ? BorderSide(color: color!, width: 3)
+                              ? BorderSide(color: color!, width: 3.5)
                               : BorderSide.none,
                           right: showRightBorder
-                              ? BorderSide(color: color!, width: 3)
+                              ? BorderSide(color: color!, width: 3.5)
                               : BorderSide.none,
                         )
                       : (isAvailability
-                            ? Border.all(color: color!, width: 2)
+                            ? Border.all(color: color!.withValues(alpha: 0.5), width: 1.5)
                             : null),
                 ),
               ),

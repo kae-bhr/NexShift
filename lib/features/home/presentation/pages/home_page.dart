@@ -1506,13 +1506,34 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    // Avoid accessing _user (late) while loading — return a simple loading
-    // scaffold early so build doesn't reference [_user.id] before it's set.
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // Loading state
     if (_isLoading) {
       return Scaffold(
-        body: Container(
-          color: Colors.black26,
-          child: const Center(child: CircularProgressIndicator()),
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 36,
+                height: 36,
+                child: CircularProgressIndicator(
+                  strokeWidth: 3,
+                  color: KColors.appNameColor,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                "Chargement...",
+                style: TextStyle(
+                  fontSize: 14,
+                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade500,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -1531,23 +1552,67 @@ class _HomePageState extends State<HomePage> {
               ),
               Expanded(
                 child: RefreshIndicator(
+                  color: KColors.appNameColor,
                   onRefresh: _loadData,
                   child: filteredPlannings.isEmpty
                       ? ListView(
                           physics: const AlwaysScrollableScrollPhysics(),
                           padding: const EdgeInsets.only(bottom: 16),
-                          children: const [
-                            SizedBox(height: 200),
-                            Center(child: Text("Aucune astreinte à venir.")),
+                          children: [
+                            const SizedBox(height: 80),
+                            Center(
+                              child: Column(
+                                children: [
+                                  Container(
+                                    width: 72,
+                                    height: 72,
+                                    decoration: BoxDecoration(
+                                      color: isDark
+                                          ? Colors.white.withValues(alpha: 0.06)
+                                          : Colors.grey.shade50,
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Icon(
+                                      Icons.event_available_rounded,
+                                      size: 32,
+                                      color: isDark
+                                          ? Colors.grey.shade500
+                                          : Colors.grey.shade400,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    "Aucune astreinte",
+                                    style: TextStyle(
+                                      fontSize: 17,
+                                      fontWeight: FontWeight.w600,
+                                      color: isDark
+                                          ? Colors.grey.shade400
+                                          : Colors.grey.shade600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    "Aucune astreinte pr\u00e9vue cette semaine.",
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: isDark
+                                          ? Colors.grey.shade500
+                                          : Colors.grey.shade400,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ],
                         )
                       : ListView.builder(
                           physics: const AlwaysScrollableScrollPhysics(),
                           key: ValueKey(filteredPlannings.length),
                           padding: const EdgeInsets.only(
-                            left: 16,
-                            right: 16,
-                            top: 8,
+                            left: 12,
+                            right: 12,
+                            top: 4,
                             bottom: 16,
                           ),
                           itemCount: filteredPlannings.length,
@@ -1556,7 +1621,6 @@ class _HomePageState extends State<HomePage> {
                             final id = "${planning.team}_${planning.startTime}";
                             final isExpanded = _expanded[id] ?? false;
 
-                            // subshifts that overlap this planning (any overlap)
                             final subList =
                                 _allSubshifts
                                     .where(
@@ -1602,7 +1666,6 @@ class _HomePageState extends State<HomePage> {
                                     builder: (context, snapshotIcons) {
                                       final specs =
                                           snapshotIcons.data ?? const [];
-                                      // Vérifier si tous les remplacements sont checkés
                                       final allChecked = subList.isNotEmpty &&
                                           subList.every((s) => s.checkedByChief);
                                       return PlanningCard(
@@ -1618,176 +1681,190 @@ class _HomePageState extends State<HomePage> {
                                       );
                                     },
                                   ),
-                                  // Contenu étendu avec AnimatedSize
+                                  // Expanded content
                                   if (!isAvailability && isExpanded)
                                     Padding(
                                       padding: const EdgeInsets.symmetric(
-                                        horizontal: 16.0,
+                                        horizontal: 12.0,
                                       ),
-                                      child: Material(
-                                        elevation: 4,
-                                        borderRadius: BorderRadius.circular(12),
-                                        child: Container(
-                                          width: double.infinity,
-                                          decoration: BoxDecoration(
-                                            color: Theme.of(context).cardColor,
-                                            borderRadius: BorderRadius.circular(
-                                              12,
-                                            ),
-                                            border: Border.all(
-                                              color: Theme.of(context)
-                                                  .dividerColor
-                                                  .withValues(alpha: 0.2),
-                                            ),
+                                      child: Container(
+                                        width: double.infinity,
+                                        decoration: BoxDecoration(
+                                          color: isDark
+                                              ? Colors.white.withValues(alpha: 0.04)
+                                              : Colors.grey.shade50,
+                                          borderRadius: const BorderRadius.only(
+                                            bottomLeft: Radius.circular(16),
+                                            bottomRight: Radius.circular(16),
                                           ),
-                                          padding: const EdgeInsets.all(16),
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.center,
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              // Bouton "Je souhaite m'absenter" si l'utilisateur est dans l'astreinte
-                                              if (!isAvailability &&
-                                                  ((isOnGuard &&
-                                                          !isReplacedFully) ||
-                                                      replacerSubshift != null))
-                                                _AbsenceMenuButton(
-                                                  planning: planning,
-                                                  user: _user,
-                                                  replacerSubshift:
-                                                      replacerSubshift,
-                                                )
-                                              // Bouton "Faire remplacer un agent" si user privilégié, PAS dans l'astreinte, et en stationView
-                                              else if (!isAvailability &&
-                                                  stationView &&
-                                                  (!isOnGuard || isReplacedFully) &&
-                                                  (_user.admin ||
-                                                      _user.status == KConstants.statusLeader ||
-                                                      (_user.status == KConstants.statusChief &&
-                                                          _user.team.toLowerCase() == planning.team.toLowerCase())))
-                                                _AdminReplaceButton(
-                                                  planning: planning,
-                                                  user: _user,
+                                          border: Border.all(
+                                            color: isDark
+                                                ? Colors.white.withValues(alpha: 0.06)
+                                                : Colors.grey.shade200,
+                                          ),
+                                        ),
+                                        padding: const EdgeInsets.all(16),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.center,
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            if (!isAvailability &&
+                                                ((isOnGuard &&
+                                                        !isReplacedFully) ||
+                                                    replacerSubshift != null))
+                                              _AbsenceMenuButton(
+                                                planning: planning,
+                                                user: _user,
+                                                replacerSubshift:
+                                                    replacerSubshift,
+                                              )
+                                            else if (!isAvailability &&
+                                                stationView &&
+                                                (!isOnGuard || isReplacedFully) &&
+                                                (_user.admin ||
+                                                    _user.status == KConstants.statusLeader ||
+                                                    (_user.status == KConstants.statusChief &&
+                                                        _user.team.toLowerCase() == planning.team.toLowerCase())))
+                                              _AdminReplaceButton(
+                                                planning: planning,
+                                                user: _user,
+                                              ),
+                                            const SizedBox(height: 12),
+                                            if (!isAvailability)
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(
+                                                  horizontal: 12,
+                                                  vertical: 6,
                                                 ),
-                                              const SizedBox(height: 8),
-                                              if (!isAvailability)
-                                                Text(
+                                                decoration: BoxDecoration(
+                                                  color: isDark
+                                                      ? Colors.white.withValues(alpha: 0.04)
+                                                      : Colors.white,
+                                                  borderRadius: BorderRadius.circular(8),
+                                                ),
+                                                child: Text(
                                                   subList.isNotEmpty
-                                                      ? "Remplacements :"
+                                                      ? "Remplacements"
                                                       : "Aucun remplacement pour cette astreinte.",
                                                   style: TextStyle(
                                                     fontSize: 13,
-                                                    color: Colors.grey[600],
+                                                    fontWeight: FontWeight.w500,
+                                                    color: isDark
+                                                        ? Colors.grey.shade400
+                                                        : Colors.grey.shade500,
                                                   ),
                                                 ),
-                                              if (subList.isNotEmpty)
-                                                ...subList.mapIndexed((
-                                                  index,
-                                                  s,
-                                                ) {
-                                                  final isFirst = index == 0;
-                                                  final isLast =
-                                                      index ==
-                                                      subList.length - 1;
-                                                  final canDelete =
-                                                      _user.id ==
-                                                          s.replacedId ||
-                                                      _user.admin ||
-                                                      _user.status ==
-                                                          KConstants
-                                                              .statusLeader ||
-                                                      ((_user.status ==
-                                                              KConstants
-                                                                  .statusChief) &&
-                                                          _user.team ==
-                                                              planning.team);
-                                                  // Permissions pour voir/interagir avec le check
-                                                  final canSeeCheck =
-                                                      _user.admin ||
-                                                      _user.status ==
-                                                          KConstants
-                                                              .statusLeader ||
-                                                      ((_user.status ==
-                                                              KConstants
-                                                                  .statusChief) &&
-                                                          _user.team ==
-                                                              planning.team);
-                                                  final item = Padding(
-                                                    padding:
-                                                        const EdgeInsets.symmetric(
-                                                          vertical: 6.0,
-                                                        ),
-                                                    child: SubShiftItem(
-                                                      subShift: s,
-                                                      planning: planning,
-                                                      allUsers: _allUsers,
-                                                      noneUser: noneUser,
-                                                      isFirst: isFirst,
-                                                      isLast: isLast,
-                                                      highlight:
-                                                          s.replacerId ==
-                                                              _user.id ||
-                                                          s.replacedId ==
-                                                              _user.id,
-                                                      showCheckIcon: canSeeCheck,
-                                                      onCheckTap: canSeeCheck
-                                                          ? () => _toggleSubshiftCheck(s)
-                                                          : null,
-                                                    ),
-                                                  );
-
-                                                  final Widget
-                                                  itemWithOptionalReplaceButton =
-                                                      Column(
-                                                        crossAxisAlignment:
-                                                            CrossAxisAlignment
-                                                                .stretch,
-                                                        children: [item],
-                                                      );
-                                                  if (canDelete) {
-                                                    return Dismissible(
-                                                      key: ValueKey(s.id),
-                                                      direction:
-                                                          DismissDirection
-                                                              .endToStart,
-                                                      background: Container(
-                                                        alignment: Alignment
-                                                            .centerRight,
-                                                        padding:
-                                                            const EdgeInsets.symmetric(
-                                                              horizontal: 20,
-                                                            ),
-                                                        color: Colors.redAccent,
-                                                        child: const Icon(
-                                                          Icons.delete,
-                                                          color: Colors.white,
-                                                        ),
-                                                      ),
-                                                      confirmDismiss: (_) async {
-                                                        await _deleteSubshift(
-                                                          s,
-                                                        );
-                                                        return false;
-                                                      },
-                                                      child:
-                                                          itemWithOptionalReplaceButton,
-                                                    );
-                                                  } else {
-                                                    return itemWithOptionalReplaceButton;
-                                                  }
-                                                }),
-                                              // Section des demandes en cours
-                                              ..._buildPendingRequestsSection(
-                                                planning,
                                               ),
-                                            ],
-                                          ),
+                                            if (subList.isNotEmpty)
+                                              const SizedBox(height: 8),
+                                            if (subList.isNotEmpty)
+                                              ...subList.mapIndexed((
+                                                index,
+                                                s,
+                                              ) {
+                                                final isFirst = index == 0;
+                                                final isLast =
+                                                    index ==
+                                                    subList.length - 1;
+                                                final canDelete =
+                                                    _user.id ==
+                                                        s.replacedId ||
+                                                    _user.admin ||
+                                                    _user.status ==
+                                                        KConstants
+                                                            .statusLeader ||
+                                                    ((_user.status ==
+                                                            KConstants
+                                                                .statusChief) &&
+                                                        _user.team ==
+                                                            planning.team);
+                                                final canSeeCheck =
+                                                    _user.admin ||
+                                                    _user.status ==
+                                                        KConstants
+                                                            .statusLeader ||
+                                                    ((_user.status ==
+                                                            KConstants
+                                                                .statusChief) &&
+                                                        _user.team ==
+                                                            planning.team);
+                                                final item = Padding(
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        vertical: 4.0,
+                                                      ),
+                                                  child: SubShiftItem(
+                                                    subShift: s,
+                                                    planning: planning,
+                                                    allUsers: _allUsers,
+                                                    noneUser: noneUser,
+                                                    isFirst: isFirst,
+                                                    isLast: isLast,
+                                                    highlight:
+                                                        s.replacerId ==
+                                                            _user.id ||
+                                                        s.replacedId ==
+                                                            _user.id,
+                                                    showCheckIcon: canSeeCheck,
+                                                    onCheckTap: canSeeCheck
+                                                        ? () => _toggleSubshiftCheck(s)
+                                                        : null,
+                                                  ),
+                                                );
+
+                                                final Widget
+                                                itemWithOptionalReplaceButton =
+                                                    Column(
+                                                      crossAxisAlignment:
+                                                          CrossAxisAlignment
+                                                              .stretch,
+                                                      children: [item],
+                                                    );
+                                                if (canDelete) {
+                                                  return Dismissible(
+                                                    key: ValueKey(s.id),
+                                                    direction:
+                                                        DismissDirection
+                                                            .endToStart,
+                                                    background: Container(
+                                                      alignment: Alignment
+                                                          .centerRight,
+                                                      padding:
+                                                          const EdgeInsets.symmetric(
+                                                            horizontal: 20,
+                                                          ),
+                                                      decoration: BoxDecoration(
+                                                        color: Colors.red.shade400,
+                                                        borderRadius: BorderRadius.circular(8),
+                                                      ),
+                                                      child: const Icon(
+                                                        Icons.delete_outline_rounded,
+                                                        color: Colors.white,
+                                                      ),
+                                                    ),
+                                                    confirmDismiss: (_) async {
+                                                      await _deleteSubshift(
+                                                        s,
+                                                      );
+                                                      return false;
+                                                    },
+                                                    child:
+                                                        itemWithOptionalReplaceButton,
+                                                  );
+                                                } else {
+                                                  return itemWithOptionalReplaceButton;
+                                                }
+                                              }),
+                                            ..._buildPendingRequestsSection(
+                                              planning,
+                                            ),
+                                          ],
                                         ),
                                       ),
                                     ),
-                                  // Padding après le container étendu
                                   if (!isAvailability && isExpanded)
-                                    const SizedBox(height: 60),
+                                    const SizedBox(height: 40),
                                 ],
                               ),
                             );
@@ -1916,12 +1993,47 @@ class _AbsenceMenuButtonState extends State<_AbsenceMenuButton>
   Widget build(BuildContext context) {
     return CompositedTransformTarget(
       link: _layerLink,
-      child: FilledButton.icon(
-        onPressed: _toggleMenu,
-        icon: const Icon(Icons.event_busy),
-        label: const Text("Je souhaite m'absenter"),
-        style: FilledButton.styleFrom(
-          minimumSize: const Size(double.infinity, 40.0),
+      child: Container(
+        width: double.infinity,
+        height: 44,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              KColors.appNameColor,
+              KColors.appNameColor.withValues(alpha: 0.85),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: KColors.appNameColor.withValues(alpha: 0.3),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: _toggleMenu,
+            borderRadius: BorderRadius.circular(12),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.event_busy_rounded, color: Colors.white, size: 20),
+                const SizedBox(width: 10),
+                const Text(
+                  "Je souhaite m'absenter",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -2040,13 +2152,47 @@ class _AdminReplaceButtonState extends State<_AdminReplaceButton>
   Widget build(BuildContext context) {
     return CompositedTransformTarget(
       link: _layerLink,
-      child: FilledButton.icon(
-        onPressed: _toggleMenu,
-        icon: const Icon(Icons.admin_panel_settings),
-        label: const Text("Faire remplacer un agent"),
-        style: FilledButton.styleFrom(
-          minimumSize: const Size(double.infinity, 40.0),
-          backgroundColor: Colors.deepPurple,
+      child: Container(
+        width: double.infinity,
+        height: 44,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              Colors.deepPurple,
+              Colors.deepPurple.shade400,
+            ],
+          ),
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.deepPurple.withValues(alpha: 0.3),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: _toggleMenu,
+            borderRadius: BorderRadius.circular(12),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.admin_panel_settings_rounded, color: Colors.white, size: 20),
+                const SizedBox(width: 10),
+                const Text(
+                  "Faire remplacer un agent",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

@@ -838,12 +838,23 @@ class _PlanningPageState extends State<PlanningPage> {
     }
   }
 
+  DateTime _timeFromLocalDx(double dx, double leftMargin, double totalWidth, DateTime day) {
+    final clamped = (dx - leftMargin).clamp(0.0, totalWidth);
+    final ratio = (totalWidth > 0) ? (clamped / totalWidth) : 0.0;
+    final hourDouble = ratio * 24.0;
+    final hour = hourDouble.floor();
+    final minute = ((hourDouble - hour) * 60).round();
+    return DateTime(day.year, day.month, day.day, hour, minute);
+  }
+
   @override
   Widget build(BuildContext context) {
     final daysOfWeek = List.generate(
       7,
       (i) => _currentWeekStart.add(Duration(days: i)),
     );
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final now = DateTime.now();
 
     return Scaffold(
       body: ValueListenableBuilder<bool>(
@@ -858,9 +869,30 @@ class _PlanningPageState extends State<PlanningPage> {
                   _loadUserAndPlanning();
                 },
               ),
-              SizedBox(height: 12.0),
+              const SizedBox(height: 8),
+              // Time legend at top
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: ['0h', '6h', '12h', '18h', '24h']
+                      .map((label) => Text(
+                            label,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                              color: isDark
+                                  ? Colors.grey.shade500
+                                  : Colors.grey.shade400,
+                            ),
+                          ))
+                      .toList(),
+                ),
+              ),
+              const SizedBox(height: 6),
               Expanded(
                 child: RefreshIndicator(
+                  color: KColors.appNameColor,
                   onRefresh: _loadUserAndPlanning,
                   child: SingleChildScrollView(
                     physics: const AlwaysScrollableScrollPhysics(),
@@ -868,208 +900,151 @@ class _PlanningPageState extends State<PlanningPage> {
                     child: Column(
                       children: daysOfWeek.map((currentDay) {
                         final dailyBars = _generateBarsForDay(currentDay);
-                        final index = daysOfWeek.indexOf(currentDay);
+                        final isToday = _isSameDay(currentDay, now);
 
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 4,
-                              ),
-                              child: Text(
-                                "${DateFormat.EEEE('fr_FR').format(currentDay)} ${DateFormat('d MMM', 'fr_FR').format(currentDay)}",
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ),
-                            SizedBox(
-                              height: 35,
-                              child: GestureDetector(
-                                behavior: HitTestBehavior.translucent,
-                                onTapUp: (details) {
-                                  // Tap sur zone vide - calculer l'heure et ouvrir la vue opérationnelle
-                                  final leftMargin = 16.0;
-                                  final totalWidth = MediaQuery.of(context).size.width - (leftMargin * 2);
-                                  final dx = details.localPosition.dx - leftMargin;
-                                  final clamped = dx.clamp(0.0, totalWidth);
-                                  final ratio = (totalWidth > 0) ? (clamped / totalWidth) : 0.0;
-                                  final hourDouble = ratio * 24.0;
-                                  final hour = hourDouble.floor();
-                                  final minute = ((hourDouble - hour) * 60).round();
-                                  final at = DateTime(
-                                    currentDay.year,
-                                    currentDay.month,
-                                    currentDay.day,
-                                    hour,
-                                    minute,
-                                  );
-
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => PlanningTeamDetailsPage(at: at),
-                                    ),
-                                  );
-                                },
-                                onLongPressStart: (details) {
-                                  final leftMargin = 16.0;
-                                  final totalWidth = MediaQuery.of(context).size.width - (leftMargin * 2);
-                                  final dx = details.localPosition.dx - leftMargin;
-                                  final clamped = dx.clamp(0.0, totalWidth);
-                                  final ratio = (totalWidth > 0) ? (clamped / totalWidth) : 0.0;
-                                  final hourDouble = ratio * 24.0;
-                                  final hour = hourDouble.floor();
-                                  final minute = ((hourDouble - hour) * 60).round();
-                                  final at = DateTime(
-                                    currentDay.year,
-                                    currentDay.month,
-                                    currentDay.day,
-                                    hour,
-                                    minute,
-                                  );
-
-                                  _showTooltip(at, details.globalPosition);
-                                },
-                                onLongPressMoveUpdate: (details) {
-                                  final leftMargin = 16.0;
-                                  final totalWidth = MediaQuery.of(context).size.width - (leftMargin * 2);
-                                  final dx = details.localPosition.dx - leftMargin;
-                                  final clamped = dx.clamp(0.0, totalWidth);
-                                  final ratio = (totalWidth > 0) ? (clamped / totalWidth) : 0.0;
-                                  final hourDouble = ratio * 24.0;
-                                  final hour = hourDouble.floor();
-                                  final minute = ((hourDouble - hour) * 60).round();
-                                  final at = DateTime(
-                                    currentDay.year,
-                                    currentDay.month,
-                                    currentDay.day,
-                                    hour,
-                                    minute,
-                                  );
-
-                                  _updateTooltip(at, details.globalPosition);
-                                },
-                                onLongPressEnd: (details) {
-                                  final leftMargin = 16.0;
-                                  final totalWidth = MediaQuery.of(context).size.width - (leftMargin * 2);
-                                  final dx = details.localPosition.dx - leftMargin;
-                                  final clamped = dx.clamp(0.0, totalWidth);
-                                  final ratio = (totalWidth > 0) ? (clamped / totalWidth) : 0.0;
-                                  final hourDouble = ratio * 24.0;
-                                  final hour = hourDouble.floor();
-                                  final minute = ((hourDouble - hour) * 60).round();
-                                  final at = DateTime(
-                                    currentDay.year,
-                                    currentDay.month,
-                                    currentDay.day,
-                                    hour,
-                                    minute,
-                                  );
-
-                                  // Trouver le planning correspondant au moment du relâchement
-                                  Planning? planning;
-                                  for (final bar in dailyBars) {
-                                    final barStart = bar['start'] as DateTime;
-                                    final barEnd = bar['end'] as DateTime;
-                                    if (at.isAfter(barStart) && at.isBefore(barEnd)) {
-                                      planning = bar['planning'] as Planning?;
-                                      break;
-                                    }
-                                  }
-
-                                  _showShiftDetails(at, planning);
-                                },
-                                child: Stack(
-                                  children: [
-                                    // Container d'arrière-plan
-                                    Container(
-                                      margin: const EdgeInsets.symmetric(
-                                        horizontal: 16,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        border: Border.all(
-                                          color: Colors.grey.shade300,
-                                        ),
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                    ),
-
-                                    // Barres de planning
-                                    for (final bar in dailyBars)
-                                      PlanningBar(
-                                        start: bar['start'],
-                                        end: bar['end'],
-                                        color:
-                                            (bar['color'] as Color?) ??
-                                            _barColorForType(
-                                              context,
-                                              bar['type'] as String?,
-                                            ),
-                                        isSubtle:
-                                            true, // enable colored borders for all bars
-                                        showLeftBorder:
-                                            bar['isRealStart'] ?? true,
-                                        showRightBorder: bar['isRealEnd'] ?? true,
-                                        isAvailability:
-                                            bar['type'] == 'availability',
-                                        onTap: (at) {
-                                          Navigator.push(
-                                            context,
-                                            MaterialPageRoute(
-                                              builder: (_) =>
-                                                  PlanningTeamDetailsPage(at: at),
-                                            ),
-                                          );
-                                        },
-                                        // Les long press sont gérés par le GestureDetector parent
-                                      ),
-
-                                    // legend removed from Stack to avoid being clipped; rendered below the timeline
-                                  ],
-                                ),
-                              ),
-                            ),
-                            // legend only on Sunday (last day) with 0h/6h/12h/18h/24h spaced evenly
-                            if (index == daysOfWeek.length - 1)
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
                               Padding(
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 16,
+                                  vertical: 4,
                                 ),
-                                child: SizedBox(
-                                  height: 16,
-                                  child: Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: const [
-                                      Text(
-                                        '0h',
-                                        style: TextStyle(fontSize: 12),
+                                child: Row(
+                                  children: [
+                                    if (isToday)
+                                      Container(
+                                        width: 8,
+                                        height: 8,
+                                        margin: const EdgeInsets.only(right: 8),
+                                        decoration: BoxDecoration(
+                                          color: KColors.appNameColor,
+                                          shape: BoxShape.circle,
+                                        ),
                                       ),
-                                      Text(
-                                        '6h',
-                                        style: TextStyle(fontSize: 12),
+                                    Text(
+                                      _capitalizeFirst(DateFormat.EEEE('fr_FR').format(currentDay)),
+                                      style: TextStyle(
+                                        fontWeight: isToday
+                                            ? FontWeight.w700
+                                            : FontWeight.w600,
+                                        fontSize: 14,
+                                        color: isToday
+                                            ? KColors.appNameColor
+                                            : Theme.of(context).colorScheme.tertiary,
+                                        letterSpacing: -0.2,
                                       ),
-                                      Text(
-                                        '12h',
-                                        style: TextStyle(fontSize: 12),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      DateFormat('d MMM', 'fr_FR').format(currentDay),
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: isDark
+                                            ? Colors.grey.shade500
+                                            : Colors.grey.shade400,
+                                        fontWeight: FontWeight.w400,
                                       ),
-                                      Text(
-                                        '18h',
-                                        style: TextStyle(fontSize: 12),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              SizedBox(
+                                height: 38,
+                                child: GestureDetector(
+                                  behavior: HitTestBehavior.translucent,
+                                  onTapUp: (details) {
+                                    final leftMargin = 16.0;
+                                    final totalWidth = MediaQuery.of(context).size.width - (leftMargin * 2);
+                                    final at = _timeFromLocalDx(details.localPosition.dx, leftMargin, totalWidth, currentDay);
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => PlanningTeamDetailsPage(at: at),
                                       ),
-                                      Text(
-                                        '24h',
-                                        style: TextStyle(fontSize: 12),
+                                    );
+                                  },
+                                  onLongPressStart: (details) {
+                                    final leftMargin = 16.0;
+                                    final totalWidth = MediaQuery.of(context).size.width - (leftMargin * 2);
+                                    final at = _timeFromLocalDx(details.localPosition.dx, leftMargin, totalWidth, currentDay);
+                                    _showTooltip(at, details.globalPosition);
+                                  },
+                                  onLongPressMoveUpdate: (details) {
+                                    final leftMargin = 16.0;
+                                    final totalWidth = MediaQuery.of(context).size.width - (leftMargin * 2);
+                                    final at = _timeFromLocalDx(details.localPosition.dx, leftMargin, totalWidth, currentDay);
+                                    _updateTooltip(at, details.globalPosition);
+                                  },
+                                  onLongPressEnd: (details) {
+                                    final leftMargin = 16.0;
+                                    final totalWidth = MediaQuery.of(context).size.width - (leftMargin * 2);
+                                    final at = _timeFromLocalDx(details.localPosition.dx, leftMargin, totalWidth, currentDay);
+                                    Planning? planning;
+                                    for (final bar in dailyBars) {
+                                      final barStart = bar['start'] as DateTime;
+                                      final barEnd = bar['end'] as DateTime;
+                                      if (at.isAfter(barStart) && at.isBefore(barEnd)) {
+                                        planning = bar['planning'] as Planning?;
+                                        break;
+                                      }
+                                    }
+                                    _showShiftDetails(at, planning);
+                                  },
+                                  child: Stack(
+                                    children: [
+                                      // Background container
+                                      Container(
+                                        margin: const EdgeInsets.symmetric(
+                                          horizontal: 16,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: isDark
+                                              ? Colors.white.withValues(alpha: 0.04)
+                                              : Colors.grey.shade50,
+                                          border: Border.all(
+                                            color: isDark
+                                                ? Colors.white.withValues(alpha: 0.08)
+                                                : Colors.grey.shade200,
+                                          ),
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
                                       ),
+                                      // Planning bars
+                                      for (final bar in dailyBars)
+                                        PlanningBar(
+                                          start: bar['start'],
+                                          end: bar['end'],
+                                          color:
+                                              (bar['color'] as Color?) ??
+                                              _barColorForType(
+                                                context,
+                                                bar['type'] as String?,
+                                              ),
+                                          isSubtle: true,
+                                          showLeftBorder:
+                                              bar['isRealStart'] ?? true,
+                                          showRightBorder: bar['isRealEnd'] ?? true,
+                                          isAvailability:
+                                              bar['type'] == 'availability',
+                                          onTap: (at) {
+                                            Navigator.push(
+                                              context,
+                                              MaterialPageRoute(
+                                                builder: (_) =>
+                                                    PlanningTeamDetailsPage(at: at),
+                                              ),
+                                            );
+                                          },
+                                        ),
                                     ],
                                   ),
                                 ),
                               ),
-                            const SizedBox(height: 8),
-                          ],
+                            ],
+                          ),
                         );
                       }).toList(),
                     ),
@@ -1081,6 +1056,11 @@ class _PlanningPageState extends State<PlanningPage> {
         },
       ),
     );
+  }
+
+  String _capitalizeFirst(String s) {
+    if (s.isEmpty) return s;
+    return s[0].toUpperCase() + s.substring(1);
   }
 
   /// Vérifie s'il existe une demande de remplacement active pour un planning donné
@@ -1183,42 +1163,5 @@ class _TooltipWidget extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  /// Vérifie s'il existe une demande de remplacement active pour un planning donné
-  Future<bool> _hasActiveReplacementRequest(Planning planning, String userId, String stationId) async {
-    try {
-      // Construire le chemin vers les demandes de remplacement
-      final requestsPath = EnvironmentConfig.useStationSubcollections && stationId.isNotEmpty
-          ? (SDISContext().currentSDISId != null && SDISContext().currentSDISId!.isNotEmpty
-              ? 'sdis/${SDISContext().currentSDISId}/stations/$stationId/replacements/automatic/replacementRequests'
-              : 'stations/$stationId/replacements/automatic/replacementRequests')
-          : 'replacementRequests';
-
-      // Chercher les demandes de remplacement pour ce planning et cet utilisateur
-      final snapshot = await FirebaseFirestore.instance
-          .collection(requestsPath)
-          .where('planningId', isEqualTo: planning.id)
-          .where('requesterId', isEqualTo: userId)
-          .where('status', whereIn: ['pending', 'accepted'])
-          .get();
-
-      // Vérifier s'il y a des demandes qui couvrent l'intégralité du planning
-      for (final doc in snapshot.docs) {
-        final data = doc.data();
-        final startTime = (data['startTime'] as Timestamp).toDate();
-        final endTime = (data['endTime'] as Timestamp).toDate();
-
-        // Vérifier si la demande couvre toute la période du planning
-        if (!startTime.isAfter(planning.startTime) && !endTime.isBefore(planning.endTime)) {
-          return true;
-        }
-      }
-
-      return false;
-    } catch (e) {
-      debugPrint('Error checking active replacement requests: $e');
-      return false;
-    }
   }
 }

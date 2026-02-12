@@ -45,22 +45,29 @@ class SubShiftItem extends StatelessWidget {
       orElse: () => noneUser,
     );
 
-    final lineColor = Theme.of(
-      context,
-    ).colorScheme.primary.withValues(alpha: 0.5);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final lineColor = isDark
+        ? Colors.white.withValues(alpha: 0.12)
+        : Colors.grey.shade200;
     final dotColor = Theme.of(context).colorScheme.primary;
     final isExchange = subShift.isExchange;
     final bg = highlight
-        ? Theme.of(context).colorScheme.primary.withOpacity(0.06)
+        ? (isDark
+            ? Colors.white.withValues(alpha: 0.04)
+            : Theme.of(context).colorScheme.primary.withValues(alpha: 0.04))
         : Colors.transparent;
 
     return IntrinsicHeight(
       child: Container(
-        color: bg,
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        padding: const EdgeInsets.symmetric(vertical: 2),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Ligne verticale + point central
+            // Vertical timeline
             SizedBox(
               width: 28,
               child: Column(
@@ -68,94 +75,125 @@ class SubShiftItem extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Container(
-                      width: 2,
+                      width: 1.5,
                       color: isFirst ? Colors.transparent : lineColor,
-                      margin: const EdgeInsets.only(bottom: 6),
+                      margin: const EdgeInsets.only(bottom: 4),
                     ),
                   ),
                   isExchange
-                      ? Icon(
-                          Icons.swap_horiz,
-                          size: 28,
-                          color: Colors.green[300],
+                      ? Container(
+                          width: 24,
+                          height: 24,
+                          decoration: BoxDecoration(
+                            color: Colors.green.withValues(alpha: isDark ? 0.2 : 0.1),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.swap_horiz_rounded,
+                            size: 16,
+                            color: Colors.green.shade400,
+                          ),
                         )
                       : Container(
                           width: 10,
                           height: 10,
                           decoration: BoxDecoration(
-                            color: dotColor,
+                            color: dotColor.withValues(alpha: 0.2),
                             shape: BoxShape.circle,
+                            border: Border.all(
+                              color: dotColor,
+                              width: 2.5,
+                            ),
                           ),
                         ),
                   Expanded(
                     child: Container(
-                      width: 2,
+                      width: 1.5,
                       color: isLast ? Colors.transparent : lineColor,
-                      margin: const EdgeInsets.only(top: 6),
+                      margin: const EdgeInsets.only(top: 4),
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 10),
 
-            // Bloc de texte (remplaçant ← remplacé + horaires)
+            // Text content
             Expanded(
-              child: GestureDetector(
-                onTap: () {
-                  // TODO : ouvrir un détail ou déclencher une action
-                },
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    RichText(
-                      textAlign: TextAlign.start,
-                      text: TextSpan(
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.tertiary,
-                          fontSize: 13,
-                        ),
-                        children: [
-                          TextSpan(
-                            text: replacer.displayName,
-                            style: TextStyle(
-                              color: Theme.of(context).colorScheme.primary,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const TextSpan(text: " ← "),
-                          TextSpan(
-                            text: replaced.displayName,
-                            style: const TextStyle(fontWeight: FontWeight.w500),
-                          ),
-                        ],
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  RichText(
+                    textAlign: TextAlign.start,
+                    text: TextSpan(
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.tertiary,
+                        fontSize: 13,
                       ),
+                      children: [
+                        TextSpan(
+                          text: replacer.displayName,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.primary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        TextSpan(
+                          text: "  \u2190  ",
+                          style: TextStyle(
+                            color: isDark
+                                ? Colors.grey.shade500
+                                : Colors.grey.shade400,
+                            fontSize: 12,
+                          ),
+                        ),
+                        TextSpan(
+                          text: replaced.displayName,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w500,
+                            color: isDark
+                                ? Colors.grey.shade300
+                                : Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      "${DateFormat('dd/MM HH:mm').format(subShift.start)} → ${DateFormat('dd/MM HH:mm').format(subShift.end)}",
-                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    "${DateFormat('dd/MM HH:mm').format(subShift.start)} \u2192 ${DateFormat('dd/MM HH:mm').format(subShift.end)}",
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: isDark
+                          ? Colors.grey.shade500
+                          : Colors.grey.shade400,
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
 
-            // Icône check à droite (visible uniquement si showCheckIcon)
+            // Check icon
             if (showCheckIcon) ...[
               const SizedBox(width: 8),
               GestureDetector(
                 onTap: onCheckTap,
                 child: Container(
                   padding: const EdgeInsets.all(4),
-                  child: Icon(
-                    subShift.checkedByChief
-                        ? Icons.check_circle
-                        : Icons.check_circle_outline,
-                    color: subShift.checkedByChief
-                        ? Colors.green
-                        : Colors.grey[400],
-                    size: 24,
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 200),
+                    child: Icon(
+                      subShift.checkedByChief
+                          ? Icons.check_circle_rounded
+                          : Icons.check_circle_outline_rounded,
+                      key: ValueKey(subShift.checkedByChief),
+                      color: subShift.checkedByChief
+                          ? Colors.green.shade400
+                          : (isDark
+                              ? Colors.grey.shade600
+                              : Colors.grey.shade300),
+                      size: 22,
+                    ),
                   ),
                 ),
               ),

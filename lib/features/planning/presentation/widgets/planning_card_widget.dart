@@ -118,252 +118,252 @@ class _PlanningCardState extends State<PlanningCard> {
   @override
   Widget build(BuildContext context) {
     final isAvailability = widget.planning.id.startsWith('availability_');
-    // Utiliser la couleur de l'équipe de l'utilisateur pour les disponibilités
-    // Convertir en shade400 pour les disponibilités (moins voyant)
     final teamColor = isAvailability
         ? Colors.grey
         : (_team?.color ?? const Color(0xFF757575));
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return ValueListenableBuilder<bool>(
       valueListenable: stationViewNotifier,
       builder: (context, stationView, _) {
-        return InkWell(
-          onTap: widget.onTap,
-          child: Card(
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              side: BorderSide(color: teamColor, width: isAvailability ? 2 : 1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-            child: Stack(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _stationName ?? widget.planning.station,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.primary,
-                          fontSize: KTextStyle.regularTextStyle.fontSize,
-                          fontFamily: KTextStyle.regularTextStyle.fontFamily,
-                          fontWeight: FontWeight.bold,
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: widget.onTap,
+              borderRadius: BorderRadius.circular(16),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? Colors.white.withValues(alpha: 0.05)
+                      : Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: isDark
+                        ? Colors.white.withValues(alpha: 0.08)
+                        : Colors.grey.shade200,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: (isDark ? Colors.black : Colors.grey.shade300)
+                          .withValues(alpha: isDark ? 0.3 : 0.25),
+                      blurRadius: 12,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: Stack(
+                  children: [
+                    // Left accent bar
+                    Positioned(
+                      left: 0,
+                      top: 0,
+                      bottom: 0,
+                      child: Container(
+                        width: 5,
+                        decoration: BoxDecoration(
+                          color: isAvailability
+                              ? teamColor.withValues(alpha: 0.5)
+                              : teamColor,
+                          borderRadius: const BorderRadius.only(
+                            topLeft: Radius.circular(16),
+                            bottomLeft: Radius.circular(16),
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 2),
-                      Row(
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 14, 14, 14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          if (isAvailability)
-                            Icon(
-                              Icons.volunteer_activism,
-                              size: 16,
-                              color: teamColor,
-                            ),
-                          if (isAvailability) const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              isAvailability
-                                  ? 'Disponibilité'
-                                  : (_team?.name ?? widget.planning.team),
-                              style: TextStyle(
-                                color: teamColor,
-                                fontSize:
-                                    KTextStyle.descriptionTextStyle.fontSize,
-                                fontFamily:
-                                    KTextStyle.descriptionTextStyle.fontFamily,
-                                fontWeight: FontWeight.bold,
-                                fontStyle: isAvailability
-                                    ? FontStyle.italic
-                                    : FontStyle.normal,
-                              ),
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: isAvailability
-                                ? "Détails de la disponibilité"
-                                : "Détails de l'astreinte",
-                            iconSize: 18,
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
-                            onPressed: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => PlanningTeamDetailsPage(
-                                    at: widget.planning.startTime,
-                                  ),
-                                ),
-                              );
-                            },
-                            icon: Icon(
-                              Icons.search,
-                              color: Theme.of(context).colorScheme.tertiary,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      if (!stationView && !isAvailability)
-                        _buildUserOnCallSlotsWidget()
-                      else if (stationView || isAvailability) ...[
-                        Row(
-                          children: [
-                            const Icon(
-                              Icons.calendar_today,
-                              size: 16,
-                              color: Colors.blueGrey,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              _formatDateTime(widget.planning.startTime),
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Theme.of(context).colorScheme.tertiary,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            const Icon(
-                              Icons.arrow_forward,
-                              size: 14,
-                              color: Colors.blueGrey,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              _formatDateTime(widget.planning.endTime),
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Theme.of(context).colorScheme.tertiary,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                      if (widget.showNote) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          "Recherche de compétences en cours...",
-                          style: TextStyle(
-                            color: Colors.orange.shade700,
-                            fontStyle: FontStyle.italic,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ],
-                      if (!isAvailability) ...[
-                        const SizedBox(height: 8),
-                        const Divider(height: 1),
-                        SizedBox(
-                          height: 28,
-                          child: Row(
+                          // Station name + details button
+                          Row(
                             children: [
                               Expanded(
-                                child: Align(
-                                  alignment: Alignment.centerLeft,
-                                  child: !isAvailability
-                                      ? _VehicleIconsRow(
-                                          specs: widget.vehicleIconSpecs,
-                                          planning: widget.planning,
-                                        )
-                                      : const SizedBox.shrink(),
+                                child: Text(
+                                  _stationName ?? widget.planning.station,
+                                  style: TextStyle(
+                                    color: Theme.of(context).colorScheme.tertiary
+                                        .withValues(alpha: 0.5),
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                    letterSpacing: 0.3,
+                                  ),
                                 ),
                               ),
-                              Icon(
-                                widget.isExpanded
-                                    ? Icons.expand_less
-                                    : Icons.expand_more,
-                                size: 20,
-                                color: Theme.of(context).colorScheme.onSurface,
+                              // Badges
+                              if (widget.pendingRequestCount > 0 ||
+                                  widget.replacementCount > 0)
+                                _BadgeRow(
+                                  pendingCount: widget.pendingRequestCount,
+                                  replacementCount: widget.replacementCount,
+                                  allChecked: widget.allReplacementsChecked,
+                                ),
+                              // Delete for availabilities
+                              if (isAvailability)
+                                _DeleteIconButton(
+                                  onPressed: () async {
+                                    await _deleteAvailability(widget.planning.id);
+                                  },
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          // Team name row
+                          Row(
+                            children: [
+                              if (isAvailability) ...[
+                                Icon(
+                                  Icons.volunteer_activism_rounded,
+                                  size: 18,
+                                  color: teamColor.withValues(alpha: 0.7),
+                                ),
+                                const SizedBox(width: 6),
+                              ],
+                              Expanded(
+                                child: Text(
+                                  isAvailability
+                                      ? 'Disponibilit\u00e9'
+                                      : (_team?.name ?? widget.planning.team),
+                                  style: TextStyle(
+                                    color: isAvailability
+                                        ? teamColor
+                                        : teamColor,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                    fontStyle: isAvailability
+                                        ? FontStyle.italic
+                                        : FontStyle.normal,
+                                    letterSpacing: -0.3,
+                                  ),
+                                ),
+                              ),
+                              // Details button
+                              Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  onTap: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => PlanningTeamDetailsPage(
+                                          at: widget.planning.startTime,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(6),
+                                    decoration: BoxDecoration(
+                                      color: isDark
+                                          ? Colors.white.withValues(alpha: 0.06)
+                                          : Colors.grey.shade50,
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Icon(
+                                      Icons.open_in_new_rounded,
+                                      size: 16,
+                                      color: isDark
+                                          ? Colors.grey.shade400
+                                          : Colors.grey.shade500,
+                                    ),
+                                  ),
+                                ),
                               ),
                             ],
                           ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                // Badges en haut à droite (demandes en attente + remplacements)
-                if (widget.pendingRequestCount > 0 ||
-                    widget.replacementCount > 0)
-                  Positioned(
-                    top: 8,
-                    right: 8,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // Badge des demandes en attente (outlined)
-                        if (widget.pendingRequestCount > 0)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 7,
-                              vertical: 3,
+                          const SizedBox(height: 10),
+                          // Date/time or on-call slots
+                          if (!stationView && !isAvailability)
+                            _buildUserOnCallSlotsWidget()
+                          else if (stationView || isAvailability)
+                            _DateTimeChip(
+                              startTime: widget.planning.startTime,
+                              endTime: widget.planning.endTime,
+                              isDark: isDark,
                             ),
-                            decoration: BoxDecoration(
-                              color: Colors.transparent,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: Theme.of(context).colorScheme.primary,
-                                width: 1,
+                          if (widget.showNote) ...[
+                            const SizedBox(height: 10),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.orange.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.search_rounded,
+                                    size: 14,
+                                    color: Colors.orange.shade700,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    "Recherche de comp\u00e9tences...",
+                                    style: TextStyle(
+                                      color: Colors.orange.shade700,
+                                      fontStyle: FontStyle.italic,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                            child: Text(
-                              widget.pendingRequestCount.toString(),
-                              style: TextStyle(
-                                color: Theme.of(context).colorScheme.primary,
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
+                          ],
+                          // Vehicle icons + expand
+                          if (!isAvailability) ...[
+                            const SizedBox(height: 10),
+                            Container(
+                              padding: const EdgeInsets.only(top: 8),
+                              decoration: BoxDecoration(
+                                border: Border(
+                                  top: BorderSide(
+                                    color: isDark
+                                        ? Colors.white.withValues(alpha: 0.06)
+                                        : Colors.grey.shade100,
+                                  ),
+                                ),
+                              ),
+                              child: SizedBox(
+                                height: 24,
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: _VehicleIconsRow(
+                                        specs: widget.vehicleIconSpecs,
+                                        planning: widget.planning,
+                                      ),
+                                    ),
+                                    AnimatedRotation(
+                                      turns: widget.isExpanded ? 0.5 : 0,
+                                      duration: const Duration(milliseconds: 250),
+                                      child: Icon(
+                                        Icons.keyboard_arrow_down_rounded,
+                                        size: 22,
+                                        color: isDark
+                                            ? Colors.grey.shade500
+                                            : Colors.grey.shade400,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
-                          ),
-                        if (widget.pendingRequestCount > 0 &&
-                            widget.replacementCount > 0)
-                          const SizedBox(width: 6),
-                        // Badge des remplacements (filled - vert si tous checkés)
-                        if (widget.replacementCount > 0)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: widget.allReplacementsChecked
-                                  ? Colors.green
-                                  : Theme.of(context).colorScheme.primary,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              widget.replacementCount.toString(),
-                              style: TextStyle(
-                                color: widget.allReplacementsChecked
-                                    ? Colors.white
-                                    : Theme.of(context).colorScheme.onPrimary,
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-
-                // Ne peut pas trigger widget.replacementCount > 0 && isAvailability
-                if (isAvailability)
-                  Positioned(
-                    top: 2,
-                    right: 2,
-                    child: IconButton(
-                      icon: const Icon(
-                        Icons.delete_outline,
-                        color: Colors.red,
-                        size: 20,
+                          ],
+                        ],
                       ),
-                      onPressed: () async {
-                        await _deleteAvailability(widget.planning.id);
-                      },
                     ),
-                  ),
-              ],
+                  ],
+                ),
+              ),
             ),
           ),
         );
@@ -424,16 +424,31 @@ class _PlanningCardState extends State<PlanningCard> {
   }
 
   Widget _buildUserOnCallSlotsWidget() {
-    // Si encore en chargement, ne rien afficher (pas de spinner pour éviter le blip)
     if (_userOnCallSlots == null) {
       return const SizedBox.shrink();
     }
 
     final slots = _userOnCallSlots!;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     if (slots.isEmpty) {
-      return Text(
-        "Aucune période de garde pour vous.",
-        style: TextStyle(color: Colors.red.shade700, fontSize: 14),
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.red.withValues(alpha: isDark ? 0.15 : 0.06),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.info_outline_rounded, size: 14, color: Colors.red.shade400),
+            const SizedBox(width: 6),
+            Text(
+              "Aucune p\u00e9riode de garde pour vous.",
+              style: TextStyle(color: Colors.red.shade400, fontSize: 13, fontWeight: FontWeight.w500),
+            ),
+          ],
+        ),
       );
     }
 
@@ -443,60 +458,58 @@ class _PlanningCardState extends State<PlanningCard> {
         for (final slot in slots) ...[
           Container(
             decoration: BoxDecoration(
-              // Couleur de fond différente pour les disponibilités
               color: slot['type'] == 'available'
-                  ? Colors.blue.shade50.withValues(alpha: 0.5)
-                  : null,
-              borderRadius: BorderRadius.circular(4),
-              border: slot['type'] == 'available'
-                  ? Border.all(
-                      color: Colors.blue.shade300,
-                      width: 1,
-                      strokeAlign: BorderSide.strokeAlignInside,
-                    )
-                  : null,
+                  ? Colors.blue.withValues(alpha: isDark ? 0.12 : 0.06)
+                  : (isDark
+                      ? Colors.white.withValues(alpha: 0.04)
+                      : Colors.grey.shade50),
+              borderRadius: BorderRadius.circular(8),
             ),
-            padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
+            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 10),
             child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(
                   slot['type'] == 'available'
-                      ? Icons.volunteer_activism
-                      : Icons.calendar_today,
-                  size: 16,
+                      ? Icons.volunteer_activism_rounded
+                      : Icons.schedule_rounded,
+                  size: 14,
                   color: slot['type'] == 'available'
-                      ? Colors.blue.shade700
-                      : Colors.blueGrey,
+                      ? Colors.blue.shade400
+                      : (isDark ? Colors.grey.shade400 : Colors.grey.shade500),
                 ),
                 const SizedBox(width: 6),
                 Text(
                   _formatDateTime(slot['start']!),
                   style: TextStyle(
                     fontSize: 13,
+                    fontWeight: FontWeight.w500,
                     color: slot['type'] == 'available'
-                        ? Colors.blue.shade700
-                        : Theme.of(context).colorScheme.tertiary,
+                        ? Colors.blue.shade400
+                        : (isDark ? Colors.grey.shade300 : Colors.grey.shade700),
                     fontStyle: slot['type'] == 'available'
                         ? FontStyle.italic
                         : FontStyle.normal,
                   ),
                 ),
-                const SizedBox(width: 4),
-                Icon(
-                  Icons.arrow_forward,
-                  size: 14,
-                  color: slot['type'] == 'available'
-                      ? Colors.blue.shade500
-                      : Colors.blueGrey,
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  child: Icon(
+                    Icons.arrow_forward_rounded,
+                    size: 12,
+                    color: slot['type'] == 'available'
+                        ? Colors.blue.shade300
+                        : (isDark ? Colors.grey.shade500 : Colors.grey.shade400),
+                  ),
                 ),
-                const SizedBox(width: 4),
                 Text(
                   _formatDateTime(slot['end']!),
                   style: TextStyle(
                     fontSize: 13,
+                    fontWeight: FontWeight.w500,
                     color: slot['type'] == 'available'
-                        ? Colors.blue.shade700
-                        : Theme.of(context).colorScheme.tertiary,
+                        ? Colors.blue.shade400
+                        : (isDark ? Colors.grey.shade300 : Colors.grey.shade700),
                     fontStyle: slot['type'] == 'available'
                         ? FontStyle.italic
                         : FontStyle.normal,
@@ -505,7 +518,7 @@ class _PlanningCardState extends State<PlanningCard> {
               ],
             ),
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 4),
         ],
       ],
     );
@@ -601,6 +614,181 @@ class _PlanningCardState extends State<PlanningCard> {
     return slots
         .where((slot) => slot['start']!.isBefore(slot['end']!))
         .toList();
+  }
+}
+
+/// Chip showing start → end time in a subtle rounded container
+class _DateTimeChip extends StatelessWidget {
+  final DateTime startTime;
+  final DateTime endTime;
+  final bool isDark;
+
+  const _DateTimeChip({
+    required this.startTime,
+    required this.endTime,
+    required this.isDark,
+  });
+
+  String _fmt(DateTime dt) {
+    return "${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: isDark
+            ? Colors.white.withValues(alpha: 0.06)
+            : Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.schedule_rounded,
+            size: 14,
+            color: isDark ? Colors.grey.shade400 : Colors.grey.shade500,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            _fmt(startTime),
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: Icon(
+              Icons.arrow_forward_rounded,
+              size: 12,
+              color: isDark ? Colors.grey.shade500 : Colors.grey.shade400,
+            ),
+          ),
+          Text(
+            _fmt(endTime),
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Row of badges for pending requests and replacement count
+class _BadgeRow extends StatelessWidget {
+  final int pendingCount;
+  final int replacementCount;
+  final bool allChecked;
+
+  const _BadgeRow({
+    required this.pendingCount,
+    required this.replacementCount,
+    required this.allChecked,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (pendingCount > 0)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? KColors.appNameColor.withValues(alpha: 0.2)
+                  : KColors.appNameColor.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              pendingCount.toString(),
+              style: TextStyle(
+                color: KColors.appNameColor,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        if (pendingCount > 0 && replacementCount > 0)
+          const SizedBox(width: 4),
+        if (replacementCount > 0)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: allChecked
+                  ? Colors.green.withValues(alpha: isDark ? 0.25 : 0.15)
+                  : (isDark
+                      ? Colors.white.withValues(alpha: 0.1)
+                      : Colors.grey.shade100),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (allChecked)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 3),
+                    child: Icon(
+                      Icons.check_rounded,
+                      size: 12,
+                      color: Colors.green.shade600,
+                    ),
+                  ),
+                Text(
+                  replacementCount.toString(),
+                  style: TextStyle(
+                    color: allChecked
+                        ? Colors.green.shade600
+                        : (isDark ? Colors.grey.shade300 : Colors.grey.shade600),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// Small delete button for availability cards
+class _DeleteIconButton extends StatelessWidget {
+  final VoidCallback onPressed;
+
+  const _DeleteIconButton({required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: Colors.red.withValues(alpha: isDark ? 0.15 : 0.08),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(
+            Icons.delete_outline_rounded,
+            color: Colors.red.shade400,
+            size: 16,
+          ),
+        ),
+      ),
+    );
   }
 }
 
