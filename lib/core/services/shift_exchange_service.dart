@@ -9,6 +9,7 @@ import 'package:nexshift_app/core/repositories/shift_exchange_repository.dart';
 import 'package:nexshift_app/core/repositories/subshift_repositories.dart';
 import 'package:nexshift_app/core/repositories/user_repository.dart';
 import 'package:nexshift_app/core/repositories/planning_repository.dart';
+import 'package:nexshift_app/core/services/replacement_notification_service.dart';
 import 'package:nexshift_app/core/services/shift_exchange_notification_service.dart';
 import 'package:nexshift_app/core/data/datasources/sdis_context.dart'
     show SDISContext;
@@ -938,6 +939,16 @@ class ShiftExchangeService {
       );
       await _subshiftRepository.save(subshift1, stationId: stationId);
 
+      // Mettre à jour planning.agents pour le planning de A
+      await ReplacementNotificationService.updatePlanningAgentsForReplacement(
+        planningId: request.initiatorPlanningId,
+        stationId: stationId,
+        replacedId: request.initiatorId,
+        replacerId: proposal.proposerId,
+        start: request.initiatorStartTime,
+        end: request.initiatorEndTime,
+      );
+
       // Subshifts multiples: A remplace B sur chaque planning proposé
       int count = 0;
       for (final planningId in proposal.proposedPlanningIds) {
@@ -961,6 +972,16 @@ class ShiftExchangeService {
           isExchange: true,
         );
         await _subshiftRepository.save(subshift, stationId: stationId);
+
+        // Mettre à jour planning.agents pour le planning de B
+        await ReplacementNotificationService.updatePlanningAgentsForReplacement(
+          planningId: planningId,
+          stationId: stationId,
+          replacedId: proposal.proposerId,
+          replacerId: request.initiatorId,
+          start: planning.startTime,
+          end: planning.endTime,
+        );
         count++;
       }
 

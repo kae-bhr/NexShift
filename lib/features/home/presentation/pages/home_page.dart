@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/data/models/trucks_model.dart';
@@ -22,7 +21,14 @@ import 'package:nexshift_app/core/data/models/crew_mode_model.dart';
 import 'package:nexshift_app/features/replacement/presentation/pages/replacement_page.dart';
 import 'package:nexshift_app/features/subshift/presentation/widgets/subshift_item.dart';
 import 'package:nexshift_app/features/planning/presentation/widgets/planning_header_widget.dart';
+import 'package:nexshift_app/features/planning/presentation/widgets/on_call_presence_section.dart';
 import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
+import 'package:nexshift_app/core/data/models/on_call_level_model.dart';
+import 'package:nexshift_app/core/data/models/planning_agent_model.dart';
+import 'package:nexshift_app/core/repositories/on_call_level_repository.dart';
+import 'package:nexshift_app/core/repositories/planning_repository.dart';
+import 'package:nexshift_app/core/repositories/station_repository.dart';
+import 'package:nexshift_app/core/services/on_call_disposition_service.dart';
 import 'package:nexshift_app/features/app_shell/presentation/widgets/absence_menu_overlay.dart';
 import 'package:nexshift_app/core/services/replacement_notification_service.dart';
 import 'package:nexshift_app/core/data/models/shift_exchange_request_model.dart';
@@ -52,6 +58,8 @@ class _HomePageState extends State<HomePage> {
   List<ReplacementRequest> _pendingRequests = [];
   List<ShiftExchangeRequest> _pendingExchanges = [];
   List<ManualReplacementProposal> _pendingManualProposals = [];
+  List<OnCallLevel> _onCallLevels = [];
+  Station? _station;
   final Map<String, bool> _expanded = {};
   DateTime _currentWeekStart = _getStartOfWeek(DateTime.now());
   Color? _userTeamColor;
@@ -123,40 +131,11 @@ class _HomePageState extends State<HomePage> {
       '🏠 [HOME_PAGE] _loadData() - user=${user != null ? '${user.firstName} ${user.lastName} (${user.station})' : 'NULL'}',
     );
     if (user != null) {
-      // Initialiser le SDIS Context avec le SDIS ID de l'utilisateur
-      // pour que tous les repositories utilisent les bons chemins
-      // IMPORTANT: Charger le SDIS ID du storage local (sauvegardé lors de la connexion)
-      var sdisId = await UserStorageHelper.loadSdisId();
-      if (sdisId == null || sdisId.isEmpty) {
-        // Fallback: extraire le SDIS ID de l'email Firebase
-        final firebaseUser = firebase_auth.FirebaseAuth.instance.currentUser;
-        if (firebaseUser != null && firebaseUser.email != null) {
-          final email = firebaseUser.email!;
-          if (email.endsWith('@nexshift.app')) {
-            final parts = email.split('@')[0].split('_');
-            if (parts.isNotEmpty) {
-              sdisId = parts[0];
-              debugPrint(
-                '🏠 [HOME_PAGE] Extracted SDIS ID from Firebase email: $sdisId',
-              );
-              // Sauvegarder pour éviter cette extraction au prochain chargement
-              await UserStorageHelper.saveSdisId(sdisId);
-            }
-          }
-        }
-
-        // Si toujours null, utiliser une valeur par défaut (ne devrait jamais arriver)
-        if (sdisId == null || sdisId.isEmpty) {
-          sdisId = '50';
-          debugPrint(
-            '⚠️ [HOME_PAGE] Could not extract SDIS ID, using default: $sdisId',
-          );
-          await UserStorageHelper.saveSdisId(sdisId);
-        }
-      }
-      SDISContext().setCurrentSDISId(sdisId);
+      // Filet de sécurité : s'assurer que le SDIS Context est initialisé
+      // (récupération automatique depuis SharedPreferences, Firebase email ou claims)
+      await SDISContext().ensureInitialized();
       debugPrint(
-        '🏠 [HOME_PAGE] SDIS Context initialized with SDIS ID: $sdisId',
+        '🏠 [HOME_PAGE] SDIS Context: ${SDISContext().currentSDISId}',
       );
 
       final repo = LocalRepository();
@@ -232,6 +211,22 @@ class _HomePageState extends State<HomePage> {
         debugPrint('⚠️ [HOME_PAGE] Error loading pending manual proposals: $e');
       }
 
+      // Charger la station séparément des niveaux d'astreinte
+      Station? station;
+      try {
+        station = await StationRepository().getById(user.station);
+      } catch (e) {
+        debugPrint('⚠️ [HOME_PAGE] Error loading station: $e');
+      }
+
+      // Charger les niveaux d'astreinte
+      List<OnCallLevel> onCallLevels = [];
+      try {
+        onCallLevels = await OnCallLevelRepository().getAll(user.station);
+      } catch (e) {
+        debugPrint('⚠️ [HOME_PAGE] Error loading on-call levels: $e');
+      }
+
       if (!mounted) return;
       setState(() {
         _allPlannings = allPlannings;
@@ -241,6 +236,8 @@ class _HomePageState extends State<HomePage> {
         _pendingRequests = pendingRequests;
         _pendingExchanges = pendingExchanges;
         _pendingManualProposals = pendingManualProposals;
+        _onCallLevels = onCallLevels;
+        _station = station;
         _user = user;
         _userTeamColor = teamColor;
         _lastUserId = user.id;
@@ -743,7 +740,14 @@ class _HomePageState extends State<HomePage> {
         team: 'Disponibilité',
         startTime: availability.start,
         endTime: availability.end,
-        agentsId: [_user.id],
+        agents: [
+          PlanningAgent(
+            agentId: _user.id,
+            start: availability.start,
+            end: availability.end,
+            levelId: '',
+          ),
+        ],
         station: _user.station,
         maxAgents: 1,
       );
@@ -885,13 +889,16 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _deleteSubshift(Subshift subshift) async {
+  /// Supprime une entrée de planning.agents et restaure les horaires de l'agent remplacé si applicable
+  Future<void> _removeEntryFromPlanning(Planning planning, PlanningAgent entry) async {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text("Supprimer le remplacement ?"),
-        content: const Text(
-          "Cette action est irréversible. Voulez-vous vraiment supprimer ce remplacement ?",
+        title: const Text("Supprimer cette entrée ?"),
+        content: Text(
+          entry.replacedAgentId != null
+              ? "Le remplacement sera supprimé et les horaires seront rendus à l'agent remplacé."
+              : "L'agent sera retiré de l'effectif de cette astreinte.",
         ),
         actions: [
           TextButton(
@@ -906,40 +913,781 @@ class _HomePageState extends State<HomePage> {
       ),
     );
 
-    if (confirm == true) {
-      final subRepo = SubshiftRepository();
-      await subRepo.delete(subshift.id); // suppression en base
+    if (confirm != true) return;
+
+    try {
+      final updatedAgents = List<PlanningAgent>.from(planning.agents);
+
+      // Retirer l'entrée
+      updatedAgents.removeWhere((a) =>
+          a.agentId == entry.agentId &&
+          a.start.isAtSameMomentAs(entry.start) &&
+          a.end.isAtSameMomentAs(entry.end) &&
+          a.replacedAgentId == entry.replacedAgentId);
+
+      // Si c'était un remplaçant, restaurer les horaires de l'agent remplacé
+      if (entry.replacedAgentId != null) {
+        final replacedId = entry.replacedAgentId!;
+        final defaultLevelId = _station?.defaultOnCallLevelId ?? '';
+
+        // Collecter les entrées existantes de l'agent remplacé
+        final existingEntries = updatedAgents
+            .where((a) => a.agentId == replacedId && a.replacedAgentId == null)
+            .toList();
+
+        if (existingEntries.isEmpty) {
+          // L'agent n'a plus aucune entrée — recréer sur la plage du remplacement supprimé
+          updatedAgents.add(PlanningAgent(
+            agentId: replacedId,
+            start: entry.start,
+            end: entry.end,
+            levelId: defaultLevelId,
+          ));
+        } else {
+          // Fusionner : étendre l'entrée adjacente pour couvrir la plage libérée
+          // Chercher une entrée qui finit exactement quand le remplacement commence
+          final before = existingEntries.where((a) => a.end.isAtSameMomentAs(entry.start)).toList();
+          final after = existingEntries.where((a) => a.start.isAtSameMomentAs(entry.end)).toList();
+
+          if (before.isNotEmpty && after.isNotEmpty) {
+            // Fusionner before + gap + after en une seule entrée
+            final beforeEntry = before.first;
+            final afterEntry = after.first;
+            updatedAgents.removeWhere((a) =>
+                a.agentId == replacedId &&
+                a.replacedAgentId == null &&
+                (a.start.isAtSameMomentAs(beforeEntry.start) || a.start.isAtSameMomentAs(afterEntry.start)));
+            updatedAgents.add(beforeEntry.copyWith(end: afterEntry.end));
+          } else if (before.isNotEmpty) {
+            // Étendre before.end jusqu'à entry.end
+            final idx = updatedAgents.indexOf(before.first);
+            updatedAgents[idx] = before.first.copyWith(end: entry.end);
+          } else if (after.isNotEmpty) {
+            // Étendre after.start jusqu'à entry.start
+            final idx = updatedAgents.indexOf(after.first);
+            updatedAgents[idx] = after.first.copyWith(start: entry.start);
+          } else {
+            // Pas d'entrée adjacente, créer une nouvelle
+            updatedAgents.add(PlanningAgent(
+              agentId: replacedId,
+              start: entry.start,
+              end: entry.end,
+              levelId: defaultLevelId,
+            ));
+          }
+        }
+
+        // Supprimer aussi le subshift en base (historique)
+        final matchingSubshift = _allSubshifts.where((s) =>
+            s.replacerId == entry.agentId &&
+            s.replacedId == replacedId &&
+            s.planningId == planning.id &&
+            s.start.isAtSameMomentAs(entry.start) &&
+            s.end.isAtSameMomentAs(entry.end)).toList();
+        for (final sub in matchingSubshift) {
+          await SubshiftRepository().delete(sub.id, stationId: _user.station);
+          _allSubshifts.removeWhere((s) => s.id == sub.id);
+        }
+      }
+
+      final updatedPlanning = planning.copyWith(agents: updatedAgents);
+      await PlanningRepository().save(updatedPlanning, stationId: _user.station);
 
       if (!mounted) return;
       setState(() {
-        _allSubshifts.removeWhere((s) => s.id == subshift.id);
+        final index = _allPlannings.indexWhere((p) => p.id == planning.id);
+        if (index != -1) {
+          _allPlannings[index] = updatedPlanning;
+        }
       });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e')),
+        );
+      }
     }
   }
 
-  /// Toggle le statut "checkedByChief" d'un subshift
-  Future<void> _toggleSubshiftCheck(Subshift subshift) async {
-    final newChecked = !subshift.checkedByChief;
-    final subRepo = SubshiftRepository();
-
+  /// Toggle le statut "checkedByChief" d'un agent dans planning.agents
+  Future<void> _toggleAgentCheck(Planning planning, PlanningAgent entry) async {
     try {
-      await subRepo.toggleCheck(
-        subshift.id,
-        checked: newChecked,
-        checkedBy: _user.id,
-        stationId: _user.station, // Passer le stationId pour le chemin SDIS
+      final newChecked = !entry.checkedByChief;
+      final updatedAgents = List<PlanningAgent>.from(planning.agents);
+      final idx = updatedAgents.indexWhere((a) =>
+          a.agentId == entry.agentId &&
+          a.start.isAtSameMomentAs(entry.start) &&
+          a.end.isAtSameMomentAs(entry.end) &&
+          a.replacedAgentId == entry.replacedAgentId);
+
+      if (idx == -1) return;
+
+      updatedAgents[idx] = entry.copyWith(
+        checkedByChief: newChecked,
+        checkedAt: newChecked ? DateTime.now() : null,
+        checkedBy: newChecked ? _user.id : null,
       );
+
+      final updatedPlanning = planning.copyWith(agents: updatedAgents);
+      await PlanningRepository().save(updatedPlanning, stationId: _user.station);
 
       if (!mounted) return;
       setState(() {
-        // Mettre à jour localement
-        final index = _allSubshifts.indexWhere((s) => s.id == subshift.id);
+        final index = _allPlannings.indexWhere((p) => p.id == planning.id);
         if (index != -1) {
-          _allSubshifts[index] = subshift.copyWith(
-            checkedByChief: newChecked,
-            checkedAt: newChecked ? DateTime.now() : null,
-            checkedBy: newChecked ? _user.id : null,
-          );
+          _allPlannings[index] = updatedPlanning;
+        }
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e')),
+        );
+      }
+    }
+  }
+
+  // _removeAgentFromPlanning supprimé — remplacé par _removeEntryFromPlanning
+
+  /// Affiche le dialogue d'édition d'une présence d'agent (horaires + niveau d'astreinte)
+  Future<void> _showEditPresenceDialog(Planning planning, PlanningAgent entry) async {
+    final agent = _allUsers.firstWhere(
+      (u) => u.id == entry.agentId,
+      orElse: () => noneUser,
+    );
+
+    DateTime editStart = entry.start;
+    DateTime editEnd = entry.end;
+    // Normaliser le levelId : si vide ou absent des niveaux, prendre le premier niveau disponible
+    String? selectedLevelId = entry.levelId.isNotEmpty &&
+            _onCallLevels.any((l) => l.id == entry.levelId)
+        ? entry.levelId
+        : (_onCallLevels.isNotEmpty ? _onCallLevels.first.id : null);
+    String? timeError;
+
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            final isDark = Theme.of(ctx).brightness == Brightness.dark;
+
+            // Validation des bornes
+            void validateTimes() {
+              String? err;
+              if (editStart.isBefore(planning.startTime)) {
+                err = 'Le début ne peut pas précéder le début de l\'astreinte.';
+              } else if (editEnd.isAfter(planning.endTime)) {
+                err = 'La fin ne peut pas dépasser la fin de l\'astreinte.';
+              } else if (editEnd.isBefore(editStart) || editEnd.isAtSameMomentAs(editStart)) {
+                err = 'La fin doit être après le début.';
+              }
+              setDialogState(() => timeError = err);
+            }
+
+            return AlertDialog(
+              title: Text(
+                'Modifier la présence de ${agent.displayName}',
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Heure de début
+                  Text(
+                    'Début',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  InkWell(
+                    onTap: () async {
+                      final time = await showTimePicker(
+                        context: ctx,
+                        initialTime: TimeOfDay.fromDateTime(editStart),
+                      );
+                      if (time != null) {
+                        // Utiliser la date du planning.startTime comme base
+                        final base = planning.startTime;
+                        var newStart = DateTime(
+                          base.year, base.month, base.day,
+                          time.hour, time.minute,
+                        );
+                        // Si l'heure choisie est avant le début du planning jour,
+                        // on prend le jour de fin (astreinte de nuit)
+                        if (newStart.isBefore(planning.startTime)) {
+                          newStart = DateTime(
+                            planning.endTime.year, planning.endTime.month, planning.endTime.day,
+                            time.hour, time.minute,
+                          );
+                        }
+                        setDialogState(() {
+                          editStart = newStart;
+                        });
+                        validateTimes();
+                      }
+                    },
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 0.06)
+                            : Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.schedule_rounded, size: 16),
+                          const SizedBox(width: 8),
+                          Text(
+                            '${editStart.day.toString().padLeft(2, '0')}/${editStart.month.toString().padLeft(2, '0')} ${editStart.hour.toString().padLeft(2, '0')}:${editStart.minute.toString().padLeft(2, '0')}',
+                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  // Heure de fin
+                  Text(
+                    'Fin',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  InkWell(
+                    onTap: () async {
+                      final time = await showTimePicker(
+                        context: ctx,
+                        initialTime: TimeOfDay.fromDateTime(editEnd),
+                      );
+                      if (time != null) {
+                        // Utiliser la date du planning.endTime comme base
+                        final base = planning.endTime;
+                        var newEnd = DateTime(
+                          base.year, base.month, base.day,
+                          time.hour, time.minute,
+                        );
+                        // Si l'heure choisie est après minuit mais le planning finit le lendemain,
+                        // prendre le bon jour
+                        if (newEnd.isBefore(planning.startTime)) {
+                          newEnd = DateTime(
+                            planning.endTime.year, planning.endTime.month, planning.endTime.day,
+                            time.hour, time.minute,
+                          );
+                        }
+                        setDialogState(() {
+                          editEnd = newEnd;
+                        });
+                        validateTimes();
+                      }
+                    },
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 0.06)
+                            : Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.schedule_rounded, size: 16),
+                          const SizedBox(width: 8),
+                          Text(
+                            '${editEnd.day.toString().padLeft(2, '0')}/${editEnd.month.toString().padLeft(2, '0')} ${editEnd.hour.toString().padLeft(2, '0')}:${editEnd.minute.toString().padLeft(2, '0')}',
+                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  // Message d'erreur de validation
+                  if (timeError != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      timeError!,
+                      style: TextStyle(fontSize: 12, color: Colors.red.shade400),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  // Niveau d'astreinte
+                  Text(
+                    "Niveau d'astreinte",
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  DropdownButtonFormField<String>(
+                    value: selectedLevelId,
+                    decoration: InputDecoration(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    items: _onCallLevels.map((level) {
+                      return DropdownMenuItem<String>(
+                        value: level.id,
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 12,
+                              height: 12,
+                              decoration: BoxDecoration(
+                                color: level.color,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(level.name, style: const TextStyle(fontSize: 14)),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (value) {
+                      setDialogState(() {
+                        selectedLevelId = value;
+                      });
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Annuler'),
+                ),
+                FilledButton(
+                  onPressed: timeError != null
+                      ? null
+                      : () => Navigator.pop(ctx, {
+                            'start': editStart,
+                            'end': editEnd,
+                            'levelId': selectedLevelId,
+                          }),
+                  child: const Text('Enregistrer'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (result == null) return;
+
+    try {
+      final newStart = result['start'] as DateTime;
+      final newEnd = result['end'] as DateTime;
+      final newLevelId = result['levelId'] as String?;
+
+      // Mettre à jour directement dans planning.agents
+      final updatedAgents = List<PlanningAgent>.from(planning.agents);
+      final idx = updatedAgents.indexWhere((a) =>
+          a.agentId == entry.agentId &&
+          a.start.isAtSameMomentAs(entry.start) &&
+          a.end.isAtSameMomentAs(entry.end) &&
+          a.replacedAgentId == entry.replacedAgentId);
+
+      if (idx != -1) {
+        updatedAgents[idx] = updatedAgents[idx].copyWith(
+          start: newStart,
+          end: newEnd,
+          levelId: newLevelId ?? entry.levelId,
+        );
+      }
+
+      final updatedPlanning = planning.copyWith(agents: updatedAgents);
+      await PlanningRepository().save(updatedPlanning, stationId: _user.station);
+
+      if (!mounted) return;
+      setState(() {
+        final index = _allPlannings.indexWhere((p) => p.id == planning.id);
+        if (index != -1) {
+          _allPlannings[index] = updatedPlanning;
+        }
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e')),
+        );
+      }
+    }
+  }
+
+  /// Affiche le dialogue d'ajout d'un agent à l'effectif d'un planning
+  Future<void> _showAddAgentDialog(Planning planning) async {
+    // Tous les agents de la station sont éligibles (on vérifie le chevauchement après)
+    final availableAgents = List<User>.from(_allUsers)
+      ..sort((a, b) => a.displayName.compareTo(b.displayName));
+
+    if (availableAgents.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Aucun agent disponible à ajouter.')),
+        );
+      }
+      return;
+    }
+
+    // Charger les équipes pour le classement
+    final teamRepo = TeamRepository();
+    final teams = await teamRepo.getByStation(_user.station);
+    final teamMap = {for (final t in teams) t.id: t};
+
+    // Grouper par équipe
+    final Map<String, List<User>> groupedByTeam = {};
+    final List<User> noTeamAgents = [];
+    for (final agent in availableAgents) {
+      if (agent.team.isEmpty || !teamMap.containsKey(agent.team)) {
+        noTeamAgents.add(agent);
+      } else {
+        groupedByTeam.putIfAbsent(agent.team, () => []);
+        groupedByTeam[agent.team]!.add(agent);
+      }
+    }
+    // Trier les équipes par nom
+    final sortedTeamIds = groupedByTeam.keys.toList()
+      ..sort((a, b) => (teamMap[a]?.name ?? a).compareTo(teamMap[b]?.name ?? b));
+
+    // Construire la liste plate avec headers
+    final List<dynamic> listItems = []; // String (header teamId) ou User
+    for (final teamId in sortedTeamIds) {
+      listItems.add(teamId); // header
+      for (final agent in groupedByTeam[teamId]!) {
+        listItems.add(agent);
+      }
+    }
+    if (noTeamAgents.isNotEmpty) {
+      listItems.add('__no_team__'); // header spécial
+      listItems.addAll(noTeamAgents);
+    }
+
+    final selectedAgent = await showDialog<User>(
+      context: context,
+      builder: (ctx) {
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
+        return AlertDialog(
+          title: Row(
+            children: [
+              Icon(
+                Icons.person_add_rounded,
+                size: 22,
+                color: KColors.appNameColor,
+              ),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Ajouter un agent',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: listItems.length,
+              itemBuilder: (context, index) {
+                final item = listItems[index];
+
+                // Header d'équipe
+                if (item is String) {
+                  final isNoTeam = item == '__no_team__';
+                  final team = isNoTeam ? null : teamMap[item];
+                  final teamColor = team?.color ?? Colors.grey;
+                  final teamName = isNoTeam
+                      ? 'Sans équipe'
+                      : (team?.name ?? item);
+
+                  return Padding(
+                    padding: EdgeInsets.only(
+                      top: index == 0 ? 0 : 12,
+                      bottom: 4,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (index > 0)
+                          Divider(
+                            height: 1,
+                            color: isDark
+                                ? Colors.white.withValues(alpha: 0.08)
+                                : Colors.grey.shade200,
+                          ),
+                        if (index > 0) const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Container(
+                              width: 4,
+                              height: 16,
+                              decoration: BoxDecoration(
+                                color: teamColor,
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              teamName,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: teamColor,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                // Agent
+                final agent = item as User;
+                return ListTile(
+                  dense: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                  leading: CircleAvatar(
+                    radius: 16,
+                    backgroundColor: isDark
+                        ? Colors.white.withValues(alpha: 0.08)
+                        : Colors.grey.shade100,
+                    child: Text(
+                      agent.displayName.isNotEmpty
+                          ? agent.displayName[0].toUpperCase()
+                          : '?',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: isDark ? Colors.white : Colors.grey.shade700,
+                      ),
+                    ),
+                  ),
+                  title: Text(
+                    agent.displayName,
+                    style: const TextStyle(fontSize: 14),
+                  ),
+                  onTap: () => Navigator.pop(ctx, agent),
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Annuler'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (selectedAgent == null) return;
+
+    // Dialogue de sélection des horaires avec validation de chevauchement
+    DateTime addStart = planning.startTime;
+    DateTime addEnd = planning.endTime;
+    String? addTimeError;
+
+    // Collecter les plages existantes de cet agent sur ce planning
+    // Source unique : planning.agents
+    List<({DateTime start, DateTime end})> getExistingSlots() {
+      return planning.agents
+          .where((a) => a.agentId == selectedAgent.id)
+          .map((a) => (start: a.start, end: a.end))
+          .toList();
+    }
+
+    String? validateOverlap(DateTime start, DateTime end) {
+      if (start.isBefore(planning.startTime)) {
+        return 'Le début ne peut pas précéder le début de l\'astreinte.';
+      }
+      if (end.isAfter(planning.endTime)) {
+        return 'La fin ne peut pas dépasser la fin de l\'astreinte.';
+      }
+      if (end.isBefore(start) || end.isAtSameMomentAs(start)) {
+        return 'La fin doit être après le début.';
+      }
+      final existing = getExistingSlots();
+      for (final slot in existing) {
+        if (start.isBefore(slot.end) && end.isAfter(slot.start)) {
+          final fmt = (DateTime d) =>
+              '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+          return 'Chevauchement avec une plage existante (${fmt(slot.start)} - ${fmt(slot.end)}).';
+        }
+      }
+      return null;
+    }
+
+    addTimeError = validateOverlap(addStart, addEnd);
+
+    final timeResult = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            final isDark = Theme.of(ctx).brightness == Brightness.dark;
+            return AlertDialog(
+              title: Text(
+                'Ajouter ${selectedAgent.displayName}',
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Début',
+                    style: TextStyle(
+                      fontSize: 12, fontWeight: FontWeight.w500,
+                      color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  InkWell(
+                    onTap: () async {
+                      final time = await showTimePicker(
+                        context: ctx,
+                        initialTime: TimeOfDay.fromDateTime(addStart),
+                      );
+                      if (time != null) {
+                        final base = planning.startTime;
+                        var newStart = DateTime(base.year, base.month, base.day, time.hour, time.minute);
+                        if (newStart.isBefore(planning.startTime)) {
+                          newStart = DateTime(planning.endTime.year, planning.endTime.month, planning.endTime.day, time.hour, time.minute);
+                        }
+                        setDialogState(() {
+                          addStart = newStart;
+                          addTimeError = validateOverlap(addStart, addEnd);
+                        });
+                      }
+                    },
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.schedule_rounded, size: 16),
+                          const SizedBox(width: 8),
+                          Text(
+                            '${addStart.day.toString().padLeft(2, '0')}/${addStart.month.toString().padLeft(2, '0')} ${addStart.hour.toString().padLeft(2, '0')}:${addStart.minute.toString().padLeft(2, '0')}',
+                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Fin',
+                    style: TextStyle(
+                      fontSize: 12, fontWeight: FontWeight.w500,
+                      color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  InkWell(
+                    onTap: () async {
+                      final time = await showTimePicker(
+                        context: ctx,
+                        initialTime: TimeOfDay.fromDateTime(addEnd),
+                      );
+                      if (time != null) {
+                        final base = planning.endTime;
+                        var newEnd = DateTime(base.year, base.month, base.day, time.hour, time.minute);
+                        if (newEnd.isBefore(planning.startTime)) {
+                          newEnd = DateTime(planning.endTime.year, planning.endTime.month, planning.endTime.day, time.hour, time.minute);
+                        }
+                        setDialogState(() {
+                          addEnd = newEnd;
+                          addTimeError = validateOverlap(addStart, addEnd);
+                        });
+                      }
+                    },
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.schedule_rounded, size: 16),
+                          const SizedBox(width: 8),
+                          Text(
+                            '${addEnd.day.toString().padLeft(2, '0')}/${addEnd.month.toString().padLeft(2, '0')} ${addEnd.hour.toString().padLeft(2, '0')}:${addEnd.minute.toString().padLeft(2, '0')}',
+                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  if (addTimeError != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      addTimeError!,
+                      style: TextStyle(fontSize: 12, color: Colors.red.shade400),
+                    ),
+                  ],
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Annuler'),
+                ),
+                FilledButton(
+                  onPressed: addTimeError != null
+                      ? null
+                      : () => Navigator.pop(ctx, {'start': addStart, 'end': addEnd}),
+                  child: const Text('Ajouter'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (timeResult == null) return;
+
+    try {
+      final defaultLevelId = _station?.defaultOnCallLevelId ?? '';
+      final newAgent = PlanningAgent(
+        agentId: selectedAgent.id,
+        start: timeResult['start'] as DateTime,
+        end: timeResult['end'] as DateTime,
+        levelId: defaultLevelId,
+      );
+      final updatedAgents = List<PlanningAgent>.from(planning.agents)..add(newAgent);
+      final updatedPlanning = planning.copyWith(agents: updatedAgents);
+      await PlanningRepository().save(updatedPlanning, stationId: _user.station);
+
+      if (!mounted) return;
+      setState(() {
+        final index = _allPlannings.indexWhere((p) => p.id == planning.id);
+        if (index != -1) {
+          _allPlannings[index] = updatedPlanning;
         }
       });
     } catch (e) {
@@ -1209,7 +1957,7 @@ class _HomePageState extends State<HomePage> {
           : UnifiedRequestType.automaticReplacement,
       initiatorName: initiatorName,
       team: request.team,
-      station: request.station,
+      station: _station?.name ?? request.station,
       startTime: request.startTime,
       endTime: request.endTime,
       onResendNotifications: showResendButton
@@ -1226,7 +1974,7 @@ class _HomePageState extends State<HomePage> {
       requestType: UnifiedRequestType.exchange,
       initiatorName: exchange.initiatorName,
       team: exchange.initiatorTeam,
-      station: exchange.station,
+      station: _station?.name ?? exchange.station,
       startTime: exchange.initiatorStartTime,
       endTime: exchange.initiatorEndTime,
       onResendNotifications: () => _resendExchangeNotifications(exchange),
@@ -1243,7 +1991,7 @@ class _HomePageState extends State<HomePage> {
       requestType: UnifiedRequestType.manualReplacement,
       initiatorName: proposal.replacedName,
       team: proposal.replacedTeam,
-      station: _user.station,
+      station: _station?.name ?? _user.station,
       startTime: proposal.startTime,
       endTime: proposal.endTime,
       onResendNotifications: () => _resendManualProposalNotifications(proposal),
@@ -1666,8 +2414,29 @@ class _HomePageState extends State<HomePage> {
                                     builder: (context, snapshotIcons) {
                                       final specs =
                                           snapshotIcons.data ?? const [];
-                                      final allChecked = subList.isNotEmpty &&
-                                          subList.every((s) => s.checkedByChief);
+                                      // Calculer le compteur d'agents depuis planning.agents
+                                      int? agentCountMin;
+                                      int? agentCountMax;
+                                      List<AgentCountIssue> agentCountIssues = [];
+                                      if (_onCallLevels.isNotEmpty) {
+                                        final countResult = OnCallDispositionService.computeAgentCount(
+                                          planning: planning,
+                                        );
+                                        agentCountMin = countResult.min;
+                                        agentCountMax = countResult.max;
+                                        agentCountIssues = countResult.issues;
+                                      }
+
+                                      // Le badge est vert si TOUS les agents sont checkés
+                                      bool allChecked = false;
+                                      if (_onCallLevels.isNotEmpty) {
+                                        allChecked = planning.agents.isNotEmpty &&
+                                            planning.agents.every((a) => a.checkedByChief);
+                                      } else {
+                                        allChecked = subList.isNotEmpty &&
+                                            subList.every((s) => s.checkedByChief);
+                                      }
+
                                       return PlanningCard(
                                         planning: planning,
                                         onTap: () => _toggleExpanded(id),
@@ -1678,6 +2447,9 @@ class _HomePageState extends State<HomePage> {
                                         vehicleIconSpecs: specs,
                                         availabilityColor: _userTeamColor,
                                         allReplacementsChecked: allChecked,
+                                        agentCountMin: agentCountMin,
+                                        agentCountMax: agentCountMax,
+                                        agentCountIssues: agentCountIssues,
                                       );
                                     },
                                   ),
@@ -1731,34 +2503,33 @@ class _HomePageState extends State<HomePage> {
                                                 user: _user,
                                               ),
                                             const SizedBox(height: 12),
-                                            if (!isAvailability)
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(
-                                                  horizontal: 12,
-                                                  vertical: 6,
-                                                ),
-                                                decoration: BoxDecoration(
-                                                  color: isDark
-                                                      ? Colors.white.withValues(alpha: 0.04)
-                                                      : Colors.white,
-                                                  borderRadius: BorderRadius.circular(8),
-                                                ),
-                                                child: Text(
-                                                  subList.isNotEmpty
-                                                      ? "Remplacements"
-                                                      : "Aucun remplacement pour cette astreinte.",
-                                                  style: TextStyle(
-                                                    fontSize: 13,
-                                                    fontWeight: FontWeight.w500,
-                                                    color: isDark
-                                                        ? Colors.grey.shade400
-                                                        : Colors.grey.shade500,
-                                                  ),
-                                                ),
-                                              ),
-                                            if (subList.isNotEmpty)
-                                              const SizedBox(height: 8),
-                                            if (subList.isNotEmpty)
+                                            // Section présence par niveau d'astreinte
+                                            if (!isAvailability && _station != null && _onCallLevels.isNotEmpty)
+                                              OnCallPresenceSection(
+                                                planning: planning,
+                                                levels: _onCallLevels,
+                                                station: _station!,
+                                                allUsers: _allUsers,
+                                                currentUser: _user,
+                                                canManage: _user.admin ||
+                                                    _user.status == KConstants.statusLeader ||
+                                                    (_user.status == KConstants.statusChief &&
+                                                        _user.team.toLowerCase() == planning.team.toLowerCase()),
+                                                onToggleCheck: (entry) async {
+                                                  await _toggleAgentCheck(planning, entry);
+                                                },
+                                                onRemoveEntry: (entry) async {
+                                                  await _removeEntryFromPlanning(planning, entry);
+                                                },
+                                                onEditEntry: (entry) async {
+                                                  await _showEditPresenceDialog(planning, entry);
+                                                },
+                                                onAddAgent: () {
+                                                  _showAddAgentDialog(planning);
+                                                },
+                                              )
+                                            // Fallback si pas de niveaux configurés : afficher les remplacements classiques
+                                            else if (!isAvailability && _onCallLevels.isEmpty)
                                               ...subList.mapIndexed((
                                                 index,
                                                 s,
@@ -1808,19 +2579,23 @@ class _HomePageState extends State<HomePage> {
                                                             _user.id,
                                                     showCheckIcon: canSeeCheck,
                                                     onCheckTap: canSeeCheck
-                                                        ? () => _toggleSubshiftCheck(s)
+                                                        ? () async {
+                                                            // Fallback : toggle check sur le subshift directement
+                                                            final subRepo = SubshiftRepository();
+                                                            final newChecked = !s.checkedByChief;
+                                                            await subRepo.toggleCheck(s.id, checked: newChecked, checkedBy: _user.id, stationId: _user.station);
+                                                            if (!mounted) return;
+                                                            setState(() {
+                                                              final idx = _allSubshifts.indexWhere((x) => x.id == s.id);
+                                                              if (idx != -1) {
+                                                                _allSubshifts[idx] = s.copyWith(checkedByChief: newChecked);
+                                                              }
+                                                            });
+                                                          }
                                                         : null,
                                                   ),
                                                 );
 
-                                                final Widget
-                                                itemWithOptionalReplaceButton =
-                                                    Column(
-                                                      crossAxisAlignment:
-                                                          CrossAxisAlignment
-                                                              .stretch,
-                                                      children: [item],
-                                                    );
                                                 if (canDelete) {
                                                   return Dismissible(
                                                     key: ValueKey(s.id),
@@ -1844,16 +2619,19 @@ class _HomePageState extends State<HomePage> {
                                                       ),
                                                     ),
                                                     confirmDismiss: (_) async {
-                                                      await _deleteSubshift(
-                                                        s,
-                                                      );
+                                                      // Fallback : supprimer le subshift directement
+                                                      await SubshiftRepository().delete(s.id, stationId: _user.station);
+                                                      if (mounted) {
+                                                        setState(() {
+                                                          _allSubshifts.removeWhere((x) => x.id == s.id);
+                                                        });
+                                                      }
                                                       return false;
                                                     },
-                                                    child:
-                                                        itemWithOptionalReplaceButton,
+                                                    child: item,
                                                   );
                                                 } else {
-                                                  return itemWithOptionalReplaceButton;
+                                                  return item;
                                                 }
                                               }),
                                             ..._buildPendingRequestsSection(

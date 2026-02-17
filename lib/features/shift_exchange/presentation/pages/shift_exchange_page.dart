@@ -3,9 +3,11 @@ import 'package:intl/intl.dart';
 import 'package:nexshift_app/core/data/models/planning_model.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/repositories/user_repository.dart';
+import 'package:nexshift_app/core/repositories/subshift_repositories.dart';
 import 'package:nexshift_app/core/services/shift_exchange_service.dart';
 import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:nexshift_app/features/replacement/services/replacement_search_service.dart';
 
 /// Page de création d'une demande d'échange d'astreinte
 /// Similaire à replacement_page.dart mais pour les échanges
@@ -48,19 +50,23 @@ class _ShiftExchangePageState extends State<ShiftExchangePage> {
     _initiatorId = widget.currentUser.id;
   }
 
-  /// Charge les agents présents dans l'astreinte
+  /// Charge les agents effectivement présents dans l'astreinte
+  /// (agents initiaux non entièrement remplacés + remplaçants actifs)
   Future<void> _loadAgentsInPlanning() async {
     try {
       final users = await UserRepository().getByStation(widget.planning.station);
-      // Filtrer par équipe de l'astreinte
-      final agentsInPlanning = users
-          .where((u) => u.team == widget.planning.team)
-          .toList()
-        ..sort((a, b) => '${a.lastName} ${a.firstName}'.compareTo('${b.lastName} ${b.firstName}'));
+      final subshifts = await SubshiftRepository().getByPlanningId(widget.planning.id, stationId: widget.planning.station);
+
+      // Utiliser l'effectif réel depuis planning.agents (source unique de vérité)
+      final agentsInPlanning = ReplacementSearchService.getReplacedCandidates(
+        users,
+        subshifts,
+        widget.planning,
+      );
 
       setState(() {
         _agentsInPlanning = agentsInPlanning;
-        // Si l'utilisateur courant n'est pas dans l'astreinte, laisser vide
+        // Si l'utilisateur courant n'est pas dans l'effectif réel, laisser vide
         if (!agentsInPlanning.any((u) => u.id == widget.currentUser.id)) {
           _initiatorId = null;
         }

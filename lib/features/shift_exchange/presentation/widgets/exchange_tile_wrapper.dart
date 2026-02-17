@@ -4,6 +4,8 @@ import 'package:nexshift_app/core/data/models/shift_exchange_request_model.dart'
 import 'package:nexshift_app/core/data/models/shift_exchange_proposal_model.dart';
 import 'package:nexshift_app/core/data/models/planning_model.dart';
 import 'package:nexshift_app/core/repositories/planning_repository.dart';
+import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
+import 'package:nexshift_app/core/utils/station_name_cache.dart';
 
 /// Widget wrapper pour afficher une demande d'échange
 /// avec le nouveau design unifié
@@ -79,6 +81,7 @@ class _ExchangeTileWrapperState extends State<ExchangeTileWrapper> {
   Planning? _proposerPlanning;
   String? _initiatorTeam;
   String? _proposerTeam;
+  String _stationName = '';
   bool _isLoading = true;
 
   @override
@@ -116,8 +119,17 @@ class _ExchangeTileWrapperState extends State<ExchangeTileWrapper> {
         );
         _proposerTeam = _proposerPlanning?.team;
       }
+
+      // Résoudre le nom de la station
+      final sdisId = SDISContext().currentSDISId;
+      if (sdisId != null && widget.request.station.isNotEmpty) {
+        _stationName = await StationNameCache().getStationName(sdisId, widget.request.station);
+      } else {
+        _stationName = widget.request.station;
+      }
     } catch (e) {
       debugPrint('Error loading exchange data: $e');
+      _stationName = widget.request.station;
     }
 
     if (mounted) {
@@ -143,14 +155,14 @@ class _ExchangeTileWrapperState extends State<ExchangeTileWrapper> {
       validationChiefs = _buildValidationChiefs(widget.selectedProposal!);
     }
 
-    // Convertir en UnifiedTileData
+    // Convertir en UnifiedTileData (avec nom de station résolu)
     final tileData = widget.request.toUnifiedTileData(
       selectedProposal: widget.selectedProposal,
       proposerPlanning: _proposerPlanning,
       initiatorTeam: _initiatorTeam,
       proposerTeam: _proposerTeam,
       validationChiefs: validationChiefs,
-    );
+    ).withStationName(_stationName);
 
     // Déterminer si l'utilisateur peut agir
     bool canAct = true;

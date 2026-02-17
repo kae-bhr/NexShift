@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:nexshift_app/core/data/datasources/notifiers.dart';
+import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/repositories/local_repositories.dart';
@@ -57,6 +58,11 @@ class EnterApp {
       // Démarrer l'écoute en temps réel pour la bannière
       SubscriptionService().startListening(sdisId, loadedUser.station);
       subscriptionStatusNotifier.value = subStatus;
+    }
+
+    // Définir le contexte SDIS global pour que les repositories aient le bon chemin
+    if (sdisId != null && sdisId.isNotEmpty) {
+      SDISContext().setCurrentSDISId(sdisId);
     }
 
     // Sauvegarder l'utilisateur ET le SDIS ID

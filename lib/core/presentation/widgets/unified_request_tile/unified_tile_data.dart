@@ -28,6 +28,18 @@ class AgentColumnData {
     required this.endTime,
     required this.station,
   });
+
+  /// Crée une copie avec un nom de station différent
+  AgentColumnData withStation(String stationName) {
+    return AgentColumnData(
+      agentId: agentId,
+      agentName: agentName,
+      team: team,
+      startTime: startTime,
+      endTime: endTime,
+      station: stationName,
+    );
+  }
 }
 
 /// Données d'un chef pour l'en-tête de validation
@@ -128,6 +140,14 @@ class UnifiedTileData {
   /// Vérifie si la demande nécessite une validation chef
   bool get requiresChiefValidation =>
       validationChiefs != null && validationChiefs!.isNotEmpty;
+
+  /// Remplace le nom de station dans les deux colonnes
+  UnifiedTileData withStationName(String stationName) {
+    return copyWith(
+      leftColumn: leftColumn.withStation(stationName),
+      rightColumn: rightColumn?.withStation(stationName),
+    );
+  }
 
   /// Crée une copie avec des valeurs modifiées
   UnifiedTileData copyWith({

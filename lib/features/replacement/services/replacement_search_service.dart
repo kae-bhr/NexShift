@@ -66,23 +66,53 @@ class ReplacementSearchService {
       ..sort(sortByLastName);
   }
 
-  /// Construit la liste des candidats remplacés (agents de l'astreinte + remplaçants actuels)
+  /// Vérifie si un agent est entièrement remplacé sur la période du planning
+  static bool _isFullyReplaced(
+    String agentId,
+    List<Subshift> subshifts,
+    Planning planning,
+  ) {
+    // Récupérer tous les subshifts qui remplacent cet agent sur ce planning
+    final relevantSubshifts = subshifts
+        .where((s) =>
+            s.planningId == planning.id &&
+            s.replacedId == agentId &&
+            s.end.isAfter(planning.startTime) &&
+            s.start.isBefore(planning.endTime))
+        .toList()
+      ..sort((a, b) => a.start.compareTo(b.start));
+
+    if (relevantSubshifts.isEmpty) return false;
+
+    // Vérifier que les subshifts couvrent entièrement la période du planning
+    var coveredUntil = planning.startTime;
+    for (final s in relevantSubshifts) {
+      if (s.start.isAfter(coveredUntil)) return false; // Trou non couvert
+      if (s.end.isAfter(coveredUntil)) {
+        coveredUntil = s.end;
+      }
+    }
+
+    return !coveredUntil.isBefore(planning.endTime);
+  }
+
+  /// Construit la liste des candidats remplacés (effectif effectif de l'astreinte).
+  /// Utilise planning.agents comme source unique de vérité.
   static List<User> getReplacedCandidates(
     List<User> allUsers,
     List<Subshift> existingSubshifts,
     Planning planning,
   ) {
-    final planningAgents = getPlanningAgentsSorted(allUsers, planning);
-    final replacers = getReplacerUsers(allUsers, existingSubshifts, planning);
+    // Collecter tous les IDs d'agents uniques présents dans planning.agents
+    final agentIds = planning.agents
+        .map((a) => a.agentId)
+        .toSet();
 
-    final replacedCandidates = <User>[];
-    replacedCandidates.addAll(planningAgents);
-
-    for (final u in replacers) {
-      if (!replacedCandidates.any((e) => e.id == u.id)) {
-        replacedCandidates.add(u);
-      }
-    }
+    final replacedCandidates = agentIds
+        .map((id) => allUsers.firstWhere((u) => u.id == id, orElse: User.empty))
+        .where((u) => u.id.isNotEmpty)
+        .toList()
+      ..sort(sortByLastName);
 
     return replacedCandidates;
   }

@@ -9,6 +9,8 @@ class PlanningTile extends StatelessWidget {
   final DateTime? endDateTime;
   final VoidCallback? onTap;
   final String? errorMessage;
+  /// Périodes non couvertes pour l'agent sélectionné (remplacements existants)
+  final List<Map<String, DateTime>> uncoveredPeriods;
 
   const PlanningTile({
     super.key,
@@ -17,6 +19,7 @@ class PlanningTile extends StatelessWidget {
     this.endDateTime,
     this.onTap,
     this.errorMessage,
+    this.uncoveredPeriods = const [],
   });
 
   /// Determine if text should be dark or light based on background luminance
@@ -136,6 +139,56 @@ class PlanningTile extends StatelessWidget {
                         style: const TextStyle(color: Colors.red, fontSize: 12),
                       ),
                     ),
+                  ],
+                ),
+              ),
+            ],
+            // Périodes non couvertes (remplacements existants qui réduisent la présence)
+            if (uncoveredPeriods.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: Colors.orange.shade200),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Périodes à couvrir :',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.orange.shade800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    ...uncoveredPeriods.map((g) {
+                      final s = g['start']!;
+                      final e = g['end']!;
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.schedule_rounded,
+                              size: 14,
+                              color: Colors.orange.shade700,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              '${dateFormat.format(s)} → ${dateFormat.format(e)}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.orange.shade800,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
                   ],
                 ),
               ),

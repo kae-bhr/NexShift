@@ -19,7 +19,6 @@ import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
 import 'package:nexshift_app/features/app_shell/presentation/widgets/widget_tree.dart';
 import 'package:nexshift_app/core/services/cloud_functions_service.dart';
 import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
-import 'package:nexshift_app/core/utils/station_name_cache.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({
@@ -37,6 +36,7 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   bool isPasswordVisible = false;
+  bool _isLoggingIn = false;
   Icon passwordIcon = Icon(Icons.visibility_off);
   TextEditingController controllerId = TextEditingController();
   TextEditingController controllerPw = TextEditingController();
@@ -50,80 +50,125 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: CustomAppBar(title: "Connexion"),
-      body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(20.0),
-          child: Column(
-            children: [
-              HeroWidget(),
-              Text(
-                widget.chgtPw
-                    ? "Veuillez vous réauthentifier"
-                    : "Insérez vos identifiants de connexion",
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.tertiary,
-                  fontSize: KTextStyle.descriptionTextStyle.fontSize,
-                  fontFamily: KTextStyle.descriptionTextStyle.fontFamily,
-                  fontWeight: KTextStyle.descriptionTextStyle.fontWeight,
-                ),
-              ),
-              SizedBox(height: 10.0),
-              TextField(
-                controller: controllerId,
-                keyboardType: TextInputType.text,
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.tertiary,
-                  fontSize: KTextStyle.descriptionTextStyle.fontSize,
-                  fontFamily: KTextStyle.descriptionTextStyle.fontFamily,
-                  fontWeight: KTextStyle.descriptionTextStyle.fontWeight,
-                ),
-                decoration: InputDecoration(
-                  hintText: 'Matricule ou Email',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(15.0),
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Stack(
+      children: [
+        Scaffold(
+          appBar: CustomAppBar(title: "Connexion"),
+          body: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.all(20.0),
+              child: Column(
+                children: [
+                  HeroWidget(),
+                  Text(
+                    widget.chgtPw
+                        ? "Veuillez vous réauthentifier"
+                        : "Insérez vos identifiants de connexion",
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.tertiary,
+                      fontSize: KTextStyle.descriptionTextStyle.fontSize,
+                      fontFamily: KTextStyle.descriptionTextStyle.fontFamily,
+                      fontWeight: KTextStyle.descriptionTextStyle.fontWeight,
+                    ),
                   ),
-                  prefixIcon: Icon(
-                    Icons.person,
-                    color: Colors.grey,
+                  SizedBox(height: 10.0),
+                  TextField(
+                    controller: controllerId,
+                    keyboardType: TextInputType.text,
+                    enabled: !_isLoggingIn,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.tertiary,
+                      fontSize: KTextStyle.descriptionTextStyle.fontSize,
+                      fontFamily: KTextStyle.descriptionTextStyle.fontFamily,
+                      fontWeight: KTextStyle.descriptionTextStyle.fontWeight,
+                    ),
+                    decoration: InputDecoration(
+                      hintText: 'Matricule ou Email',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(15.0),
+                      ),
+                      prefixIcon: Icon(
+                        Icons.person,
+                        color: Colors.grey,
+                      ),
+                    ),
+                    onEditingComplete: () {
+                      setState(() {});
+                    },
                   ),
-                ),
-                onEditingComplete: () {
-                  setState(() {});
-                },
+                  SizedBox(height: 10.0),
+                  PasswordStrengthField(
+                    controller: controllerPw,
+                    hintText: 'Mot de passe',
+                    isVisible: isPasswordVisible,
+                    onToggle: () =>
+                        setState(() => isPasswordVisible = !isPasswordVisible),
+                    showStrengthBar: false,
+                  ),
+                  SizedBox(height: 10.0),
+                  FilledButton(
+                    onPressed: _isLoggingIn ? null : () {
+                      onLoginPressed();
+                    },
+                    style: FilledButton.styleFrom(
+                      minimumSize: Size(double.infinity, 40.0),
+                    ),
+                    child: Text("Se connecter", style: TextStyle(fontSize: 16)),
+                  ),
+                  SizedBox(height: 8.0),
+                  TextButton(
+                    onPressed: _isLoggingIn ? null : () => _showPasswordResetDialog(),
+                    child: Text(
+                      'Mot de passe oublié ?',
+                      style: TextStyle(fontSize: 14),
+                    ),
+                  ),
+                ],
               ),
-              SizedBox(height: 10.0),
-              PasswordStrengthField(
-                controller: controllerPw,
-                hintText: 'Mot de passe',
-                isVisible: isPasswordVisible,
-                onToggle: () =>
-                    setState(() => isPasswordVisible = !isPasswordVisible),
-                showStrengthBar: false,
-              ),
-              SizedBox(height: 10.0),
-              FilledButton(
-                onPressed: () {
-                  onLoginPressed();
-                },
-                style: FilledButton.styleFrom(
-                  minimumSize: Size(double.infinity, 40.0),
-                ),
-                child: Text("Se connecter", style: TextStyle(fontSize: 16)),
-              ),
-              SizedBox(height: 8.0),
-              TextButton(
-                onPressed: () => _showPasswordResetDialog(),
-                child: Text(
-                  'Mot de passe oublié ?',
-                  style: TextStyle(fontSize: 14),
-                ),
-              ),
-            ],
+            ),
           ),
         ),
-      ),
+        // Overlay de chargement stylisé
+        if (_isLoggingIn)
+          Material(
+            color: isDark
+                ? Colors.black.withValues(alpha: 0.7)
+                : Colors.white.withValues(alpha: 0.85),
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: 48,
+                    height: 48,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 3.5,
+                      color: KColors.appNameColor,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    'Connexion en cours...',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: isDark ? Colors.white : Colors.grey.shade700,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Préparation de votre espace',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: isDark ? Colors.grey.shade400 : Colors.grey.shade500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -141,6 +186,8 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
+    setState(() => _isLoggingIn = true);
+
     final repo = LocalRepository();
     final authService = FirebaseAuthService();
 
@@ -156,6 +203,7 @@ class _LoginPageState extends State<LoginPage> {
 
         final sdisId = widget.sdisId ?? SDISContext().currentSDISId;
         if (sdisId == null) {
+          if (mounted) setState(() => _isLoggingIn = false);
           SnakebarWidget.showSnackBar(
             context,
             'SDIS non défini',
@@ -186,6 +234,7 @@ class _LoginPageState extends State<LoginPage> {
 
             if (!mounted) return;
 
+            setState(() => _isLoggingIn = false);
             SnakebarWidget.showSnackBar(
               context,
               'Erreur lors de la recherche du matricule',
@@ -198,6 +247,7 @@ class _LoginPageState extends State<LoginPage> {
         if (!mounted) return;
 
         if (email == null) {
+          setState(() => _isLoggingIn = false);
           SnakebarWidget.showSnackBar(
             context,
             'Matricule non trouvé',
@@ -278,6 +328,7 @@ class _LoginPageState extends State<LoginPage> {
 
       if (currentUser == null) {
         debugPrint('❌ [LOGIN] No Firebase user after authentication');
+        if (mounted) setState(() => _isLoggingIn = false);
         return;
       }
 
@@ -335,13 +386,16 @@ class _LoginPageState extends State<LoginPage> {
             ),
           );
         }
+      } else {
+        // L'utilisateur a annulé la sélection de station
+        if (mounted) setState(() => _isLoggingIn = false);
       }
     } on UserProfileNotFoundException catch (e) {
-      // L'authentification a réussi mais pas de profil dans Firestore
-      // Afficher popup pour créer le profil
+      if (mounted) setState(() => _isLoggingIn = false);
       await _showCreateProfileDialog(e.matricule, pw);
       return;
     } catch (e) {
+      if (mounted) setState(() => _isLoggingIn = false);
       controllerPw.clear();
       SnakebarWidget.showSnackBar(
         context,

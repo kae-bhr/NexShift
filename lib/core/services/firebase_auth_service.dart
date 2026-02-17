@@ -125,8 +125,8 @@ class FirebaseAuthService {
       debugPrint('Claims loaded: sdisId=${claims.sdisId}, role=${claims.role}, stations=${claims.stations.keys.toList()}');
 
       // Définir le contexte SDIS global
-      if (claims.sdisId != null) {
-        SDISContext().setCurrentSDISId(claims.sdisId!);
+      if (claims.sdisId.isNotEmpty) {
+        SDISContext().setCurrentSDISId(claims.sdisId);
       }
 
       // Retourner le résultat avec les claims

@@ -41,11 +41,18 @@ class _ReplacementPageState extends State<ReplacementPage> {
   List<Subshift> existingSubshifts = [];
   List<Map<String, DateTime>> activeRequestPeriods = []; // Périodes avec demandes actives
   String? replacedId;
+  /// When replacing a replacer (parentSubshift != null), this holds the original
+  /// replaced agent's ID for data operations (validation, saving).
+  /// For display, replacedId shows the actual person seeking absence (the replacer).
+  String? _dataReplacedId;
   String? replacerId;
   DateTime? startDateTime;
   DateTime? endDateTime;
   String? error;
   bool isSOS = false; // Mode SOS (vagues simultanées)
+
+  /// Returns the ID to use for data operations (uncovered periods, conflicts, saving)
+  String? get dataReplacedId => _dataReplacedId ?? replacedId;
 
   bool get isValid {
     // Mode manuel: require both replaced and replacer
@@ -116,8 +123,10 @@ class _ReplacementPageState extends State<ReplacementPage> {
     // if parentSubshift is provided (we are replacing a replacer), prefill fields
     if (widget.parentSubshift != null) {
       final p = widget.parentSubshift!;
-      // replacedId should be the original replaced agent (not the replacer)
-      replacedId = p.replacedId;
+      // Display: show the replacer (Agent A) as the person seeking absence
+      replacedId = widget.currentUser?.id ?? p.replacerId;
+      // Data: use the original replaced agent (Agent B) for validation/saving
+      _dataReplacedId = p.replacedId;
       // prefill window with the parent subshift window
       startDateTime = p.start;
       endDateTime = p.end;
@@ -127,7 +136,7 @@ class _ReplacementPageState extends State<ReplacementPage> {
   Future<void> _loadUsers() async {
     // Charger les utilisateurs de la station du planning
     final users = await UserRepository().getByStation(widget.planning.station);
-    final subshifts = await repo.getByPlanningId(widget.planning.id);
+    final subshifts = await repo.getByPlanningId(widget.planning.id, stationId: widget.planning.station);
     await _loadActiveRequests();
     setState(() {
       allUsers = users;
@@ -165,7 +174,7 @@ class _ReplacementPageState extends State<ReplacementPage> {
         final requesterId = data['requesterId'] as String;
 
         // Ajouter la période seulement si c'est pour l'utilisateur sélectionné
-        if (requesterId == replacedId) {
+        if (requesterId == dataReplacedId) {
           periods.add({'start': start, 'end': end});
         }
       }
@@ -185,7 +194,7 @@ class _ReplacementPageState extends State<ReplacementPage> {
         final requestReplacedId = data['replacedId'] as String;
 
         // Ajouter la période seulement si c'est pour l'utilisateur sélectionné
-        if (requestReplacedId == replacedId) {
+        if (requestReplacedId == dataReplacedId) {
           periods.add({'start': start, 'end': end});
         }
       }
@@ -210,7 +219,7 @@ class _ReplacementPageState extends State<ReplacementPage> {
         final initiatorId = data['initiatorId'] as String;
 
         // Ajouter la période seulement si c'est pour l'utilisateur sélectionné
-        if (initiatorId == replacedId) {
+        if (initiatorId == dataReplacedId) {
           periods.add({'start': start, 'end': end});
         }
       }
@@ -234,14 +243,17 @@ class _ReplacementPageState extends State<ReplacementPage> {
       err = "La date de début ne peut pas précéder celle de l'astreinte.";
     } else if (endDateTime!.isAfter(widget.planning.endTime)) {
       err = "La date de fin ne peut pas dépasser celle de l'astreinte.";
-    } else if (replacedId != null &&
+    } else if (dataReplacedId != null &&
+        _isOutsideEffectivePresence(dataReplacedId!, startDateTime!, endDateTime!)) {
+      err = "L'agent n'est pas d'astreinte sur cette plage horaire.";
+    } else if (dataReplacedId != null &&
         replacerId != null &&
-        replacedId == replacerId) {
+        dataReplacedId == replacerId) {
       err = "Un agent ne peut pas se remplacer lui-même.";
-    } else if (replacedId != null && _isFullyCoveredByActiveRequests(replacedId!)) {
+    } else if (dataReplacedId != null && _isFullyCoveredByActiveRequests(dataReplacedId!)) {
       err = "Cette période est déjà totalement couverte par des demandes de remplacement en cours.";
     } else if (_hasConflict(
-      replacedId,
+      dataReplacedId,
       replacerId,
       startDateTime!,
       endDateTime!,
@@ -273,6 +285,24 @@ class _ReplacementPageState extends State<ReplacementPage> {
   bool _isFullyCoveredByActiveRequests(String userId) {
     final gaps = _uncoveredPeriodsFor(userId);
     return gaps.isEmpty;
+  }
+
+  /// Vérifie si la plage demandée sort de la présence effective de l'agent.
+  /// La présence est définie par planning.agents (source unique de vérité).
+  /// Inclut les entrées de base (replacedAgentId == null) ET les entrées
+  /// de remplacement (où l'agent est remplaçant, replacedAgentId != null).
+  bool _isOutsideEffectivePresence(String agentId, DateTime start, DateTime end) {
+    final agentEntries = widget.planning.agents
+        .where((a) => a.agentId == agentId)
+        .toList();
+    if (agentEntries.isEmpty) return true;
+    // Vérifier que la plage demandée est contenue dans au moins une entrée
+    for (final entry in agentEntries) {
+      if (!start.isBefore(entry.start) && !end.isAfter(entry.end)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   bool _hasConflict(
@@ -339,80 +369,74 @@ class _ReplacementPageState extends State<ReplacementPage> {
 
   // --- Compute uncovered periods for selected replaced agent ---
   List<Map<String, DateTime>> _uncoveredPeriodsFor(String replacedId) {
-    final planningStart = widget.planning.startTime;
-    final planningEnd = widget.planning.endTime;
-
-    // collect subshifts that target this replaced agent and intersect planning bounds
-    final List<Subshift> covered = existingSubshifts
-        .where(
-          (s) =>
-              s.replacedId == replacedId &&
-              s.end.isAfter(planningStart) &&
-              s.start.isBefore(planningEnd),
-        )
+    // Déterminer la plage effective de l'agent (ses entrées dans planning.agents)
+    final agentEntries = widget.planning.agents
+        .where((a) => a.agentId == replacedId)
         .toList();
 
-    // Ajouter les périodes avec demandes de remplacement actives comme "couvertes"
-    final List<Map<String, DateTime>> coveredPeriods = covered.map((s) => {
-      'start': s.start,
-      'end': s.end,
-    }).toList();
+    if (agentEntries.isEmpty) return [];
+
+    // Construire les plages de présence effective de l'agent
+    final List<Map<String, DateTime>> presencePeriods = agentEntries
+        .map((a) => {'start': a.start, 'end': a.end})
+        .toList();
+
+    // collect subshifts that target this agent and intersect ses plages
+    final List<Map<String, DateTime>> coveredPeriods = existingSubshifts
+        .where((s) =>
+            s.replacedId == replacedId &&
+            agentEntries.any((a) => s.start.isBefore(a.end) && s.end.isAfter(a.start)))
+        .map((s) => {'start': s.start, 'end': s.end})
+        .toList();
 
     // Ajouter les périodes des demandes actives
     coveredPeriods.addAll(activeRequestPeriods);
 
-    if (coveredPeriods.isEmpty) {
-      return [
-        {'start': planningStart, 'end': planningEnd},
-      ];
-    }
+    // Pour chaque plage de présence, calculer les gaps non couverts
+    final List<Map<String, DateTime>> allGaps = [];
+    for (final presence in presencePeriods) {
+      final pStart = presence['start']!;
+      final pEnd = presence['end']!;
 
-    // normalize to planning bounds and sort by start
-    final normalized =
-        coveredPeriods
-            .map(
-              (period) => {
-                'start': period['start']!.isBefore(planningStart)
-                    ? planningStart
-                    : period['start']!,
-                'end': period['end']!.isAfter(planningEnd) ? planningEnd : period['end']!,
-              },
-            )
-            .toList()
-          ..sort((a, b) => a['start']!.compareTo(b['start']!));
+      // Filtrer et normaliser les périodes couvertes à cette plage de présence
+      final relevantCovered = coveredPeriods
+          .where((c) => c['start']!.isBefore(pEnd) && c['end']!.isAfter(pStart))
+          .map((c) => {
+                'start': c['start']!.isBefore(pStart) ? pStart : c['start']!,
+                'end': c['end']!.isAfter(pEnd) ? pEnd : c['end']!,
+              })
+          .toList()
+        ..sort((a, b) => a['start']!.compareTo(b['start']!));
 
-    // merge overlapping intervals
-    final List<Map<String, DateTime>> merged = [];
-    for (final seg in normalized) {
-      if (merged.isEmpty) {
-        merged.add({'start': seg['start']!, 'end': seg['end']!});
-        continue;
+      // Merge overlapping
+      final List<Map<String, DateTime>> merged = [];
+      for (final seg in relevantCovered) {
+        if (merged.isEmpty) {
+          merged.add({'start': seg['start']!, 'end': seg['end']!});
+          continue;
+        }
+        final last = merged.last;
+        if (!seg['start']!.isAfter(last['end']!)) {
+          if (seg['end']!.isAfter(last['end']!)) last['end'] = seg['end']!;
+        } else {
+          merged.add({'start': seg['start']!, 'end': seg['end']!});
+        }
       }
-      final last = merged.last;
-      if (seg['start']!.isBefore(last['end']!) ||
-          seg['start']!.isAtSameMomentAs(last['end']!)) {
-        // extend end if needed
-        if (seg['end']!.isAfter(last['end']!)) last['end'] = seg['end']!;
-      } else {
-        merged.add({'start': seg['start']!, 'end': seg['end']!});
+
+      // Compute gaps
+      var cursor = pStart;
+      for (final m in merged) {
+        if (m['start']!.isAfter(cursor)) {
+          allGaps.add({'start': cursor, 'end': m['start']!});
+        }
+        if (m['end']!.isAfter(cursor)) cursor = m['end']!;
+      }
+      if (cursor.isBefore(pEnd)) {
+        allGaps.add({'start': cursor, 'end': pEnd});
       }
     }
 
-    // compute gaps between planningStart..planningEnd excluding merged covered intervals
-    final List<Map<String, DateTime>> gaps = [];
-    var cursor = planningStart;
-    for (final m in merged) {
-      if (m['start']!.isAfter(cursor)) {
-        gaps.add({'start': cursor, 'end': m['start']!});
-      }
-      // move cursor after this covered block
-      if (m['end']!.isAfter(cursor)) cursor = m['end']!;
-    }
-    if (cursor.isBefore(planningEnd)) {
-      gaps.add({'start': cursor, 'end': planningEnd});
-    }
-
-    return gaps;
+    return allGaps;
   }
 
   // --- Compute periods where a replacer is not available (busy) ---
@@ -694,9 +718,9 @@ class _ReplacementPageState extends State<ReplacementPage> {
         return;
       }
 
-      // Get the replaced and replacer users
+      // Get the replaced and replacer users (use dataReplacedId for the data model)
       final replacedUser = allUsers.firstWhere(
-        (u) => u.id == replacedId,
+        (u) => u.id == dataReplacedId,
         orElse: User.empty,
       );
       final replacerUser = allUsers.firstWhere(
@@ -723,7 +747,7 @@ class _ReplacementPageState extends State<ReplacementPage> {
         'id': proposalRef.id,
         'proposerId': proposerUser.id,
         'proposerName': '${proposerUser.firstName} ${proposerUser.lastName}',
-        'replacedId': replacedId,
+        'replacedId': dataReplacedId,
         'replacedName': '${replacedUser.firstName} ${replacedUser.lastName}',
         'replacerId': replacerId,
         'replacerName': '${replacerUser.firstName} ${replacerUser.lastName}',
@@ -746,7 +770,7 @@ class _ReplacementPageState extends State<ReplacementPage> {
         'proposalId': proposalRef.id,
         'proposerId': proposerUser.id,
         'proposerName': '${proposerUser.firstName} ${proposerUser.lastName}',
-        'replacedId': replacedId,
+        'replacedId': dataReplacedId,
         'replacedName': '${replacedUser.firstName} ${replacedUser.lastName}',
         'replacerId': replacerId,
         'planningId': widget.planning.id,
@@ -790,7 +814,7 @@ class _ReplacementPageState extends State<ReplacementPage> {
     }
 
     // Vérifier que replacedId est défini
-    if (replacedId == null) {
+    if (dataReplacedId == null) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text("Sélectionnez un agent à remplacer")));
@@ -799,7 +823,7 @@ class _ReplacementPageState extends State<ReplacementPage> {
 
     // Trouver l'utilisateur remplacé pour récupérer sa station et son équipe
     final replacedUser = allUsers.firstWhere(
-      (u) => u.id == replacedId,
+      (u) => u.id == dataReplacedId,
       orElse: () => widget.currentUser ?? User.empty(),
     );
 
@@ -812,7 +836,7 @@ class _ReplacementPageState extends State<ReplacementPage> {
 
     await ReplacementSearchService.searchForReplacer(
       context,
-      requesterId: replacedId!, // Utiliser l'ID de l'agent sélectionné
+      requesterId: dataReplacedId!, // Utiliser l'ID de l'agent dans le modèle de données
       planningId: widget.planning.id,
       startDateTime: startDateTime,
       endDateTime: endDateTime,
@@ -883,6 +907,7 @@ class _ReplacementPageState extends State<ReplacementPage> {
                 onChanged: (v) async {
                   setState(() {
                     replacedId = v;
+                    _dataReplacedId = v; // Sync data ID when explicitly selected
                   });
                   await _loadActiveRequests();
                   _validate();
@@ -922,13 +947,16 @@ class _ReplacementPageState extends State<ReplacementPage> {
               const SizedBox(height: 16),
             ],
 
-            // Card Astreinte avec les horaires
+            // Card Astreinte avec les horaires + périodes à couvrir
             PlanningTile(
               planning: widget.planning,
               startDateTime: startDateTime,
               endDateTime: endDateTime,
               errorMessage: error,
               onTap: () => _showDateTimePickerDialog(),
+              uncoveredPeriods: dataReplacedId != null
+                  ? _uncoveredPeriodsFor(dataReplacedId!)
+                  : const [],
             ),
             const SizedBox(height: 16),
 
@@ -1061,75 +1089,7 @@ class _ReplacementPageState extends State<ReplacementPage> {
               ),
             ),
 
-            // --- Display uncovered periods for the selected replaced agent ---
-            // Affiché en mode automatique ET manuel
             const SizedBox(height: 16),
-            if (replacedId != null) ...[
-              Builder(
-                builder: (context) {
-                  final user = allUsers.firstWhere(
-                    (u) => u.id == replacedId,
-                    orElse: User.empty,
-                  );
-                  final gaps = _uncoveredPeriodsFor(replacedId!);
-                  final cardColor = gaps.isEmpty ? Colors.green[50] : null;
-                  final textColor = _adaptiveTextColor(
-                    context,
-                    backgroundColor: cardColor,
-                  );
-                  return Card(
-                    color: cardColor,
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            "Périodes non couvertes pour ${user.displayName} :",
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: textColor,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          if (gaps.isEmpty)
-                            Text(
-                              "Aucune période non couverte.",
-                              style: TextStyle(color: textColor),
-                            )
-                          else
-                            ...gaps.map((g) {
-                              final s = g['start']!;
-                              final e = g['end']!;
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 4,
-                                ),
-                                child: Row(
-                                  children: [
-                                    const Icon(
-                                      Icons.remove_circle_outline,
-                                      size: 16,
-                                      color: Colors.red,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Text(
-                                        "${DateFormat('dd/MM/yyyy HH:mm').format(s)} — ${DateFormat('dd/MM/yyyy HH:mm').format(e)}",
-                                        style: TextStyle(color: textColor),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            }).toList(),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ],
 
             // --- Sections affichées seulement en mode manuel ---
             if (widget.isManualMode) ...[
@@ -1204,12 +1164,12 @@ class _ReplacementPageState extends State<ReplacementPage> {
 
               // --- Skills impact due to the replacement ---
               // Afficher le delta de compétences seulement en mode manuel
-              if (canSelectReplaced && (replacedId != null)) ...[
+              if (canSelectReplaced && (dataReplacedId != null)) ...[
                 const SizedBox(height: 12),
                 Builder(
                   builder: (context) {
                     final replacedUser = allUsers.firstWhere(
-                      (u) => u.id == replacedId,
+                      (u) => u.id == dataReplacedId,
                       orElse: User.empty,
                     );
                     final replacerUser = replacerId != null

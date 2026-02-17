@@ -15,6 +15,8 @@ import 'package:nexshift_app/features/replacement/presentation/widgets/icon_tab_
 import 'package:nexshift_app/core/presentation/widgets/unified_request_tile/unified_request_tile_exports.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:nexshift_app/core/presentation/widgets/request_actions_bottom_sheet.dart';
+import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
+import 'package:nexshift_app/core/utils/station_name_cache.dart';
 
 /// Widget pour afficher le contenu des échanges d'astreinte
 /// Utilisé comme onglet dans la page de remplacements
@@ -489,13 +491,22 @@ class _ExchangeContentWidgetState extends State<ExchangeContentWidget>
   }
 
   /// Affiche le BottomSheet d'actions pour une demande d'échange
-  void _showExchangeActionsBottomSheet(ShiftExchangeRequest request) {
+  Future<void> _showExchangeActionsBottomSheet(ShiftExchangeRequest request) async {
+    // Résoudre le nom de la station
+    String stationName = request.station;
+    final sdisId = SDISContext().currentSDISId;
+    if (sdisId != null && request.station.isNotEmpty) {
+      stationName = await StationNameCache().getStationName(sdisId, request.station);
+    }
+
+    if (!mounted) return;
+
     RequestActionsBottomSheet.show(
       context: context,
       requestType: UnifiedRequestType.exchange,
       initiatorName: request.initiatorName,
       team: request.initiatorTeam,
-      station: request.station,
+      station: stationName,
       startTime: request.initiatorStartTime,
       endTime: request.initiatorEndTime,
       onResendNotifications: () => _resendExchangeNotification(request),

@@ -9,6 +9,10 @@ import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/data/models/station_model.dart';
 import 'package:nexshift_app/core/data/models/subshift_model.dart';
+import 'package:nexshift_app/core/data/models/planning_agent_model.dart';
+import 'package:nexshift_app/core/repositories/planning_repository.dart';
+import 'package:nexshift_app/core/repositories/station_repository.dart';
+import 'package:nexshift_app/core/services/on_call_disposition_service.dart';
 import 'package:nexshift_app/features/replacement/presentation/pages/replacement_request_dialog.dart';
 import 'package:nexshift_app/features/replacement/presentation/widgets/replacement_sub_tabs.dart';
 import 'package:nexshift_app/features/replacement/presentation/widgets/icon_tab_bar.dart';
@@ -20,9 +24,9 @@ import 'package:nexshift_app/core/presentation/widgets/unified_request_tile/unif
 import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:nexshift_app/core/config/environment_config.dart';
 import 'package:nexshift_app/core/services/shift_exchange_service.dart';
-import 'package:nexshift_app/core/repositories/planning_repository.dart';
 import 'package:nexshift_app/core/services/badge_count_service.dart';
 import 'package:nexshift_app/core/presentation/widgets/request_actions_bottom_sheet.dart';
+import 'package:nexshift_app/core/utils/station_name_cache.dart';
 
 // ManualReplacementProposal est maintenant importé depuis filtered_requests_view.dart
 
@@ -621,6 +625,13 @@ class _ReplacementRequestsListPageState
     // Charger le nom du demandeur
     final requesterName = await _getRequesterName(request.requesterId);
 
+    // Résoudre le nom de la station
+    String stationName = request.station;
+    final sdisId = SDISContext().currentSDISId;
+    if (sdisId != null && request.station.isNotEmpty) {
+      stationName = await StationNameCache().getStationName(sdisId, request.station);
+    }
+
     if (!mounted) return;
 
     // Déterminer si le bouton de renotification doit être affiché
@@ -634,7 +645,7 @@ class _ReplacementRequestsListPageState
           : UnifiedRequestType.automaticReplacement,
       initiatorName: requesterName,
       team: request.team,
-      station: request.station,
+      station: stationName,
       startTime: request.startTime,
       endTime: request.endTime,
       onResendNotifications: showResendButton
@@ -1323,13 +1334,22 @@ class _ReplacementRequestsListPageState
   }
 
   /// Affiche le BottomSheet d'actions pour une proposition de remplacement manuel
-  void _showManualProposalActionsBottomSheet(ManualReplacementProposal proposal) {
+  Future<void> _showManualProposalActionsBottomSheet(ManualReplacementProposal proposal) async {
+    // Résoudre le nom de la station
+    String stationName = _currentStationId ?? '';
+    final sdisId = SDISContext().currentSDISId;
+    if (sdisId != null && _currentStationId != null && _currentStationId!.isNotEmpty) {
+      stationName = await StationNameCache().getStationName(sdisId, _currentStationId!);
+    }
+
+    if (!mounted) return;
+
     RequestActionsBottomSheet.show(
       context: context,
       requestType: UnifiedRequestType.manualReplacement,
       initiatorName: proposal.replacedName,
       team: proposal.replacedTeam,
-      station: _currentStationId,
+      station: stationName,
       startTime: proposal.startTime,
       endTime: proposal.endTime,
       onResendNotifications: () => _resendManualProposalNotification(proposal),
@@ -1633,6 +1653,16 @@ class _ReplacementRequestsListPageState
       debugPrint('[DEBUG Manual Accept] Creating subshift: $subshiftId');
       await SubshiftRepository().save(subshift, stationId: _currentStationId);
       debugPrint('[DEBUG Manual Accept] Subshift created successfully');
+
+      // Mettre à jour planning.agents pour refléter le remplacement
+      await ReplacementNotificationService.updatePlanningAgentsForReplacement(
+        planningId: proposal.planningId,
+        stationId: _currentStationId!,
+        replacedId: proposal.replacedId,
+        replacerId: proposal.replacerId,
+        start: proposal.startTime,
+        end: proposal.endTime,
+      );
 
       debugPrint('[DEBUG Manual Accept] Proposal accepted successfully');
 

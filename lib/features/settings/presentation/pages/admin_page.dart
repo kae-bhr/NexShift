@@ -4,8 +4,10 @@ import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/core/data/models/station_model.dart';
 import 'package:nexshift_app/core/data/models/position_model.dart';
 import 'package:nexshift_app/core/data/models/membership_request_model.dart';
+import 'package:nexshift_app/core/data/models/on_call_level_model.dart';
 import 'package:nexshift_app/core/repositories/position_repository.dart';
 import 'package:nexshift_app/core/repositories/station_repository.dart';
+import 'package:nexshift_app/core/repositories/on_call_level_repository.dart';
 import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:nexshift_app/core/utils/station_name_cache.dart';
@@ -22,10 +24,12 @@ class _AdminPageState extends State<AdminPage> {
   final PositionRepository _positionRepository = PositionRepository();
   final StationRepository _stationRepository = StationRepository();
   final CloudFunctionsService _cloudFunctionsService = CloudFunctionsService();
+  final OnCallLevelRepository _onCallLevelRepository = OnCallLevelRepository();
 
   Station? _currentStation;
   bool _isLoading = true;
   int _pendingRequestsCount = 0;
+  List<OnCallLevel> _onCallLevels = [];
 
   @override
   void initState() {
@@ -46,6 +50,13 @@ class _AdminPageState extends State<AdminPage> {
         setState(() {
           _currentStation = station;
         });
+        // Charger les niveaux d'astreinte séparément pour ne pas bloquer la station
+        try {
+          final levels = await _onCallLevelRepository.getAll(user.station);
+          if (mounted) setState(() { _onCallLevels = levels; });
+        } catch (e) {
+          debugPrint('⚠️ [ADMIN] Error loading on-call levels: $e');
+        }
       } else {
         // Charger le nom de la station depuis le cache
         final sdisId = SDISContext().currentSDISId;
@@ -118,6 +129,9 @@ class _AdminPageState extends State<AdminPage> {
                 const SizedBox(height: 24),
                 _buildSectionHeader(context, 'Demandes d\'adhésion'),
                 _buildMembershipRequestsSection(context),
+                const SizedBox(height: 24),
+                _buildSectionHeader(context, 'Niveaux d\'astreinte'),
+                _buildOnCallLevelsSection(context),
                 const SizedBox(height: 24),
                 _buildSectionHeader(context, 'Mode de remplacement'),
                 _buildReplacementModeSection(context),
@@ -378,6 +392,499 @@ class _AdminPageState extends State<AdminPage> {
         },
       ),
     );
+  }
+
+  // ─── Niveaux d'astreinte ───
+
+  Widget _buildOnCallLevelsSection(BuildContext context) {
+    final user = userNotifier.value;
+    if (user == null) return const SizedBox.shrink();
+
+    return Card(
+      child: Column(
+        children: [
+          // Liste des niveaux existants
+          if (_onCallLevels.isEmpty)
+            const ListTile(
+              leading: Icon(Icons.info_outline),
+              title: Text('Aucun niveau configuré'),
+              subtitle: Text(
+                'Ajoutez des niveaux d\'astreinte pour classer les agents par type de présence',
+              ),
+            )
+          else
+            ReorderableListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _onCallLevels.length,
+              onReorder: (oldIndex, newIndex) =>
+                  _reorderLevels(oldIndex, newIndex, user.station),
+              itemBuilder: (context, index) {
+                final level = _onCallLevels[index];
+                return ListTile(
+                  key: ValueKey(level.id),
+                  leading: Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: level.color,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Center(
+                      child: Text(
+                        '${index + 1}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                  ),
+                  title: Text(
+                    level.name,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.edit, size: 20),
+                        onPressed: () =>
+                            _showEditLevelDialog(context, user.station, level),
+                      ),
+                      IconButton(
+                        icon: const Icon(
+                          Icons.delete,
+                          size: 20,
+                          color: Colors.red,
+                        ),
+                        onPressed: () =>
+                            _deleteLevel(context, user.station, level),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          const Divider(height: 1),
+          // Bouton ajouter
+          ListTile(
+            leading: Icon(Icons.add_circle_outline, color: KColors.appNameColor),
+            title: Text(
+              'Ajouter un niveau',
+              style: TextStyle(
+                color: KColors.appNameColor,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            onTap: () => _showEditLevelDialog(context, user.station, null),
+          ),
+          // Règles de positionnement
+          if (_onCallLevels.isNotEmpty) ...[
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Règles de positionnement',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey[700],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  // Agent de garde (équipe propre)
+                  _buildLevelDropdown(
+                    label: 'Agent de garde (équipe propre)',
+                    value: _currentStation!.defaultOnCallLevelId,
+                    onChanged: (value) {
+                      setState(() {
+                        _currentStation = _currentStation!.copyWith(
+                          defaultOnCallLevelId: value,
+                        );
+                      });
+                      _saveStationConfig();
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  // Distinction par durée
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text(
+                      'Distinguer par durée de remplacement',
+                      style: TextStyle(fontSize: 14),
+                    ),
+                    value: _currentStation!.enableReplacementDurationThreshold,
+                    activeThumbColor: KColors.appNameColor,
+                    onChanged: (value) {
+                      setState(() {
+                        _currentStation = _currentStation!.copyWith(
+                          enableReplacementDurationThreshold: value,
+                        );
+                      });
+                      _saveStationConfig();
+                    },
+                  ),
+                  if (_currentStation!.enableReplacementDurationThreshold) ...[
+                    // Seuil en heures
+                    Row(
+                      children: [
+                        const Text('Seuil : ', style: TextStyle(fontSize: 14)),
+                        SizedBox(
+                          width: 60,
+                          child: TextFormField(
+                            initialValue: _currentStation!
+                                .replacementDurationThresholdHours
+                                .toString(),
+                            keyboardType: TextInputType.number,
+                            textAlign: TextAlign.center,
+                            decoration: const InputDecoration(
+                              isDense: true,
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 8,
+                              ),
+                              border: OutlineInputBorder(),
+                            ),
+                            onFieldSubmitted: (value) {
+                              final hours = int.tryParse(value);
+                              if (hours != null && hours > 0) {
+                                setState(() {
+                                  _currentStation = _currentStation!.copyWith(
+                                    replacementDurationThresholdHours: hours,
+                                  );
+                                });
+                                _saveStationConfig();
+                              }
+                            },
+                          ),
+                        ),
+                        const Text(' heures', style: TextStyle(fontSize: 14)),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    _buildLevelDropdown(
+                      label: 'Durée < seuil',
+                      value: _currentStation!.shortReplacementLevelId,
+                      onChanged: (value) {
+                        setState(() {
+                          _currentStation = _currentStation!.copyWith(
+                            shortReplacementLevelId: value,
+                          );
+                        });
+                        _saveStationConfig();
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    _buildLevelDropdown(
+                      label: 'Durée ≥ seuil',
+                      value: _currentStation!.longReplacementLevelId,
+                      onChanged: (value) {
+                        setState(() {
+                          _currentStation = _currentStation!.copyWith(
+                            longReplacementLevelId: value,
+                          );
+                        });
+                        _saveStationConfig();
+                      },
+                    ),
+                  ] else ...[
+                    _buildLevelDropdown(
+                      label: 'Niveau remplaçant',
+                      value: _currentStation!.replacementOnCallLevelId,
+                      onChanged: (value) {
+                        setState(() {
+                          _currentStation = _currentStation!.copyWith(
+                            replacementOnCallLevelId: value,
+                          );
+                        });
+                        _saveStationConfig();
+                      },
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLevelDropdown({
+    required String label,
+    required String? value,
+    required ValueChanged<String?> onChanged,
+  }) {
+    return Row(
+      children: [
+        Expanded(
+          flex: 2,
+          child: Text(label, style: const TextStyle(fontSize: 14)),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          flex: 3,
+          child: DropdownButtonFormField<String>(
+            initialValue: _onCallLevels.any((l) => l.id == value) ? value : null,
+            isExpanded: true,
+            decoration: const InputDecoration(
+              isDense: true,
+              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              border: OutlineInputBorder(),
+            ),
+            items: _onCallLevels.map((level) {
+              return DropdownMenuItem(
+                value: level.id,
+                child: Row(
+                  children: [
+                    Container(
+                      width: 14,
+                      height: 14,
+                      decoration: BoxDecoration(
+                        color: level.color,
+                        borderRadius: BorderRadius.circular(3),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        level.name,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+            onChanged: onChanged,
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _reorderLevels(int oldIndex, int newIndex, String stationId) {
+    if (newIndex > oldIndex) newIndex--;
+    setState(() {
+      final item = _onCallLevels.removeAt(oldIndex);
+      _onCallLevels.insert(newIndex, item);
+      // Mettre à jour les ordres
+      for (int i = 0; i < _onCallLevels.length; i++) {
+        _onCallLevels[i] = _onCallLevels[i].copyWith(order: i);
+      }
+    });
+    _onCallLevelRepository.reorder(_onCallLevels, stationId);
+  }
+
+  Future<void> _showEditLevelDialog(
+    BuildContext context,
+    String stationId,
+    OnCallLevel? existing,
+  ) async {
+    final nameController = TextEditingController(text: existing?.name ?? '');
+    int selectedColor = existing?.colorValue ?? Colors.blue.toARGB32();
+
+    final colorOptions = [
+      Colors.blue,
+      Colors.red,
+      Colors.green,
+      Colors.orange,
+      Colors.purple,
+      Colors.teal,
+      Colors.pink,
+      Colors.amber,
+      Colors.indigo,
+      Colors.cyan,
+      Colors.brown,
+      Colors.lime,
+    ];
+
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(existing != null ? 'Modifier le niveau' : 'Nouveau niveau'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(
+                  labelText: 'Nom du niveau',
+                  hintText: 'Ex: ASTR 1, DISPO 1...',
+                ),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'Couleur :',
+                style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: colorOptions.map((color) {
+                  final isSelected = selectedColor == color.toARGB32();
+                  return GestureDetector(
+                    onTap: () {
+                      setDialogState(() {
+                        selectedColor = color.toARGB32();
+                      });
+                    },
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: color,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: isSelected ? Colors.black : Colors.transparent,
+                          width: isSelected ? 3 : 0,
+                        ),
+                      ),
+                      child: isSelected
+                          ? const Icon(Icons.check, color: Colors.white, size: 20)
+                          : null,
+                    ),
+                  );
+                }).toList(),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Annuler'),
+            ),
+            TextButton(
+              onPressed: () {
+                if (nameController.text.trim().isNotEmpty) {
+                  Navigator.pop(context, {
+                    'name': nameController.text.trim(),
+                    'colorValue': selectedColor,
+                  });
+                }
+              },
+              child: Text(existing != null ? 'Modifier' : 'Créer'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (result != null) {
+      try {
+        if (existing != null) {
+          final updated = existing.copyWith(
+            name: result['name'] as String,
+            colorValue: result['colorValue'] as int,
+          );
+          await _onCallLevelRepository.update(updated, stationId);
+          setState(() {
+            final index = _onCallLevels.indexWhere((l) => l.id == existing.id);
+            if (index != -1) _onCallLevels[index] = updated;
+          });
+        } else {
+          final newLevel = OnCallLevel(
+            id: '',
+            name: result['name'] as String,
+            colorValue: result['colorValue'] as int,
+            order: _onCallLevels.length,
+          );
+          final id = await _onCallLevelRepository.create(newLevel, stationId);
+          setState(() {
+            _onCallLevels.add(newLevel.copyWith(id: id));
+          });
+        }
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Niveau sauvegardé')),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Erreur: $e')),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _deleteLevel(
+    BuildContext context,
+    String stationId,
+    OnCallLevel level,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Supprimer le niveau'),
+        content: Text(
+          'Voulez-vous vraiment supprimer le niveau "${level.name}" ?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Annuler'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await _onCallLevelRepository.delete(level.id, stationId);
+        setState(() {
+          _onCallLevels.removeWhere((l) => l.id == level.id);
+        });
+        // Nettoyer les références dans station si nécessaire
+        bool stationChanged = false;
+        Station updated = _currentStation!;
+        if (updated.defaultOnCallLevelId == level.id) {
+          updated = updated.copyWith(defaultOnCallLevelId: '');
+          stationChanged = true;
+        }
+        if (updated.replacementOnCallLevelId == level.id) {
+          updated = updated.copyWith(replacementOnCallLevelId: '');
+          stationChanged = true;
+        }
+        if (updated.shortReplacementLevelId == level.id) {
+          updated = updated.copyWith(shortReplacementLevelId: '');
+          stationChanged = true;
+        }
+        if (updated.longReplacementLevelId == level.id) {
+          updated = updated.copyWith(longReplacementLevelId: '');
+          stationChanged = true;
+        }
+        if (stationChanged) {
+          _currentStation = updated;
+          _saveStationConfig();
+        }
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Niveau supprimé')),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Erreur: $e')),
+          );
+        }
+      }
+    }
   }
 
   Widget _buildReplacementModeSection(BuildContext context) {

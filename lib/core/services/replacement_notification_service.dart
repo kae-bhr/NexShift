@@ -11,6 +11,10 @@ import 'package:nexshift_app/core/repositories/availability_repository.dart';
 import 'package:nexshift_app/core/repositories/subshift_repositories.dart';
 import 'package:nexshift_app/core/repositories/replacement_acceptance_repository.dart';
 import 'package:nexshift_app/core/repositories/station_repository.dart';
+import 'package:nexshift_app/core/repositories/planning_repository.dart';
+import 'package:nexshift_app/core/data/models/planning_model.dart';
+import 'package:nexshift_app/core/data/models/planning_agent_model.dart';
+import 'package:nexshift_app/core/services/on_call_disposition_service.dart';
 import 'package:nexshift_app/core/config/environment_config.dart';
 import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/core/services/wave_calculation_service.dart';
@@ -1477,6 +1481,16 @@ class ReplacementNotificationService {
           );
           await _subshiftRepository.save(subshift, stationId: request.station, requestId: request.id);
           debugPrint('✅ Subshift created: ${subshift.id}');
+
+          // Mettre à jour planning.agents pour refléter le remplacement
+          await updatePlanningAgentsForReplacement(
+            planningId: request.planningId,
+            stationId: request.station,
+            replacedId: request.requesterId,
+            replacerId: replacerId,
+            start: actualStartTime,
+            end: actualEndTime,
+          );
         }
 
         // Ne PAS rejeter les acceptations en attente ici
@@ -1755,6 +1769,16 @@ class ReplacementNotificationService {
         );
         await _subshiftRepository.save(subshift, stationId: stationId, requestId: request.id);
         debugPrint('✅ Subshift created: ${subshift.id}');
+
+        // Mettre à jour planning.agents pour refléter le remplacement
+        await updatePlanningAgentsForReplacement(
+          planningId: request.planningId,
+          stationId: stationId,
+          replacedId: request.requesterId,
+          replacerId: acceptance.userId,
+          start: acceptance.acceptedStartTime,
+          end: acceptance.acceptedEndTime,
+        );
       }
 
       // 5. Vérifier si la demande est totalement couverte
@@ -2778,5 +2802,79 @@ class ReplacementNotificationService {
               .map((doc) => ReplacementRequest.fromJson(doc.data()))
               .toList(),
         );
+  }
+
+  /// Met à jour planning.agents pour intégrer un remplacement accepté.
+  /// Réduit les horaires de l'agent remplacé et ajoute le remplaçant.
+  static Future<void> updatePlanningAgentsForReplacement({
+    required String planningId,
+    required String stationId,
+    required String replacedId,
+    required String replacerId,
+    required DateTime start,
+    required DateTime end,
+  }) async {
+    try {
+      final planningRepo = PlanningRepository();
+      final planning = await planningRepo.getById(planningId, stationId: stationId);
+      if (planning == null) {
+        debugPrint('⚠️ Planning $planningId not found — cannot update agents');
+        return;
+      }
+
+      final updatedAgents = List<PlanningAgent>.from(planning.agents);
+
+      // Trouver les entrées de l'agent remplacé qui chevauchent la période
+      final toRemove = <PlanningAgent>[];
+      final toAdd = <PlanningAgent>[];
+
+      for (final agent in updatedAgents) {
+        if (agent.agentId != replacedId || agent.replacedAgentId != null) continue;
+        // Vérifier le chevauchement
+        if (agent.start.isBefore(end) && agent.end.isAfter(start)) {
+          toRemove.add(agent);
+          // Partie avant le remplacement
+          if (agent.start.isBefore(start)) {
+            toAdd.add(agent.copyWith(end: start));
+          }
+          // Partie après le remplacement
+          if (agent.end.isAfter(end)) {
+            toAdd.add(agent.copyWith(start: end));
+          }
+        }
+      }
+
+      for (final a in toRemove) {
+        updatedAgents.remove(a);
+      }
+      updatedAgents.addAll(toAdd);
+
+      // Déterminer le levelId du remplaçant
+      final station = await StationRepository().getById(stationId);
+      final defaultLevelId = toRemove.isNotEmpty ? toRemove.first.levelId : '';
+      final replacerLevelId = station != null
+          ? OnCallDispositionService.getReplacementLevelId(
+              start: start,
+              end: end,
+              station: station,
+              defaultLevelId: defaultLevelId,
+            )
+          : defaultLevelId;
+
+      // Ajouter le remplaçant
+      updatedAgents.add(PlanningAgent(
+        agentId: replacerId,
+        start: start,
+        end: end,
+        levelId: replacerLevelId,
+        replacedAgentId: replacedId,
+      ));
+
+      final updatedPlanning = planning.copyWith(agents: updatedAgents);
+      await planningRepo.save(updatedPlanning, stationId: stationId);
+      debugPrint('✅ planning.agents updated: replaced=$replacedId, replacer=$replacerId');
+    } catch (e) {
+      debugPrint('❌ Error updating planning.agents: $e');
+    }
   }
 }

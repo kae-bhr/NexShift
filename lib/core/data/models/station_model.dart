@@ -36,6 +36,20 @@ class Station {
   // Date de fin d'abonnement de la caserne (null = pas de limite)
   final DateTime? subscriptionEndDate;
 
+  // Règles de positionnement automatique des niveaux d'astreinte
+  // Niveau par défaut pour un agent de garde dans son équipe
+  final String? defaultOnCallLevelId;
+  // Niveau par défaut pour un remplaçant (si pas de distinction par durée)
+  final String? replacementOnCallLevelId;
+  // Activer la distinction de niveau selon la durée de remplacement
+  final bool enableReplacementDurationThreshold;
+  // Seuil en heures pour la distinction de durée
+  final int replacementDurationThresholdHours;
+  // Niveau si durée de remplacement < seuil
+  final String? shortReplacementLevelId;
+  // Niveau si durée de remplacement >= seuil
+  final String? longReplacementLevelId;
+
   const Station({
     required this.id,
     required this.name,
@@ -48,6 +62,12 @@ class Station {
     this.nightPauseStart = '23:00', // Début à 23h par défaut
     this.nightPauseEnd = '06:00', // Fin à 6h par défaut
     this.subscriptionEndDate,
+    this.defaultOnCallLevelId,
+    this.replacementOnCallLevelId,
+    this.enableReplacementDurationThreshold = false,
+    this.replacementDurationThresholdHours = 10,
+    this.shortReplacementLevelId,
+    this.longReplacementLevelId,
   });
 
   /// Vérifie si l'abonnement est expiré
@@ -81,6 +101,12 @@ class Station {
     String? nightPauseStart,
     String? nightPauseEnd,
     DateTime? subscriptionEndDate,
+    String? defaultOnCallLevelId,
+    String? replacementOnCallLevelId,
+    bool? enableReplacementDurationThreshold,
+    int? replacementDurationThresholdHours,
+    String? shortReplacementLevelId,
+    String? longReplacementLevelId,
   }) =>
       Station(
         id: id ?? this.id,
@@ -94,6 +120,12 @@ class Station {
         nightPauseStart: nightPauseStart ?? this.nightPauseStart,
         nightPauseEnd: nightPauseEnd ?? this.nightPauseEnd,
         subscriptionEndDate: subscriptionEndDate ?? this.subscriptionEndDate,
+        defaultOnCallLevelId: defaultOnCallLevelId ?? this.defaultOnCallLevelId,
+        replacementOnCallLevelId: replacementOnCallLevelId ?? this.replacementOnCallLevelId,
+        enableReplacementDurationThreshold: enableReplacementDurationThreshold ?? this.enableReplacementDurationThreshold,
+        replacementDurationThresholdHours: replacementDurationThresholdHours ?? this.replacementDurationThresholdHours,
+        shortReplacementLevelId: shortReplacementLevelId ?? this.shortReplacementLevelId,
+        longReplacementLevelId: longReplacementLevelId ?? this.longReplacementLevelId,
       );
 
   Map<String, dynamic> toJson() => {
@@ -109,6 +141,16 @@ class Station {
         'nightPauseEnd': nightPauseEnd,
         if (subscriptionEndDate != null)
           'subscriptionEndDate': Timestamp.fromDate(subscriptionEndDate!),
+        if (defaultOnCallLevelId != null)
+          'defaultOnCallLevelId': defaultOnCallLevelId,
+        if (replacementOnCallLevelId != null)
+          'replacementOnCallLevelId': replacementOnCallLevelId,
+        'enableReplacementDurationThreshold': enableReplacementDurationThreshold,
+        'replacementDurationThresholdHours': replacementDurationThresholdHours,
+        if (shortReplacementLevelId != null)
+          'shortReplacementLevelId': shortReplacementLevelId,
+        if (longReplacementLevelId != null)
+          'longReplacementLevelId': longReplacementLevelId,
       };
 
   factory Station.fromJson(Map<String, dynamic> json) => Station(
@@ -133,5 +175,13 @@ class Station {
         subscriptionEndDate: json['subscriptionEndDate'] != null
             ? (json['subscriptionEndDate'] as Timestamp).toDate()
             : null,
+        defaultOnCallLevelId: json['defaultOnCallLevelId'] as String?,
+        replacementOnCallLevelId: json['replacementOnCallLevelId'] as String?,
+        enableReplacementDurationThreshold:
+            json['enableReplacementDurationThreshold'] as bool? ?? false,
+        replacementDurationThresholdHours:
+            json['replacementDurationThresholdHours'] as int? ?? 10,
+        shortReplacementLevelId: json['shortReplacementLevelId'] as String?,
+        longReplacementLevelId: json['longReplacementLevelId'] as String?,
       );
 }

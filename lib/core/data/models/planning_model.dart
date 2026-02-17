@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:nexshift_app/core/data/models/planning_agent_model.dart';
 
 class Planning {
   final String id;
@@ -6,7 +7,7 @@ class Planning {
   final DateTime endTime;
   final String station;
   final String team;
-  final List<String> agentsId;
+  final List<PlanningAgent> agents;
   final int maxAgents; // Nombre maximum d'agents autorisés
 
   Planning({
@@ -15,9 +16,13 @@ class Planning {
     required this.endTime,
     required this.station,
     required this.team,
-    required this.agentsId,
+    required this.agents,
     this.maxAgents = 6,
   });
+
+  /// Getter de compatibilité : retourne les IDs des agents de base (non remplaçants)
+  List<String> get agentsId =>
+      agents.where((a) => a.replacedAgentId == null).map((a) => a.agentId).toSet().toList();
 
   factory Planning.empty() {
     return Planning(
@@ -26,7 +31,7 @@ class Planning {
       endTime: DateTime.now(),
       station: '',
       team: '',
-      agentsId: [],
+      agents: [],
       maxAgents: 6,
     );
   }
@@ -42,15 +47,36 @@ class Planning {
       throw Exception('Invalid date format: $value');
     }
 
+    final startTime = parseDateTime(json['startTime']);
+    final endTime = parseDateTime(json['endTime']);
+
+    // Nouveau format : liste d'agents avec horaires/niveaux
+    List<PlanningAgent> agents;
+    if (json['agents'] != null) {
+      agents = (json['agents'] as List<dynamic>)
+          .map((e) => PlanningAgent.fromJson(e as Map<String, dynamic>))
+          .toList();
+    } else if (json['agentsId'] != null) {
+      // Ancien format : synthétiser depuis agentsId
+      agents = (json['agentsId'] as List<dynamic>)
+          .map((e) => PlanningAgent(
+                agentId: e as String,
+                start: startTime,
+                end: endTime,
+                levelId: '',
+              ))
+          .toList();
+    } else {
+      agents = [];
+    }
+
     return Planning(
       id: json['id'] as String,
-      startTime: parseDateTime(json['startTime']),
-      endTime: parseDateTime(json['endTime']),
+      startTime: startTime,
+      endTime: endTime,
       station: json['station'] as String,
       team: json['team'] as String,
-      agentsId: (json['agentsId'] as List<dynamic>)
-          .map((e) => e as String)
-          .toList(),
+      agents: agents,
       maxAgents: json['maxAgents'] as int? ?? 6,
     );
   }
@@ -62,7 +88,7 @@ class Planning {
       'endTime': Timestamp.fromDate(endTime),
       'station': station,
       'team': team,
-      'agentsId': agentsId,
+      'agents': agents.map((a) => a.toJson()).toList(),
       'maxAgents': maxAgents,
     };
   }
@@ -73,7 +99,7 @@ class Planning {
     DateTime? endTime,
     String? station,
     String? team,
-    List<String>? agentsId,
+    List<PlanningAgent>? agents,
     int? maxAgents,
   }) {
     return Planning(
@@ -82,7 +108,7 @@ class Planning {
       endTime: endTime ?? this.endTime,
       station: station ?? this.station,
       team: team ?? this.team,
-      agentsId: agentsId ?? this.agentsId,
+      agents: agents ?? this.agents,
       maxAgents: maxAgents ?? this.maxAgents,
     );
   }

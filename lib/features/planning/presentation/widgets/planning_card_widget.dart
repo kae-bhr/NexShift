@@ -19,6 +19,7 @@ import 'package:nexshift_app/features/replacement/presentation/pages/skill_searc
 import 'package:nexshift_app/core/utils/subshift_normalizer.dart';
 import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/core/utils/station_name_cache.dart';
+import 'package:nexshift_app/core/services/on_call_disposition_service.dart';
 
 class PlanningCard extends StatefulWidget {
   final Planning planning;
@@ -32,6 +33,10 @@ class PlanningCard extends StatefulWidget {
   final List<Map<String, dynamic>> vehicleIconSpecs;
   final Color? availabilityColor; // Couleur pour les disponibilités
   final bool allReplacementsChecked; // Si tous les remplacements sont checkés
+  // Agent count info for on-call levels badge
+  final int? agentCountMin;
+  final int? agentCountMax;
+  final List<AgentCountIssue> agentCountIssues;
 
   const PlanningCard({
     super.key,
@@ -44,6 +49,9 @@ class PlanningCard extends StatefulWidget {
     this.vehicleIconSpecs = const [],
     this.availabilityColor,
     this.allReplacementsChecked = false,
+    this.agentCountMin,
+    this.agentCountMax,
+    this.agentCountIssues = const [],
   });
 
   @override
@@ -122,13 +130,16 @@ class _PlanningCardState extends State<PlanningCard> {
         ? Colors.grey
         : (_team?.color ?? const Color(0xFF757575));
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isPast = widget.planning.endTime.isBefore(DateTime.now());
 
     return ValueListenableBuilder<bool>(
       valueListenable: stationViewNotifier,
       builder: (context, stationView, _) {
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-          child: Material(
+          child: Opacity(
+            opacity: isPast ? 0.5 : 1.0,
+            child: Material(
             color: Colors.transparent,
             child: InkWell(
               onTap: widget.onTap,
@@ -195,11 +206,16 @@ class _PlanningCardState extends State<PlanningCard> {
                               ),
                               // Badges
                               if (widget.pendingRequestCount > 0 ||
-                                  widget.replacementCount > 0)
+                                  widget.replacementCount > 0 ||
+                                  widget.agentCountMin != null)
                                 _BadgeRow(
                                   pendingCount: widget.pendingRequestCount,
                                   replacementCount: widget.replacementCount,
                                   allChecked: widget.allReplacementsChecked,
+                                  agentCountMin: widget.agentCountMin,
+                                  agentCountMax: widget.agentCountMax,
+                                  agentCountIssues: widget.agentCountIssues,
+                                  maxAgentsPerShift: widget.planning.maxAgents,
                                 ),
                               // Delete for availabilities
                               if (isAvailability)
@@ -365,6 +381,7 @@ class _PlanningCardState extends State<PlanningCard> {
                 ),
               ),
             ),
+          ),
           ),
         );
       },
@@ -682,21 +699,38 @@ class _DateTimeChip extends StatelessWidget {
   }
 }
 
-/// Row of badges for pending requests and replacement count
+/// Row of badges for pending requests, replacement count, and agent count
 class _BadgeRow extends StatelessWidget {
   final int pendingCount;
   final int replacementCount;
   final bool allChecked;
+  final int? agentCountMin;
+  final int? agentCountMax;
+  final List<AgentCountIssue> agentCountIssues;
+  final int maxAgentsPerShift;
 
   const _BadgeRow({
     required this.pendingCount,
     required this.replacementCount,
     required this.allChecked,
+    this.agentCountMin,
+    this.agentCountMax,
+    this.agentCountIssues = const [],
+    this.maxAgentsPerShift = 6,
   });
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // Déterminer l'état du badge d'agents
+    final hasAgentCount = agentCountMin != null;
+    final hasIssues = agentCountIssues.isNotEmpty;
+    final isConstant = agentCountMin == agentCountMax;
+    final agentCountText = hasAgentCount
+        ? (isConstant ? '$agentCountMin' : '$agentCountMin-$agentCountMax')
+        : null;
+
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -709,18 +743,94 @@ class _BadgeRow extends StatelessWidget {
                   : KColors.appNameColor.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Text(
-              pendingCount.toString(),
-              style: TextStyle(
-                color: KColors.appNameColor,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-              ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.refresh_rounded,
+                  size: 12,
+                  color: KColors.appNameColor,
+                ),
+                const SizedBox(width: 3),
+                Text(
+                  pendingCount.toString(),
+                  style: TextStyle(
+                    color: KColors.appNameColor,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
             ),
           ),
-        if (pendingCount > 0 && replacementCount > 0)
+        if (pendingCount > 0 && (replacementCount > 0 || hasAgentCount))
           const SizedBox(width: 4),
-        if (replacementCount > 0)
+        // Badge compteur d'agents (remplace le badge de remplacement quand disponible)
+        if (hasAgentCount)
+          GestureDetector(
+            onTap: hasIssues
+                ? () => _showAgentCountDiagnostic(context)
+                : null,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: hasIssues
+                    ? Colors.orange.withValues(alpha: isDark ? 0.25 : 0.15)
+                    : (allChecked
+                        ? Colors.green.withValues(alpha: isDark ? 0.25 : 0.15)
+                        : (isDark
+                            ? Colors.white.withValues(alpha: 0.1)
+                            : Colors.grey.shade100)),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.person_rounded,
+                    size: 12,
+                    color: hasIssues
+                        ? Colors.orange.shade700
+                        : (allChecked
+                            ? Colors.green.shade600
+                            : (isDark ? Colors.grey.shade300 : Colors.grey.shade600)),
+                  ),
+                  const SizedBox(width: 3),
+                  if (allChecked && !hasIssues)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 3),
+                      child: Icon(
+                        Icons.check_rounded,
+                        size: 12,
+                        color: Colors.green.shade600,
+                      ),
+                    ),
+                  Text(
+                    agentCountText!,
+                    style: TextStyle(
+                      color: hasIssues
+                          ? Colors.orange.shade700
+                          : (allChecked
+                              ? Colors.green.shade600
+                              : (isDark ? Colors.grey.shade300 : Colors.grey.shade600)),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  if (hasIssues) ...[
+                    const SizedBox(width: 3),
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      size: 13,
+                      color: Colors.orange.shade700,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          )
+        // Fallback: ancien badge de remplacements si pas de compteur d'agents
+        else if (replacementCount > 0)
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
@@ -757,6 +867,105 @@ class _BadgeRow extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+
+  void _showAgentCountDiagnostic(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isConstant = agentCountMin == agentCountMax;
+
+    String message;
+    if (isConstant && agentCountMin! > maxAgentsPerShift) {
+      message =
+          "Le nombre d'agents présents dans l'effectif de cette astreinte est trop important : "
+          "$agentCountMin au lieu de $maxAgentsPerShift. "
+          "Pensez à retirer ${agentCountMin! - maxAgentsPerShift} agent(s) de l'astreinte.";
+    } else if (isConstant && agentCountMin! < maxAgentsPerShift) {
+      message =
+          "Le nombre d'agents présents dans l'effectif de cette astreinte est trop faible : "
+          "$agentCountMin au lieu de $maxAgentsPerShift. "
+          "Pensez à ajouter ${maxAgentsPerShift - agentCountMin!} agent(s) à cette astreinte.";
+    } else {
+      message =
+          "Le nombre d'agents en astreinte est inconstant au cours de l'astreinte "
+          "et différent de $maxAgentsPerShift.";
+    }
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.orange.shade700, size: 24),
+            const SizedBox(width: 8),
+            const Expanded(
+              child: Text(
+                "Diagnostic d'effectif",
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(message, style: const TextStyle(fontSize: 14)),
+            if (!isConstant && agentCountIssues.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Text(
+                'Détail par plage :',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+                ),
+              ),
+              const SizedBox(height: 8),
+              ...agentCountIssues.map((issue) {
+                final startStr =
+                    "${issue.start.day.toString().padLeft(2, '0')}/${issue.start.month.toString().padLeft(2, '0')} "
+                    "${issue.start.hour.toString().padLeft(2, '0')}:${issue.start.minute.toString().padLeft(2, '0')}";
+                final endStr =
+                    "${issue.end.day.toString().padLeft(2, '0')}/${issue.end.month.toString().padLeft(2, '0')} "
+                    "${issue.end.hour.toString().padLeft(2, '0')}:${issue.end.minute.toString().padLeft(2, '0')}";
+                final diff = issue.count - issue.expected;
+                final diffStr = diff > 0 ? '+$diff' : '$diff';
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Row(
+                    children: [
+                      Icon(
+                        diff > 0
+                            ? Icons.arrow_upward_rounded
+                            : Icons.arrow_downward_rounded,
+                        size: 14,
+                        color: diff > 0 ? Colors.orange.shade600 : Colors.red.shade400,
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          '$startStr → $endStr : ${issue.count} agent(s) ($diffStr)',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Fermer'),
+          ),
+        ],
+      ),
     );
   }
 }

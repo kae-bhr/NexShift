@@ -4,6 +4,8 @@ import 'package:nexshift_app/core/services/replacement_notification_service.dart
 import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/repositories/user_repository.dart';
 import 'package:nexshift_app/core/config/environment_config.dart';
+import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
+import 'package:nexshift_app/core/utils/station_name_cache.dart';
 import 'package:nexshift_app/features/replacement/presentation/widgets/filtered_requests_view.dart';
 
 /// Widget wrapper pour afficher une demande de remplacement automatique
@@ -72,6 +74,7 @@ class ReplacementTileWrapper extends StatefulWidget {
 class _ReplacementTileWrapperState extends State<ReplacementTileWrapper> {
   final _userRepository = UserRepository();
   String _requesterName = 'Chargement...';
+  String _stationName = '';
   User? _replacer;
   bool _isLoading = true;
 
@@ -106,10 +109,18 @@ class _ReplacementTileWrapperState extends State<ReplacementTileWrapper> {
         replacer = await _userRepository.getById(widget.request.replacerId!);
       }
 
+      // Résoudre le nom de la station
+      String stationName = widget.request.station;
+      final sdisId = SDISContext().currentSDISId;
+      if (sdisId != null && widget.request.station.isNotEmpty) {
+        stationName = await StationNameCache().getStationName(sdisId, widget.request.station);
+      }
+
       if (mounted) {
         setState(() {
           _requesterName = requesterName;
           _replacer = replacer;
+          _stationName = stationName;
           _isLoading = false;
         });
       }
@@ -117,6 +128,7 @@ class _ReplacementTileWrapperState extends State<ReplacementTileWrapper> {
       if (mounted) {
         setState(() {
           _requesterName = 'Erreur';
+          _stationName = widget.request.station;
           _isLoading = false;
         });
       }
@@ -144,11 +156,11 @@ class _ReplacementTileWrapperState extends State<ReplacementTileWrapper> {
       );
     }
 
-    // Convertir la demande en données unifiées
+    // Convertir la demande en données unifiées (avec nom de station résolu)
     final tileData = widget.request.toUnifiedTileData(
       requesterName: _requesterName,
       replacer: _replacer,
-    );
+    ).withStationName(_stationName);
 
     // Déterminer si l'utilisateur peut agir
     final isNotified = widget.request.notifiedUserIds.contains(widget.currentUserId);
@@ -254,6 +266,7 @@ class _ManualProposalTileWrapperState extends State<ManualProposalTileWrapper> {
   final _userRepository = UserRepository();
   String? _replacedTeam;
   String? _replacerTeam;
+  String _stationName = '';
   bool _isLoading = true;
 
   @override
@@ -284,17 +297,28 @@ class _ManualProposalTileWrapperState extends State<ManualProposalTileWrapper> {
       final replacerUser = await _userRepository.getById(widget.proposal.replacerId);
       final replacerTeam = replacerUser?.team;
 
+      // Résoudre le nom de la station
+      String stationName = widget.station ?? '';
+      final sdisId = SDISContext().currentSDISId;
+      if (sdisId != null && widget.station != null && widget.station!.isNotEmpty) {
+        stationName = await StationNameCache().getStationName(sdisId, widget.station!);
+      }
+
       if (mounted) {
         setState(() {
           _replacedTeam = replacedTeam;
           _replacerTeam = replacerTeam;
+          _stationName = stationName;
           _isLoading = false;
         });
       }
     } catch (e) {
       debugPrint('Error loading teams for manual proposal: $e');
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _stationName = widget.station ?? '';
+          _isLoading = false;
+        });
       }
     }
   }
@@ -374,7 +398,7 @@ class _ManualProposalTileWrapperState extends State<ManualProposalTileWrapper> {
         team: _replacedTeam ?? proposal.replacedTeam,
         startTime: proposal.startTime,
         endTime: proposal.endTime,
-        station: widget.station ?? '',
+        station: _stationName,
       ),
       rightColumn: AgentColumnData(
         agentId: proposal.replacerId,
@@ -382,7 +406,7 @@ class _ManualProposalTileWrapperState extends State<ManualProposalTileWrapper> {
         team: _replacerTeam ?? proposal.replacerTeam,
         startTime: proposal.startTime,
         endTime: proposal.endTime,
-        station: widget.station ?? '',
+        station: _stationName,
       ),
       extraData: {
         'proposerId': proposal.proposerId,

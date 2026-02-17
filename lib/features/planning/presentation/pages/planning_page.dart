@@ -391,16 +391,8 @@ class _PlanningPageState extends State<PlanningPage> {
   Future<void> _loadUserAndPlanning() async {
     final user = await UserStorageHelper.loadUser();
     if (user != null) {
-      // S'assurer que le SDIS Context est initialisé
-      if (!SDISContext().hasSDIS) {
-        var sdisId = await UserStorageHelper.loadSdisId();
-        if (sdisId == null || sdisId.isEmpty) {
-          sdisId = '50'; // Valeur par défaut
-          await UserStorageHelper.saveSdisId(sdisId);
-        }
-        SDISContext().setCurrentSDISId(sdisId);
-        debugPrint('📅 [PLANNING_PAGE] SDIS Context initialized with: $sdisId');
-      }
+      // S'assurer que le SDIS Context est initialisé (filet de sécurité)
+      await SDISContext().ensureInitialized();
 
       final repo = LocalRepository();
       final isStationView = stationViewNotifier.value;

@@ -246,8 +246,28 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
       }
     }
 
-    // Combine effective agents + available agents for skill counts and vehicle allocation
-    final allActiveAgents = [...effectiveAgents, ...availableAgents];
+    // Intégrer les agents supplémentaires depuis planning.agents (source unique de vérité)
+    final List<User> manualAgents = [];
+    if (planningExists) {
+      for (final entry in maybePlanning.agents) {
+        final eStart = entry.start.toUtc();
+        final eEnd = entry.end.toUtc();
+        if ((eStart.isBefore(atUtc) || eStart.isAtSameMomentAs(atUtc)) &&
+            eEnd.isAfter(atUtc)) {
+          final alreadyCounted = effectiveAgents.any((a) => a.id == entry.agentId) ||
+              availableAgents.any((a) => a.id == entry.agentId);
+          if (!alreadyCounted) {
+            final agent = users.firstWhereOrNull((u) => u.id == entry.agentId);
+            if (agent != null) {
+              manualAgents.add(agent);
+            }
+          }
+        }
+      }
+    }
+
+    // Combine effective agents + available agents + agents from planning.agents
+    final allActiveAgents = [...effectiveAgents, ...availableAgents, ...manualAgents];
 
     // compute skill counts based on effective + available crew
     final Map<String, int> skillCount = {

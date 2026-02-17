@@ -1,4 +1,5 @@
 import 'package:nexshift_app/core/data/models/planning_model.dart';
+import 'package:nexshift_app/core/data/models/planning_agent_model.dart';
 import 'package:nexshift_app/core/data/models/generated_shift_model.dart';
 import 'package:nexshift_app/core/data/models/shift_exception_model.dart';
 import 'package:nexshift_app/core/data/models/shift_rule_model.dart';
@@ -195,10 +196,13 @@ class PlanningGenerationService {
         endTime: endTime,
         station: station,
         team: teamId,
-        agentsId:
-            teamAgents, // Tous les agents de l'équipe sont automatiquement assignés
-        maxAgents:
-            maxAgents, // Utiliser le maxAgents de la règle ou de l'exception
+        agents: teamAgents.map((id) => PlanningAgent(
+          agentId: id,
+          start: startTime,
+          end: endTime,
+          levelId: '',
+        )).toList(),
+        maxAgents: maxAgents,
       );
 
       plannings.add(planning);

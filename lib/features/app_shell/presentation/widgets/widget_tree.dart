@@ -5,7 +5,6 @@ import 'package:nexshift_app/core/data/datasources/notifiers.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:nexshift_app/features/home/presentation/pages/home_page.dart';
 import 'package:nexshift_app/features/planning/presentation/pages/planning_page.dart';
-import 'package:nexshift_app/features/planning/presentation/pages/my_shifts_page.dart';
 import 'package:nexshift_app/features/settings/presentation/pages/settings_page.dart';
 import 'package:nexshift_app/features/settings/presentation/pages/admin_page.dart';
 import 'package:nexshift_app/features/station/presentation/pages/station_shell_page.dart';
@@ -356,40 +355,6 @@ class _WidgetTreeState extends State<WidgetTree> {
                           ),
                         ),
                       ),
-                      // Mes astreintes - visible pour leaders, chiefs et admins
-                      if (user != null &&
-                          (user.admin ||
-                              user.status == KConstants.statusLeader ||
-                              user.status == KConstants.statusChief))
-                        TextButton(
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => const MyShiftsPage(),
-                              ),
-                            );
-                          },
-                          child: ListTile(
-                            minTileHeight: 0.0,
-                            leading: Icon(
-                              Icons.event_available,
-                              color: Theme.of(context).colorScheme.primary,
-                            ),
-                            title: Text(
-                              "Gestion des astreintes",
-                              style: TextStyle(
-                                color: Theme.of(context).colorScheme.tertiary,
-                                fontSize:
-                                    KTextStyle.descriptionTextStyle.fontSize,
-                                fontFamily:
-                                    KTextStyle.descriptionTextStyle.fontFamily,
-                                fontWeight:
-                                    KTextStyle.descriptionTextStyle.fontWeight,
-                              ),
-                            ),
-                          ),
-                        ),
                       // Administration - visible pour admins, chefs de centre et chefs de garde
                       if (user != null &&
                           (user.admin ||
