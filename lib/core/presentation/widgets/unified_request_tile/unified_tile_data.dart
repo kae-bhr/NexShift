@@ -40,6 +40,18 @@ class AgentColumnData {
       station: stationName,
     );
   }
+
+  /// Crée une copie avec un nom d'agent différent
+  AgentColumnData withAgentName(String name) {
+    return AgentColumnData(
+      agentId: agentId,
+      agentName: name,
+      team: team,
+      startTime: startTime,
+      endTime: endTime,
+      station: station,
+    );
+  }
 }
 
 /// Données d'un chef pour l'en-tête de validation

@@ -119,14 +119,17 @@ class _ReplacementPageState extends State<ReplacementPage> {
     // if currentUser is provided, pre-select replacedId
     if (widget.currentUser != null) {
       replacedId = widget.currentUser!.id;
+      // Synchroniser _dataReplacedId pour éviter tout décalage affichage/données
+      _dataReplacedId = widget.currentUser!.id;
     }
     // if parentSubshift is provided (we are replacing a replacer), prefill fields
     if (widget.parentSubshift != null) {
       final p = widget.parentSubshift!;
       // Display: show the replacer (Agent A) as the person seeking absence
       replacedId = widget.currentUser?.id ?? p.replacerId;
-      // Data: use the original replaced agent (Agent B) for validation/saving
-      _dataReplacedId = p.replacedId;
+      // Data: identique à l'affichage — chaque agent a ses propres entrées
+      // dans planning.agents, donc on utilise le même ID partout
+      _dataReplacedId = replacedId;
       // prefill window with the parent subshift window
       startDateTime = p.start;
       endDateTime = p.end;
@@ -250,6 +253,10 @@ class _ReplacementPageState extends State<ReplacementPage> {
         replacerId != null &&
         dataReplacedId == replacerId) {
       err = "Un agent ne peut pas se remplacer lui-même.";
+    } else if (widget.isManualMode &&
+        replacerId != null &&
+        _isInPlanningDuringPeriod(replacerId!, startDateTime!, endDateTime!)) {
+      err = "Le remplaçant est déjà d'astreinte sur cette plage horaire.";
     } else if (dataReplacedId != null && _isFullyCoveredByActiveRequests(dataReplacedId!)) {
       err = "Cette période est déjà totalement couverte par des demandes de remplacement en cours.";
     } else if (_hasConflict(
@@ -303,6 +310,15 @@ class _ReplacementPageState extends State<ReplacementPage> {
       }
     }
     return true;
+  }
+
+  /// Vérifie si un agent est présent dans planning.agents avec chevauchement
+  /// sur la période [start, end]. Utilisé pour refuser un remplaçant déjà
+  /// d'astreinte sur la plage demandée (mode manuel).
+  bool _isInPlanningDuringPeriod(String agentId, DateTime start, DateTime end) {
+    return widget.planning.agents.any(
+      (a) => a.agentId == agentId && a.start.isBefore(end) && a.end.isAfter(start),
+    );
   }
 
   bool _hasConflict(
@@ -606,100 +622,10 @@ class _ReplacementPageState extends State<ReplacementPage> {
       return;
     }
 
-    // For manual replacements, send a proposal to the replacer
-    // instead of saving directly
-    // Exception: when replacing a replacer's subshift (parentSubshift), save directly
-    if (widget.parentSubshift == null) {
-      await _sendManualReplacementProposal();
-      return;
-    }
-
-    // If we are replacing a replacer's subshift (parentSubshift provided), we need to split/replace that parent
-    if (widget.parentSubshift != null) {
-      final p = widget.parentSubshift!;
-      final DateTime newStart = startDateTime!;
-      final DateTime newEnd = endDateTime!;
-
-      // new replacement must be inside the parent range
-      if (newStart.isBefore(p.start) || newEnd.isAfter(p.end)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              "La plage doit être à l'intérieur du remplacement existant.",
-            ),
-          ),
-        );
-        return;
-      }
-
-      // We'll delete the parent and recreate up to three segments: before, new replacement, after
-      // (avoid zero-length segments)
-      final List<Subshift> toCreate = [];
-
-      if (p.start.isBefore(newStart)) {
-        final before = Subshift.create(
-          replacedId: p.replacedId,
-          replacerId: p.replacerId,
-          start: p.start,
-          end: newStart,
-          planningId: p.planningId,
-        );
-        toCreate.add(before);
-      }
-
-      // new segment: keep replacedId as original (p.replacedId) and replacer as selected replacer
-      final newSeg = Subshift.create(
-        replacedId: p.replacedId,
-        replacerId: replacerId!,
-        start: newStart,
-        end: newEnd,
-        planningId: p.planningId,
-      );
-      toCreate.add(newSeg);
-
-      if (newEnd.isBefore(p.end)) {
-        final after = Subshift.create(
-          replacedId: p.replacedId,
-          replacerId: p.replacerId,
-          start: newEnd,
-          end: p.end,
-          planningId: p.planningId,
-        );
-        toCreate.add(after);
-      }
-
-      // perform DB updates: remove parent and add new segments
-      await repo.delete(p.id);
-      for (final s in toCreate) {
-        await repo.save(s);
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Remplacement appliqué et sous-segments créés ✅"),
-        ),
-      );
-
-      if (mounted) Navigator.pop(context, toCreate);
-      return;
-    }
-
-    // Default behaviour: create a fresh subshift
-    final subshift = Subshift.create(
-      replacedId: replacedId!,
-      replacerId: replacerId!,
-      start: startDateTime!,
-      end: endDateTime!,
-      planningId: widget.planning.id,
-    );
-
-    await repo.save(subshift);
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Remplacement ajouté avec succès ✅")),
-    );
-
-    if (mounted) Navigator.pop(context, subshift);
+    // Toujours envoyer une proposition de remplacement manuel.
+    // Le découpage des subshifts (parentSubshift) sera effectué
+    // lors de la validation/acceptation de la proposition.
+    await _sendManualReplacementProposal();
   }
 
   /// Send a manual replacement proposal to the replacer

@@ -21,6 +21,10 @@ class UserRepository {
   final FirestoreService _firestoreService;
   final FirebaseFirestore? _directFirestore;
 
+  /// Cache statique des utilisateurs déchiffrés, alimenté par getByStation.
+  /// Clé = userId, Valeur = User avec PII en clair.
+  static final Map<String, User> _decryptedUserCache = {};
+
   /// Retourne le chemin de collection selon l'environnement
   String _getCollectionPath(String? stationId) {
     return EnvironmentConfig.getCollectionPath(_collectionName, stationId);
@@ -66,6 +70,11 @@ class UserRepository {
       // et ne peuvent être déchiffrées que par les Cloud Functions
       final cloudFunctionsService = CloudFunctionsService();
       final users = await cloudFunctionsService.getUsersByStation(stationId: stationId);
+
+      // Alimenter le cache avec les données déchiffrées
+      for (final user in users) {
+        _decryptedUserCache[user.id] = user;
+      }
 
       debugPrint('📥 UserRepository.getByStation: loaded ${users.length} users (decrypted) from station $stationId');
       return users;
@@ -120,9 +129,15 @@ class UserRepository {
   }
 
   /// Récupère un utilisateur par son ID
-  /// En mode DEV sans stationId: cherche dans toutes les stations
+  /// Cherche d'abord dans le cache des utilisateurs déchiffrés (alimenté par getByStation).
+  /// En mode DEV sans stationId: cherche dans toutes les stations.
   Future<User?> getById(String id, {String? stationId}) async {
     try {
+      // Vérifier le cache déchiffré en priorité
+      if (_decryptedUserCache.containsKey(id)) {
+        return _decryptedUserCache[id];
+      }
+
       // En mode dev SANS stationId: chercher dans toutes les stations
       if (EnvironmentConfig.useStationSubcollections && stationId == null) {
         return await _getUserByIdAcrossStations(id);

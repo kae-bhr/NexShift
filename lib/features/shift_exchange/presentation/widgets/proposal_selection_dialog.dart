@@ -24,7 +24,8 @@ String _formatDurationDiff(int diffMinutes) {
     final hours = abs ~/ 60;
     final remainMin = abs % 60;
     if (hours == 0) return '$sign${remainMin}min';
-    if (remainMin > 0) return '$sign${hours}h${remainMin.toString().padLeft(2, '0')}';
+    if (remainMin > 0)
+      return '$sign${hours}h${remainMin.toString().padLeft(2, '0')}';
     return '$sign${hours}h';
   }
 }
@@ -40,7 +41,8 @@ String _formatDuration(int minutes) {
     final hours = minutes ~/ 60;
     final remainMin = minutes % 60;
     if (hours == 0) return '${remainMin}min';
-    if (remainMin > 0) return '${hours}h${remainMin.toString().padLeft(2, '0')}';
+    if (remainMin > 0)
+      return '${hours}h${remainMin.toString().padLeft(2, '0')}';
     return '${hours}h';
   }
 }
@@ -117,9 +119,9 @@ class _ProposalSelectionDialogState extends State<_ProposalSelectionDialog> {
   bool _showDifferentDurations = false;
 
   int get _referenceDuration => _durationMinutes(
-        widget.request.initiatorStartTime,
-        widget.request.initiatorEndTime,
-      );
+    widget.request.initiatorStartTime,
+    widget.request.initiatorEndTime,
+  );
 
   @override
   void initState() {
@@ -297,8 +299,9 @@ class _ProposalSelectionDialogState extends State<_ProposalSelectionDialog> {
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
               decoration: BoxDecoration(
                 color: colorScheme.primaryContainer.withValues(alpha: 0.3),
-                borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(20)),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(20),
+                ),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -306,8 +309,8 @@ class _ProposalSelectionDialogState extends State<_ProposalSelectionDialog> {
                   Text(
                     '${_individualProposals.length} astreinte${_individualProposals.length > 1 ? 's' : ''} proposée${_individualProposals.length > 1 ? 's' : ''}',
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   const SizedBox(height: 12),
                   // Carte de référence (mon astreinte)
@@ -324,8 +327,9 @@ class _ProposalSelectionDialogState extends State<_ProposalSelectionDialog> {
                       children: [
                         CircleAvatar(
                           radius: 16,
-                          backgroundColor:
-                              colorScheme.primary.withValues(alpha: 0.1),
+                          backgroundColor: colorScheme.primary.withValues(
+                            alpha: 0.1,
+                          ),
                           child: Icon(
                             Icons.event,
                             size: 18,
@@ -414,11 +418,13 @@ class _ProposalSelectionDialogState extends State<_ProposalSelectionDialog> {
                                   if (!_showDifferentDurations) {
                                     // Vérifier si la sélection est toujours visible
                                     final visibleIds = _filteredProposals
-                                        .map((p) =>
-                                            '${p.proposalId}_${p.planningId}')
+                                        .map(
+                                          (p) =>
+                                              '${p.proposalId}_${p.planningId}',
+                                        )
                                         .toSet();
-                                    final currentKey = _selectedProposalId !=
-                                                null &&
+                                    final currentKey =
+                                        _selectedProposalId != null &&
                                             _selectedPlanningId != null
                                         ? '${_selectedProposalId}_$_selectedPlanningId'
                                         : null;
@@ -441,7 +447,9 @@ class _ProposalSelectionDialogState extends State<_ProposalSelectionDialog> {
                                         value: _showDifferentDurations,
                                         activeColor: colorScheme.primary,
                                         checkColor: colorScheme.onPrimary,
-                                        side: BorderSide(color: colorScheme.onSurfaceVariant),
+                                        side: BorderSide(
+                                          color: colorScheme.onSurfaceVariant,
+                                        ),
                                         onChanged: (v) {
                                           setState(() {
                                             _showDifferentDurations =
@@ -471,8 +479,7 @@ class _ProposalSelectionDialogState extends State<_ProposalSelectionDialog> {
                           // Liste des propositions
                           ...filteredProposals.map((individual) {
                             final isSelected =
-                                _selectedProposalId ==
-                                    individual.proposalId &&
+                                _selectedProposalId == individual.proposalId &&
                                 _selectedPlanningId == individual.planningId;
                             final isRejected = individual.rejectedPlanningIds
                                 .contains(individual.planningId);
@@ -489,10 +496,11 @@ class _ProposalSelectionDialogState extends State<_ProposalSelectionDialog> {
                                 color: isRejected
                                     ? Colors.grey[100]
                                     : isSelected
-                                        ? colorScheme.primary
-                                            .withValues(alpha: 0.08)
-                                        : colorScheme.surfaceContainerHighest
-                                            .withValues(alpha: 0.3),
+                                    ? colorScheme.primary.withValues(
+                                        alpha: 0.08,
+                                      )
+                                    : colorScheme.surfaceContainerHighest
+                                          .withValues(alpha: 0.3),
                                 borderRadius: BorderRadius.circular(12),
                                 child: InkWell(
                                   borderRadius: BorderRadius.circular(12),
@@ -556,16 +564,16 @@ class _ProposalSelectionDialogState extends State<_ProposalSelectionDialog> {
                                                   if (isRejected)
                                                     Container(
                                                       padding:
-                                                          const EdgeInsets
-                                                              .symmetric(
-                                                        horizontal: 6,
-                                                        vertical: 2,
-                                                      ),
+                                                          const EdgeInsets.symmetric(
+                                                            horizontal: 6,
+                                                            vertical: 2,
+                                                          ),
                                                       decoration: BoxDecoration(
                                                         color: Colors.red[50],
                                                         borderRadius:
-                                                            BorderRadius
-                                                                .circular(6),
+                                                            BorderRadius.circular(
+                                                              6,
+                                                            ),
                                                       ),
                                                       child: Text(
                                                         'Refusée',
@@ -588,7 +596,7 @@ class _ProposalSelectionDialogState extends State<_ProposalSelectionDialog> {
                                                   color: isRejected
                                                       ? Colors.grey
                                                       : colorScheme
-                                                          .onSurfaceVariant,
+                                                            .onSurfaceVariant,
                                                 ),
                                               ),
                                               const SizedBox(height: 2),
@@ -599,7 +607,7 @@ class _ProposalSelectionDialogState extends State<_ProposalSelectionDialog> {
                                                   color: isRejected
                                                       ? Colors.grey
                                                       : colorScheme
-                                                          .onSurfaceVariant,
+                                                            .onSurfaceVariant,
                                                 ),
                                               ),
                                             ],
@@ -615,10 +623,12 @@ class _ProposalSelectionDialogState extends State<_ProposalSelectionDialog> {
                                             ),
                                             decoration: BoxDecoration(
                                               color: isSameDuration
-                                                  ? Colors.green
-                                                      .withValues(alpha: 0.1)
-                                                  : Colors.orange
-                                                      .withValues(alpha: 0.1),
+                                                  ? Colors.green.withValues(
+                                                      alpha: 0.1,
+                                                    )
+                                                  : Colors.orange.withValues(
+                                                      alpha: 0.1,
+                                                    ),
                                               borderRadius:
                                                   BorderRadius.circular(6),
                                             ),
@@ -626,7 +636,8 @@ class _ProposalSelectionDialogState extends State<_ProposalSelectionDialog> {
                                               isSameDuration
                                                   ? '='
                                                   : _formatDurationDiff(
-                                                      diffMinutes),
+                                                      diffMinutes,
+                                                    ),
                                               style: TextStyle(
                                                 fontSize: 11,
                                                 fontWeight: FontWeight.bold,
@@ -655,8 +666,11 @@ class _ProposalSelectionDialogState extends State<_ProposalSelectionDialog> {
                             ),
                             child: Row(
                               children: [
-                                Icon(Icons.info_outline,
-                                    size: 18, color: Colors.orange[700]),
+                                Icon(
+                                  Icons.info_outline,
+                                  size: 18,
+                                  color: Colors.orange[700],
+                                ),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
@@ -692,7 +706,8 @@ class _ProposalSelectionDialogState extends State<_ProposalSelectionDialog> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: FilledButton(
-                      onPressed: _isSubmitting ||
+                      onPressed:
+                          _isSubmitting ||
                               _selectedProposalId == null ||
                               _selectedPlanningId == null
                           ? null
@@ -706,7 +721,7 @@ class _ProposalSelectionDialogState extends State<_ProposalSelectionDialog> {
                                 color: Colors.white,
                               ),
                             )
-                          : const Text('Confirmer mon choix'),
+                          : const Text('Confirmer'),
                     ),
                   ),
                 ],

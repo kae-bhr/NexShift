@@ -442,15 +442,26 @@ class ReplacementNotificationService {
           .doc(request.planningId)
           .get();
 
+      // Vague 0 : exclure les agents dont la présence dans planning.agents
+      // chevauche la période demandée
       final List<String> agentsInPlanning = [];
       String? planningTeam;
       if (planningDoc.exists) {
         final data = planningDoc.data();
-        agentsInPlanning.addAll(List<String>.from(data?['agentsId'] ?? []));
         planningTeam = data?['team'] as String?;
+        final planning = Planning.fromJson({'id': planningDoc.id, ...data!});
+        // Agents dont au moins une entrée chevauche [startTime, endTime]
+        agentsInPlanning.addAll(
+          planning.agents
+              .where((a) =>
+                  a.start.isBefore(request.endTime) &&
+                  a.end.isAfter(request.startTime))
+              .map((a) => a.agentId)
+              .toSet(),
+        );
       }
 
-      debugPrint('📋 Planning has ${agentsInPlanning.length} agents on duty');
+      debugPrint('📋 Planning has ${agentsInPlanning.length} agents overlapping requested period');
 
       // Si c'est une demande de disponibilité, utiliser une logique différente
       if (request.requestType == RequestType.availability) {

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:nexshift_app/core/data/models/planning_model.dart';
 import 'package:nexshift_app/core/repositories/planning_repository.dart';
-import 'package:nexshift_app/core/repositories/subshift_repositories.dart';
 import 'package:nexshift_app/core/services/shift_exchange_service.dart';
 
 /// Dialog pour créer une demande d'échange d'astreinte
@@ -61,21 +60,15 @@ class _CreateExchangeDialogState extends State<_CreateExchangeDialog> {
       final stationPlannings = await _planningRepository.getByStation(widget.stationId);
       print('[DEBUG Exchange] Total plannings in station: ${stationPlannings.length}');
 
-      // Filtrer pour ne garder que ceux de l'utilisateur (agent direct OU remplaçant actif)
-      final subshiftRepo = SubshiftRepository();
+      // Filtrer pour ne garder que ceux où l'utilisateur est agent de base
+      // (replacedAgentId == null). Les remplaçants ne peuvent pas proposer d'échange.
       final userPlannings = <Planning>[];
       for (final p in stationPlannings) {
-        if (p.agentsId.contains(widget.userId)) {
+        final hasBaseEntry = p.agents.any(
+          (a) => a.agentId == widget.userId && a.replacedAgentId == null,
+        );
+        if (hasBaseEntry) {
           userPlannings.add(p);
-        } else {
-          // Vérifier si l'utilisateur est un remplaçant actif sur ce planning
-          final subs = await subshiftRepo.getByPlanningId(p.id, stationId: p.station);
-          if (subs.any((s) =>
-              s.replacerId == widget.userId &&
-              s.end.isAfter(p.startTime) &&
-              s.start.isBefore(p.endTime))) {
-            userPlannings.add(p);
-          }
         }
       }
       print('[DEBUG Exchange] User plannings found: ${userPlannings.length}');

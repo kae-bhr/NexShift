@@ -4,6 +4,7 @@ import 'package:nexshift_app/core/data/models/shift_exchange_request_model.dart'
 import 'package:nexshift_app/core/data/models/shift_exchange_proposal_model.dart';
 import 'package:nexshift_app/core/data/models/planning_model.dart';
 import 'package:nexshift_app/core/repositories/planning_repository.dart';
+import 'package:nexshift_app/core/repositories/user_repository.dart';
 import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/core/utils/station_name_cache.dart';
 
@@ -76,11 +77,14 @@ class ExchangeTileWrapper extends StatefulWidget {
 
 class _ExchangeTileWrapperState extends State<ExchangeTileWrapper> {
   final _planningRepository = PlanningRepository();
+  final _userRepository = UserRepository();
 
   Planning? _initiatorPlanning;
   Planning? _proposerPlanning;
   String? _initiatorTeam;
   String? _proposerTeam;
+  String? _initiatorName;
+  String? _proposerName;
   String _stationName = '';
   bool _isLoading = true;
 
@@ -120,6 +124,21 @@ class _ExchangeTileWrapperState extends State<ExchangeTileWrapper> {
         _proposerTeam = _proposerPlanning?.team;
       }
 
+      // Résoudre les noms des agents depuis le cache déchiffré
+      final initiator = await _userRepository.getById(
+        widget.request.initiatorId,
+        stationId: widget.request.station,
+      );
+      _initiatorName = initiator?.displayName;
+
+      if (widget.selectedProposal != null) {
+        final proposer = await _userRepository.getById(
+          widget.selectedProposal!.proposerId,
+          stationId: widget.request.station,
+        );
+        _proposerName = proposer?.displayName;
+      }
+
       // Résoudre le nom de la station
       final sdisId = SDISContext().currentSDISId;
       if (sdisId != null && widget.request.station.isNotEmpty) {
@@ -155,14 +174,26 @@ class _ExchangeTileWrapperState extends State<ExchangeTileWrapper> {
       validationChiefs = _buildValidationChiefs(widget.selectedProposal!);
     }
 
-    // Convertir en UnifiedTileData (avec nom de station résolu)
-    final tileData = widget.request.toUnifiedTileData(
+    // Convertir en UnifiedTileData (avec nom de station et noms d'agents résolus)
+    var tileData = widget.request.toUnifiedTileData(
       selectedProposal: widget.selectedProposal,
       proposerPlanning: _proposerPlanning,
       initiatorTeam: _initiatorTeam,
       proposerTeam: _proposerTeam,
       validationChiefs: validationChiefs,
     ).withStationName(_stationName);
+
+    // Remplacer les noms d'agents par les noms déchiffrés si disponibles
+    if (_initiatorName != null && _initiatorName!.isNotEmpty) {
+      tileData = tileData.copyWith(
+        leftColumn: tileData.leftColumn.withAgentName(_initiatorName!),
+      );
+    }
+    if (_proposerName != null && _proposerName!.isNotEmpty && tileData.rightColumn != null) {
+      tileData = tileData.copyWith(
+        rightColumn: tileData.rightColumn!.withAgentName(_proposerName!),
+      );
+    }
 
     // Déterminer si l'utilisateur peut agir
     bool canAct = true;

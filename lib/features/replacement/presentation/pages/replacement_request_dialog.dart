@@ -6,6 +6,7 @@ import 'package:nexshift_app/core/repositories/subshift_repositories.dart';
 import 'package:nexshift_app/core/repositories/planning_repository.dart';
 import 'package:nexshift_app/core/config/environment_config.dart';
 import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
+import 'package:nexshift_app/core/utils/station_name_cache.dart';
 
 /// Dialog affichant une demande de remplacement
 /// Permet à l'utilisateur de répondre (disponible / indisponible)
@@ -38,6 +39,7 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
   String? _error;
   bool _canAccept = true;
   String? _cannotAcceptReason;
+  String _stationName = '';
 
   // Time range selection for partial replacement
   DateTime? _selectedStartTime;
@@ -204,9 +206,21 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
         }
       }
 
+      // Résoudre le nom de la station
+      String stationName = request.station;
+      final sdisId = SDISContext().currentSDISId;
+      if (sdisId != null && sdisId.isNotEmpty && request.station.isNotEmpty) {
+        try {
+          stationName = await StationNameCache().getStationName(sdisId, request.station);
+        } catch (_) {
+          // Fallback : garder l'ID
+        }
+      }
+
       setState(() {
         _request = request;
         _requesterName = requesterName;
+        _stationName = stationName;
         _canAccept = canAccept;
         _cannotAcceptReason = cannotAcceptReason;
         _isLoading = false;
@@ -892,7 +906,7 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        _request!.station,
+                        _stationName.isNotEmpty ? _stationName : _request!.station,
                         style: const TextStyle(fontSize: 14),
                       ),
                     ],
