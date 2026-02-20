@@ -9,6 +9,7 @@ class PlanningTile extends StatelessWidget {
   final DateTime? endDateTime;
   final VoidCallback? onTap;
   final String? errorMessage;
+
   /// Périodes non couvertes pour l'agent sélectionné (remplacements existants)
   final List<Map<String, DateTime>> uncoveredPeriods;
 
@@ -22,136 +23,151 @@ class PlanningTile extends StatelessWidget {
     this.uncoveredPeriods = const [],
   });
 
-  /// Determine if text should be dark or light based on background luminance
-  Color _adaptiveTextColor(Color backgroundColor) {
-    final luminance = backgroundColor.computeLuminance();
-    return luminance > 0.5 ? Colors.black87 : Colors.white;
-  }
-
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final dateFormat = DateFormat('dd/MM/yyyy HH:mm');
     final hasError = errorMessage != null && errorMessage!.isNotEmpty;
     final isValid = !hasError && startDateTime != null && endDateTime != null;
 
-    // Compute actual background color to determine text color
-    final backgroundColor = hasError
-        ? Colors.red.shade50
-        : isValid
-        ? Colors.green.shade50
-        : Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3);
+    // Couleurs adaptatives thème clair/sombre
+    final Color containerColor;
+    final Color borderColor;
+    final Color accentColor;
 
-    final adaptiveTextColor = _adaptiveTextColor(backgroundColor);
+    if (hasError) {
+      containerColor = isDark
+          ? Colors.red.withValues(alpha: 0.12)
+          : Colors.red.shade50;
+      borderColor = isDark
+          ? Colors.red.withValues(alpha: 0.40)
+          : Colors.red.shade300;
+      accentColor = isDark ? Colors.red.shade300 : Colors.red.shade700;
+    } else if (isValid) {
+      containerColor = isDark
+          ? Colors.green.withValues(alpha: 0.10)
+          : Colors.green.shade50;
+      borderColor = isDark
+          ? Colors.green.withValues(alpha: 0.35)
+          : Colors.green.shade300;
+      accentColor = isDark ? Colors.green.shade300 : Colors.green.shade700;
+    } else {
+      containerColor = isDark
+          ? Colors.white.withValues(alpha: 0.04)
+          : Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3);
+      borderColor = isDark
+          ? Colors.white.withValues(alpha: 0.12)
+          : Theme.of(context).colorScheme.primary.withValues(alpha: 0.3);
+      accentColor = Theme.of(context).colorScheme.primary;
+    }
+
+    final subtleTextColor = isDark ? Colors.grey.shade400 : Colors.grey.shade600;
 
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: hasError
-              ? Colors.red.shade50
-              : isValid
-              ? Colors.green.shade50
-              : Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: hasError
-                ? Colors.red.shade300
-                : isValid
-                ? Colors.green.shade300
-                : Theme.of(context).colorScheme.primary.withOpacity(0.3),
-          ),
+          color: containerColor,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: borderColor),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Header
             Row(
               children: [
-                Icon(
-                  Icons.calendar_today,
-                  size: 20,
-                  color: hasError
-                      ? Colors.red
-                      : isValid
-                      ? Colors.green.shade700
-                      : Theme.of(context).colorScheme.primary,
-                ),
+                Icon(Icons.calendar_today_rounded, size: 16, color: accentColor),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     'Astreinte ${planning.team}',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: hasError
-                          ? Colors.red.shade700
-                          : isValid
-                          ? Colors.green.shade700
-                          : null,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: accentColor,
                     ),
                   ),
                 ),
                 if (onTap != null)
-                  Icon(Icons.edit, size: 16, color: Colors.black54),
+                  Icon(
+                    Icons.edit_rounded,
+                    size: 14,
+                    color: subtleTextColor,
+                  ),
               ],
             ),
-            const SizedBox(height: 8),
-            _buildDateRow(
-              context,
-              'Astreinte',
-              dateFormat.format(planning.startTime),
-              dateFormat.format(planning.endTime),
-              isSubtitle: true,
-              adaptiveTextColor: adaptiveTextColor,
+            const SizedBox(height: 10),
+
+            // Plage de l'astreinte
+            _DateBlock(
+              label: 'Astreinte',
+              start: dateFormat.format(planning.startTime),
+              end: dateFormat.format(planning.endTime),
+              textColor: subtleTextColor,
+              isSubtle: true,
             ),
+
+            // Plage de remplacement sélectionnée
             if (startDateTime != null && endDateTime != null) ...[
               const SizedBox(height: 8),
-              _buildDateRow(
-                context,
-                'Remplacement',
-                dateFormat.format(startDateTime!),
-                dateFormat.format(endDateTime!),
-                isHighlighted: true,
-                hasError: hasError,
-                isValid: isValid,
-                adaptiveTextColor: adaptiveTextColor,
+              _DateBlock(
+                label: 'Remplacement',
+                start: dateFormat.format(startDateTime!),
+                end: dateFormat.format(endDateTime!),
+                textColor: accentColor,
+                isSubtle: false,
               ),
             ],
+
+            // Message d'erreur
             if (hasError) ...[
               const SizedBox(height: 8),
               Container(
-                padding: const EdgeInsets.all(8),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
                 decoration: BoxDecoration(
-                  color: Colors.red.shade100,
-                  borderRadius: BorderRadius.circular(4),
+                  color: isDark
+                      ? Colors.red.withValues(alpha: 0.15)
+                      : Colors.red.shade100,
+                  borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(
                   children: [
-                    const Icon(
-                      Icons.error_outline,
-                      size: 16,
-                      color: Colors.red,
-                    ),
+                    Icon(Icons.error_outline_rounded,
+                        size: 14,
+                        color: isDark ? Colors.red.shade300 : Colors.red),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         errorMessage!,
-                        style: const TextStyle(color: Colors.red, fontSize: 12),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDark ? Colors.red.shade300 : Colors.red.shade700,
+                        ),
                       ),
                     ),
                   ],
                 ),
               ),
             ],
-            // Périodes non couvertes (remplacements existants qui réduisent la présence)
+
+            // Périodes non couvertes
             if (uncoveredPeriods.isNotEmpty) ...[
               const SizedBox(height: 8),
               Container(
-                padding: const EdgeInsets.all(8),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                 decoration: BoxDecoration(
-                  color: Colors.orange.shade50,
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: Colors.orange.shade200),
+                  color: isDark
+                      ? Colors.orange.withValues(alpha: 0.12)
+                      : Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: isDark
+                        ? Colors.orange.withValues(alpha: 0.30)
+                        : Colors.orange.shade200,
+                  ),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -161,7 +177,9 @@ class PlanningTile extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
-                        color: Colors.orange.shade800,
+                        color: isDark
+                            ? Colors.orange.shade300
+                            : Colors.orange.shade800,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -169,20 +187,29 @@ class PlanningTile extends StatelessWidget {
                       final s = g['start']!;
                       final e = g['end']!;
                       return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        padding: const EdgeInsets.only(top: 4),
                         child: Row(
                           children: [
-                            Icon(
-                              Icons.schedule_rounded,
-                              size: 14,
-                              color: Colors.orange.shade700,
+                            Container(
+                              width: 3,
+                              height: 14,
+                              margin: const EdgeInsets.only(right: 8),
+                              decoration: BoxDecoration(
+                                color: isDark
+                                    ? Colors.orange.shade400
+                                    : Colors.orange.shade400,
+                                borderRadius: BorderRadius.circular(2),
+                              ),
                             ),
-                            const SizedBox(width: 6),
-                            Text(
-                              '${dateFormat.format(s)} → ${dateFormat.format(e)}',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.orange.shade800,
+                            Expanded(
+                              child: Text(
+                                '${dateFormat.format(s)} → ${dateFormat.format(e)}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: isDark
+                                      ? Colors.orange.shade300
+                                      : Colors.orange.shade800,
+                                ),
                               ),
                             ),
                           ],
@@ -198,37 +225,52 @@ class PlanningTile extends StatelessWidget {
       ),
     );
   }
+}
 
-  Widget _buildDateRow(
-    BuildContext context,
-    String label,
-    String startStr,
-    String endStr, {
-    bool isSubtitle = false,
-    bool isHighlighted = false,
-    bool hasError = false,
-    bool isValid = false,
-    Color? adaptiveTextColor,
-  }) {
-    // Utiliser la même taille de police pour l'astreinte et le remplacement
-    final textStyle = Theme.of(context).textTheme.bodySmall;
+class _DateBlock extends StatelessWidget {
+  final String label;
+  final String start;
+  final String end;
+  final Color textColor;
+  final bool isSubtle;
 
-    final color = hasError
-        ? Colors.red.shade700
-        : isValid
-        ? Colors.green.shade700
-        : isHighlighted
-        ? Theme.of(context).colorScheme.primary
-        : (adaptiveTextColor ?? Colors.black);
+  const _DateBlock({
+    required this.label,
+    required this.start,
+    required this.end,
+    required this.textColor,
+    required this.isSubtle,
+  });
 
-    return Text(
-      '$label : $startStr → $endStr',
-      style: textStyle?.copyWith(
-        fontWeight: isHighlighted ? FontWeight.w600 : FontWeight.normal,
-        color: color,
-      ),
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 80,
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: textColor.withValues(alpha: isSubtle ? 0.7 : 1.0),
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            '$start → $end',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: isSubtle ? FontWeight.w400 : FontWeight.w600,
+              color: textColor,
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -269,10 +311,9 @@ class DateTimePickerService {
     List<dynamic>? existingRequests,
   }) {
     if (startDateTime == null || endDateTime == null) {
-      return null; // Pas encore de dates sélectionnées
+      return null;
     }
 
-    // Vérifier que la date de début n'est pas dans le passé
     if (startDateTime.isBefore(DateTime.now())) {
       return "La date de début ne peut pas être dans le passé.";
     }
@@ -289,10 +330,8 @@ class DateTimePickerService {
       return "La date de fin ne peut pas dépasser celle de l'astreinte.";
     }
 
-    // Vérifier le chevauchement avec des demandes existantes
     if (existingRequests != null) {
       for (final request in existingRequests) {
-        // Extraire les dates de la demande existante
         final requestStart = request['startTime'] is DateTime
             ? request['startTime'] as DateTime
             : (request['startTime'] as dynamic).toDate();
@@ -300,7 +339,6 @@ class DateTimePickerService {
             ? request['endTime'] as DateTime
             : (request['endTime'] as dynamic).toDate();
 
-        // Vérifier le chevauchement
         final overlapStart = requestStart.isBefore(endDateTime);
         final overlapEnd = requestEnd.isAfter(startDateTime);
 
@@ -310,6 +348,6 @@ class DateTimePickerService {
       }
     }
 
-    return null; // Tout est valide
+    return null;
   }
 }

@@ -597,397 +597,154 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
 
     return Scaffold(
       appBar: CustomAppBar(
-        title: Text(
-          'Vue opérationnelle',
-          style: TextStyle(
-            color: Theme.of(context).colorScheme.primary,
-            fontSize: 18,
-          ),
-        ),
+        title: 'Vue opérationnelle',
         bottomColor: KColors.appNameColor,
-        actions: [
-          IconButton(
-            iconSize: 24,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-            onPressed: hasPreviousEvent ? _goToPreviousEvent : null,
-            icon: Icon(
-              Icons.chevron_left,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-            tooltip: 'Évènement précédent',
-          ),
-          TextButton(
-            onPressed: _pickAt,
-            style: TextButton.styleFrom(
-              foregroundColor: Theme.of(context).colorScheme.primary,
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.access_time, size: 18),
-                const SizedBox(width: 4),
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _formatDate(_at),
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        height: 1.0,
-                      ),
-                    ),
-                    Text(
-                      _formatTime(_at),
-                      style: const TextStyle(fontSize: 11, height: 1.0),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          IconButton(
-            iconSize: 24,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-            onPressed: hasNextEvent ? _goToNextEvent : null,
-            icon: Icon(
-              Icons.chevron_right,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-            tooltip: 'Évènement suivant',
-          ),
-        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                // Scrollable content
+                // ── Bandeau navigation temporelle ───────────────────────
+                _TimeNavBand(
+                  at: _at,
+                  hasPrevious: hasPreviousEvent,
+                  hasNext: hasNextEvent,
+                  onPrevious: _goToPreviousEvent,
+                  onNext: _goToNextEvent,
+                  onPickAt: _pickAt,
+                  formatDate: _formatDate,
+                  formatTime: _formatTime,
+                ),
+                // ── Contenu scrollable ───────────────────────────────────
                 Expanded(
                   child: SingleChildScrollView(
-                    child: Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (_currentPlanning == null) ...[
-                            // show duration since previous and until next planning if available
-                            if (_prevPlanning != null || _nextPlanning != null)
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  if (_prevPlanning != null) ...[
-                                    Text(
-                                      "Depuis la fin de la précédente astreinte : ${_formatDuration(Duration(milliseconds: _at.toUtc().difference(_prevPlanning!.endTime.toUtc()).inMilliseconds))}",
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.bodySmall,
-                                    ),
-                                    const SizedBox(height: 4),
-                                  ],
-                                  if (_nextPlanning != null) ...[
-                                    Text(
-                                      "Jusqu'à la prochaine astreinte : ${_formatDuration(Duration(milliseconds: _nextPlanning!.startTime.toUtc().difference(_at.toUtc()).inMilliseconds))}",
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.bodySmall,
-                                    ),
-                                    const SizedBox(height: 8),
-                                  ],
-                                ],
-                              ),
-                          ],
-                          // Compact info card showing station and planning details
-                          Container(
-                            width: double.infinity,
-                            margin: const EdgeInsets.all(16),
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [
-                                  KColors.appNameColor.withOpacity(0.1),
-                                  KColors.appNameColor.withOpacity(0.05),
-                                ],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              ),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: KColors.appNameColor.withOpacity(0.3),
-                                width: 1,
-                              ),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Icon(
-                                      Icons.location_on,
-                                      size: 20,
-                                      color: KColors.appNameColor,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      stationLabel,
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .titleMedium
-                                          ?.copyWith(
-                                            fontWeight: FontWeight.bold,
-                                            color: KColors.appNameColor,
-                                          ),
-                                    ),
-                                  ],
-                                ),
-                                if (_currentPlanning != null) ...[
-                                  const SizedBox(height: 8),
-                                  Row(
-                                    children: [
-                                      Icon(
-                                        Icons.groups,
-                                        size: 18,
-                                        color: Colors.grey[700],
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        teamLabel,
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .bodyMedium
-                                            ?.copyWith(
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Row(
-                                    children: [
-                                      Icon(
-                                        Icons.access_time,
-                                        size: 18,
-                                        color: Colors.grey[700],
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          'Du ${_formatDate(_currentPlanning!.startTime)} ${_formatTime(_currentPlanning!.startTime)} au ${_formatDate(_currentPlanning!.endTime)} ${_formatTime(_currentPlanning!.endTime)}',
-                                          style: Theme.of(
-                                            context,
-                                          ).textTheme.bodySmall,
-                                          overflow: TextOverflow.ellipsis,
-                                          maxLines: 2,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ] else ...[
-                                  const SizedBox(height: 8),
-                                  Row(
-                                    children: [
-                                      Icon(
-                                        Icons.info_outline,
-                                        size: 18,
-                                        color: Colors.grey[600],
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        'Aucune astreinte active',
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .bodyMedium
-                                            ?.copyWith(
-                                              fontStyle: FontStyle.italic,
-                                              color: Colors.grey[600],
-                                            ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                          const Divider(),
-                          Text(
-                            "Agents en astreinte :",
-                            style: Theme.of(context).textTheme.titleMedium
-                                ?.copyWith(fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(height: 8),
-                          if (_agents.isEmpty)
-                            Text(
-                              "Aucun agent en astreinte pour cet horaire.",
-                              style: TextStyle(
-                                color: Colors.grey[600],
-                                fontSize: 14,
-                              ),
-                            )
-                          else
-                            ..._agents.map((a) {
-                              final active = activeReplacementByReplaced[a.id];
-                              if (active != null) {
-                                final replacer = _findUserById(
-                                  active.replacerId,
-                                );
-                                return Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 4.0,
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          a.displayName,
-                                          style: _replacedNameStyle(context),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Icon(
-                                        Icons.arrow_right_alt,
-                                        size: 20,
-                                        color: _isFullyReplacedForPlanning(a.id)
-                                            ? Colors.red
-                                            : Colors.orange,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          replacer != null
-                                              ? replacer.displayName
-                                              : "Remplaçant inconnu",
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              } else {
-                                return Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 4.0,
-                                  ),
-                                  child: Text(a.displayName),
-                                );
-                              }
-                            }),
-                          const SizedBox(height: 16),
-                          const Divider(),
-                          Text(
-                            "Agents en disponibilité :",
-                            style: Theme.of(context).textTheme.titleMedium
-                                ?.copyWith(fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(height: 8),
-                          if (_availableAgents.isEmpty)
-                            Text(
-                              "Aucun agent en disponibilité pour cet horaire.",
-                              style: TextStyle(
-                                color: Colors.grey[600],
-                                fontSize: 14,
-                              ),
-                            )
-                          else
-                            ..._availableAgents.map((a) {
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 4.0,
-                                ),
-                                child: Row(
-                                  children: [
-                                    Text(
-                                      a.displayName,
-                                      style: TextStyle(
-                                        fontStyle: FontStyle.italic,
-                                        color: Colors.blue[700],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            }),
-                          const SizedBox(height: 16),
-                          const Divider(),
-                          Text(
-                            "Véhicules :",
-                            style: Theme.of(context).textTheme.titleMedium
-                                ?.copyWith(fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(height: 8),
-                          // show vehicles for chosen station; they will be red/flagged if crew insufficient
-                          // FPT vehicles show both 4H and 6H modes
-                          // Sort vehicles by type order (VSAV, VTU, FPT, VPS) and ID
-                          Wrap(
-                            spacing: 12,
-                            runSpacing: 12,
-                            children: () {
-                              // Sort all trucks once
-                              final sortedTrucks = _stationTrucks.toList()
-                                ..sort((a, b) {
-                                  final priorityA =
-                                      KTrucks.vehicleTypePriority[a.type] ??
-                                      999;
-                                  final priorityB =
-                                      KTrucks.vehicleTypePriority[b.type] ??
-                                      999;
-                                  if (priorityA != priorityB) {
-                                    return priorityA.compareTo(priorityB);
-                                  }
-                                  return a.id.compareTo(b.id);
-                                });
-
-                              final widgets = <Widget>[];
-
-                              // Add vehicles in sorted order
-                              for (final truck in sortedTrucks) {
-                                widgets.addAll(_buildVehicleWidgets(truck));
-                              }
-
-                              return widgets;
-                            }(),
-                          ),
-                          const SizedBox(height: 16),
-                          const Divider(),
-                          Text(
-                            "Compétences :",
-                            style: Theme.of(context).textTheme.titleMedium
-                                ?.copyWith(fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(height: 8),
-                          // always show skills box (counts may be zero when no agents on duty)
-                          Wrap(
-                            spacing: 12,
-                            runSpacing: 12,
-                            children: KSkills.listSkills.map((skill) {
-                              final color = _getSkillColor(skill);
-                              final count = _skillsCount[skill] ?? 0;
-                              return GestureDetector(
-                                onTap: () => _showSkillDialog(context, skill),
-                                child: _buildSkillBox(
-                                  context,
-                                  skill,
-                                  count,
-                                  0,
-                                  color,
-                                ),
-                              );
-                            }).toList(),
-                          ),
-                        ],
-                      ),
+                    padding: const EdgeInsets.only(bottom: 32),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // ── Info card planning ────────────────────────────
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                    child: _PlanningInfoCard(
+                      stationLabel: stationLabel,
+                      teamLabel: teamLabel,
+                      planning: _currentPlanning,
+                      prevPlanning: _prevPlanning,
+                      nextPlanning: _nextPlanning,
+                      at: _at,
+                      formatDate: _formatDate,
+                      formatTime: _formatTime,
+                      formatDuration: _formatDuration,
                     ),
                   ),
-                ),
-              ],
+
+                  const SizedBox(height: 20),
+
+                  // ── Agents en astreinte ─────────────────────────────────
+                  _OperationalSection(
+                    icon: Icons.shield_rounded,
+                    title: 'Agents en astreinte',
+                    count: _agents.length,
+                    emptyMessage: 'Aucun agent en astreinte pour cet horaire.',
+                    child: _agents.isEmpty
+                        ? null
+                        : Column(
+                            children: _agents.map((a) {
+                              final active = activeReplacementByReplaced[a.id];
+                              if (active != null) {
+                                final replacer = _findUserById(active.replacerId);
+                                final isFullyReplaced =
+                                    _isFullyReplacedForPlanning(a.id);
+                                return _AgentReplacementRow(
+                                  replaced: a,
+                                  replacer: replacer,
+                                  isFullyReplaced: isFullyReplaced,
+                                  replacedStyle: _replacedNameStyle(context),
+                                );
+                              }
+                              return _AgentRow(agent: a);
+                            }).toList(),
+                          ),
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  // ── Agents en disponibilité ─────────────────────────────
+                  _OperationalSection(
+                    icon: Icons.volunteer_activism_rounded,
+                    title: 'Agents en disponibilité',
+                    count: _availableAgents.length,
+                    emptyMessage: 'Aucun agent en disponibilité.',
+                    child: _availableAgents.isEmpty
+                        ? null
+                        : Column(
+                            children: _availableAgents
+                                .map((a) => _AgentRow(
+                                      agent: a,
+                                      isAvailable: true,
+                                    ))
+                                .toList(),
+                          ),
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  // ── Véhicules ───────────────────────────────────────────
+                  _OperationalSection(
+                    icon: Icons.local_fire_department_rounded,
+                    title: 'Véhicules',
+                    count: null,
+                    emptyMessage: 'Aucun véhicule configuré.',
+                    child: _stationTrucks.isEmpty
+                        ? null
+                        : Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: () {
+                              final sortedTrucks = _stationTrucks.toList()
+                                ..sort((a, b) {
+                                  final pA = KTrucks.vehicleTypePriority[a.type] ?? 999;
+                                  final pB = KTrucks.vehicleTypePriority[b.type] ?? 999;
+                                  if (pA != pB) return pA.compareTo(pB);
+                                  return a.id.compareTo(b.id);
+                                });
+                              return [
+                                for (final truck in sortedTrucks)
+                                  ..._buildVehicleWidgets(truck),
+                              ];
+                            }(),
+                          ),
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  // ── Compétences ─────────────────────────────────────────
+                  _OperationalSection(
+                    icon: Icons.workspace_premium_rounded,
+                    title: 'Compétences',
+                    count: null,
+                    emptyMessage: '',
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: KSkills.listSkills.map((skill) {
+                        final color = _getSkillColor(skill);
+                        final count = _skillsCount[skill] ?? 0;
+                        return GestureDetector(
+                          onTap: () => _showSkillDialog(context, skill),
+                          child: _buildSkillBox(context, skill, count, 0, color),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+                ],
+              ),
             ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1338,5 +1095,633 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
     if (days > 0) return '${days}j ${hours}h ${minutes}m';
     if (hours > 0) return '${hours}h ${minutes}m';
     return '${minutes}m';
+  }
+}
+
+// ── Widgets locaux ────────────────────────────────────────────────────────────
+
+/// En-tête de section avec icône, titre et compteur optionnel
+/// Bandeau de navigation temporelle (précédent / date+heure / suivant)
+class _TimeNavBand extends StatelessWidget {
+  final DateTime at;
+  final bool hasPrevious;
+  final bool hasNext;
+  final VoidCallback onPrevious;
+  final VoidCallback onNext;
+  final VoidCallback onPickAt;
+  final String Function(DateTime) formatDate;
+  final String Function(DateTime) formatTime;
+
+  const _TimeNavBand({
+    required this.at,
+    required this.hasPrevious,
+    required this.hasNext,
+    required this.onPrevious,
+    required this.onNext,
+    required this.onPickAt,
+    required this.formatDate,
+    required this.formatTime,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primary = KColors.appNameColor;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark
+            ? Colors.white.withValues(alpha: 0.03)
+            : Colors.grey.shade50,
+        border: Border(
+          bottom: BorderSide(
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.08)
+                : Colors.grey.shade200,
+          ),
+        ),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      child: Row(
+        children: [
+          // Bouton précédent
+          IconButton(
+            iconSize: 22,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+            onPressed: hasPrevious ? onPrevious : null,
+            icon: Icon(
+              Icons.chevron_left_rounded,
+              color: hasPrevious
+                  ? primary
+                  : primary.withValues(alpha: 0.3),
+            ),
+            tooltip: 'Évènement précédent',
+          ),
+          // Bouton date/heure centré
+          Expanded(
+            child: GestureDetector(
+              onTap: onPickAt,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                decoration: BoxDecoration(
+                  color: primary.withValues(alpha: isDark ? 0.14 : 0.07),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: primary.withValues(alpha: isDark ? 0.28 : 0.20),
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.access_time_rounded, size: 14, color: primary),
+                    const SizedBox(width: 6),
+                    Text(
+                      formatDate(at),
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: primary,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      width: 1,
+                      height: 14,
+                      color: primary.withValues(alpha: 0.3),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      formatTime(at),
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          // Bouton suivant
+          IconButton(
+            iconSize: 22,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+            onPressed: hasNext ? onNext : null,
+            icon: Icon(
+              Icons.chevron_right_rounded,
+              color: hasNext
+                  ? primary
+                  : primary.withValues(alpha: 0.3),
+            ),
+            tooltip: 'Évènement suivant',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OperationalSection extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final int? count;
+  final String emptyMessage;
+  final Widget? child;
+
+  const _OperationalSection({
+    required this.icon,
+    required this.title,
+    required this.count,
+    required this.emptyMessage,
+    this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Row(
+            children: [
+              Icon(
+                icon,
+                size: 15,
+                color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                title.toUpperCase(),
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.8,
+                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                ),
+              ),
+              if (count != null && count! > 0) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? Colors.white.withValues(alpha: 0.10)
+                        : Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '$count',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: isDark ? Colors.grey.shade300 : Colors.grey.shade600,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 8),
+          // Content container
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.04)
+                  : Colors.grey.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.08)
+                    : Colors.grey.shade200,
+              ),
+            ),
+            child: child ??
+                Text(
+                  emptyMessage,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: isDark ? Colors.grey.shade500 : Colors.grey.shade500,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Ligne d'un agent normal ou en disponibilité
+class _AgentRow extends StatelessWidget {
+  final User agent;
+  final bool isAvailable;
+
+  const _AgentRow({required this.agent, this.isAvailable = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final color = isAvailable
+        ? (isDark ? Colors.blue.shade300 : Colors.blue.shade600)
+        : (isDark ? Colors.grey.shade200 : Colors.grey.shade800);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        children: [
+          // Avatar initiale
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: isAvailable
+                  ? Colors.blue.withValues(alpha: isDark ? 0.20 : 0.10)
+                  : (isDark
+                      ? Colors.white.withValues(alpha: 0.08)
+                      : Colors.grey.shade100),
+              shape: BoxShape.circle,
+              border: isAvailable
+                  ? Border.all(
+                      color: Colors.blue.withValues(alpha: 0.35), width: 1)
+                  : null,
+            ),
+            child: Center(
+              child: Text(
+                agent.displayName.isNotEmpty
+                    ? agent.displayName[0].toUpperCase()
+                    : '?',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              agent.displayName,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: isAvailable ? FontWeight.w400 : FontWeight.w500,
+                color: color,
+                fontStyle: isAvailable ? FontStyle.italic : FontStyle.normal,
+              ),
+            ),
+          ),
+          if (isAvailable)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.blue.withValues(alpha: isDark ? 0.18 : 0.08),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                    color: Colors.blue.withValues(alpha: 0.3), width: 1),
+              ),
+              child: Text(
+                'dispo',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.blue.shade300 : Colors.blue.shade600,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Ligne montrant un agent remplacé → remplaçant
+class _AgentReplacementRow extends StatelessWidget {
+  final User replaced;
+  final User? replacer;
+  final bool isFullyReplaced;
+  final TextStyle replacedStyle;
+
+  const _AgentReplacementRow({
+    required this.replaced,
+    required this.replacer,
+    required this.isFullyReplaced,
+    required this.replacedStyle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final arrowColor =
+        isFullyReplaced ? Colors.red.shade400 : Colors.orange.shade400;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        children: [
+          // Remplacé (barré)
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.05)
+                  : Colors.grey.shade100,
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: Text(
+                replaced.displayName.isNotEmpty
+                    ? replaced.displayName[0].toUpperCase()
+                    : '?',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: isDark ? Colors.grey.shade500 : Colors.grey.shade400,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              replaced.displayName,
+              style: replacedStyle,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Icon(Icons.arrow_forward_rounded, size: 16, color: arrowColor),
+          const SizedBox(width: 6),
+          // Remplaçant
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: arrowColor.withValues(alpha: isDark ? 0.20 : 0.10),
+              shape: BoxShape.circle,
+              border: Border.all(color: arrowColor.withValues(alpha: 0.4)),
+            ),
+            child: Center(
+              child: Text(
+                replacer != null && replacer!.displayName.isNotEmpty
+                    ? replacer!.displayName[0].toUpperCase()
+                    : '?',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: arrowColor,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              replacer?.displayName ?? 'Inconnu',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: isDark ? Colors.grey.shade200 : Colors.grey.shade800,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Card info du planning en cours
+class _PlanningInfoCard extends StatelessWidget {
+  final String stationLabel;
+  final String teamLabel;
+  final Planning? planning;
+  final Planning? prevPlanning;
+  final Planning? nextPlanning;
+  final DateTime at;
+  final String Function(DateTime) formatDate;
+  final String Function(DateTime) formatTime;
+  final String Function(Duration) formatDuration;
+
+  const _PlanningInfoCard({
+    required this.stationLabel,
+    required this.teamLabel,
+    required this.planning,
+    required this.prevPlanning,
+    required this.nextPlanning,
+    required this.at,
+    required this.formatDate,
+    required this.formatTime,
+    required this.formatDuration,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primary = KColors.appNameColor;
+    final hasPlanning = planning != null;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            primary.withValues(alpha: isDark ? 0.14 : 0.08),
+            primary.withValues(alpha: isDark ? 0.07 : 0.03),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: primary.withValues(alpha: isDark ? 0.28 : 0.18),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Station
+          Row(
+            children: [
+              Icon(Icons.location_on_rounded, size: 16, color: primary),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  stationLabel,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: primary,
+                  ),
+                ),
+              ),
+              if (hasPlanning)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: primary.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    teamLabel,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: primary,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (hasPlanning) ...[
+            // Plage horaire
+            Row(
+              children: [
+                Icon(
+                  Icons.play_circle_outline_rounded,
+                  size: 14,
+                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '${formatDate(planning!.startTime)}  ${formatTime(planning!.startTime)}',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Icon(
+                  Icons.stop_circle_outlined,
+                  size: 14,
+                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '${formatDate(planning!.endTime)}  ${formatTime(planning!.endTime)}',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+                  ),
+                ),
+              ],
+            ),
+          ] else ...[
+            Row(
+              children: [
+                Icon(
+                  Icons.info_outline_rounded,
+                  size: 14,
+                  color: isDark ? Colors.grey.shade500 : Colors.grey.shade500,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  'Aucune astreinte active',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontStyle: FontStyle.italic,
+                    color: isDark ? Colors.grey.shade500 : Colors.grey.shade500,
+                  ),
+                ),
+              ],
+            ),
+            // Durées depuis/jusqu'à
+            if (prevPlanning != null || nextPlanning != null) ...[
+              const SizedBox(height: 8),
+              if (prevPlanning != null)
+                _DurationRow(
+                  icon: Icons.history_rounded,
+                  label: 'Depuis fin astreinte',
+                  value: formatDuration(
+                    Duration(
+                      milliseconds: at
+                          .toUtc()
+                          .difference(prevPlanning!.endTime.toUtc())
+                          .inMilliseconds,
+                    ),
+                  ),
+                ),
+              if (nextPlanning != null)
+                _DurationRow(
+                  icon: Icons.update_rounded,
+                  label: "Jusqu'à prochaine",
+                  value: formatDuration(
+                    Duration(
+                      milliseconds: nextPlanning!.startTime
+                          .toUtc()
+                          .difference(at.toUtc())
+                          .inMilliseconds,
+                    ),
+                  ),
+                ),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _DurationRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _DurationRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        children: [
+          Icon(icon,
+              size: 13,
+              color: isDark ? Colors.grey.shade500 : Colors.grey.shade500),
+          const SizedBox(width: 5),
+          Text(
+            '$label : ',
+            style: TextStyle(
+              fontSize: 12,
+              color: isDark ? Colors.grey.shade500 : Colors.grey.shade500,
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

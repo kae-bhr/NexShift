@@ -33,7 +33,6 @@ class _ShiftExchangePageState extends State<ShiftExchangePage> {
   String? _initiatorId;
 
   /// Vérifie si l'utilisateur courant peut sélectionner l'agent à échanger
-  /// Seuls les admins, leaders et chefs d'équipe (de l'équipe de l'astreinte) peuvent sélectionner
   bool get _canSelectInitiator =>
       widget.currentUser.admin ||
       widget.currentUser.status == KConstants.statusLeader ||
@@ -44,17 +43,12 @@ class _ShiftExchangePageState extends State<ShiftExchangePage> {
   void initState() {
     super.initState();
     _loadAgentsInPlanning();
-    // Pré-sélectionner l'utilisateur courant s'il fait partie de l'astreinte
     _initiatorId = widget.currentUser.id;
   }
 
-  /// Charge les agents de base présents dans l'astreinte.
-  /// Seuls les agents avec replacedAgentId == null peuvent proposer un échange.
   Future<void> _loadAgentsInPlanning() async {
     try {
       final users = await UserRepository().getByStation(widget.planning.station);
-
-      // Agents de base uniquement (pas les remplaçants)
       final baseAgentIds = widget.planning.agents
           .where((a) => a.replacedAgentId == null)
           .map((a) => a.agentId)
@@ -66,7 +60,6 @@ class _ShiftExchangePageState extends State<ShiftExchangePage> {
 
       setState(() {
         _agentsInPlanning = agentsInPlanning;
-        // Si l'utilisateur courant n'est pas agent de base, laisser vide
         if (!baseAgentIds.contains(widget.currentUser.id)) {
           _initiatorId = null;
         }
@@ -76,31 +69,17 @@ class _ShiftExchangePageState extends State<ShiftExchangePage> {
     }
   }
 
-  /// Vérifie si le formulaire est valide
   bool get _isValid => _initiatorId != null && _initiatorId!.isNotEmpty;
 
-  /// Formate une date au format DD/MM/YYYY HH:mm
-  String _formatDateTime(DateTime dt) {
-    return DateFormat('dd/MM/yyyy HH:mm').format(dt);
-  }
+  String _formatDateTime(DateTime dt) =>
+      DateFormat('dd/MM/yyyy HH:mm').format(dt);
 
-  /// Détermine la couleur du texte en fonction de la luminance du fond
-  Color _adaptiveTextColor(BuildContext context, {Color? backgroundColor}) {
-    final bg = backgroundColor ?? Theme.of(context).cardColor;
-    final luminance = bg.computeLuminance();
-    return luminance > 0.5 ? Colors.black87 : Colors.white;
-  }
-
-  /// Propose l'échange d'astreinte
   Future<void> _proposeExchange() async {
     if (_isSubmitting || !_isValid) return;
 
-    setState(() {
-      _isSubmitting = true;
-    });
+    setState(() => _isSubmitting = true);
 
     try {
-      // Afficher le snackbar "Envoi des notifications..."
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -110,10 +89,8 @@ class _ShiftExchangePageState extends State<ShiftExchangePage> {
         );
       }
 
-      // Petit délai pour que le snackbar s'affiche
       await Future.delayed(const Duration(milliseconds: 500));
 
-      // Créer la demande d'échange avec l'initiator sélectionné
       await _exchangeService.createExchangeRequest(
         initiatorId: _initiatorId!,
         planningId: widget.planning.id,
@@ -121,7 +98,6 @@ class _ShiftExchangePageState extends State<ShiftExchangePage> {
       );
 
       if (mounted) {
-        // Afficher le snackbar de succès
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Notifications envoyées ✅'),
@@ -129,19 +105,12 @@ class _ShiftExchangePageState extends State<ShiftExchangePage> {
             duration: Duration(seconds: 2),
           ),
         );
-
-        // Retourner à la page précédente après un court délai
         await Future.delayed(const Duration(milliseconds: 800));
-        if (mounted) {
-          Navigator.pop(context, true);
-        }
+        if (mounted) Navigator.pop(context, true);
       }
     } catch (e) {
       if (mounted) {
-        setState(() {
-          _isSubmitting = false;
-        });
-
+        setState(() => _isSubmitting = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Erreur: $e'),
@@ -155,266 +124,452 @@ class _ShiftExchangePageState extends State<ShiftExchangePage> {
 
   @override
   Widget build(BuildContext context) {
-    // Toujours afficher l'astreinte complète (vert car pas de période non couverte)
-    final cardColor = Colors.green[50];
-    final textColor = _adaptiveTextColor(context, backgroundColor: cardColor);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
       appBar: CustomAppBar(
         title: "Échange d'astreinte",
         bottomColor: KColors.appNameColor,
       ),
-      body: Padding(
+      body: ListView(
         padding: const EdgeInsets.all(16),
-        child: ListView(
-          children: [
-            // CHAMP "AGENT À ÉCHANGER" - Dropdown si privilégié, sinon lecture seule
-            if (_canSelectInitiator)
-              DropdownButtonFormField<String>(
-                initialValue: _initiatorId,
-                decoration: InputDecoration(
-                  labelText: "Agent à échanger",
-                  hintText: _initiatorId == null ? "Sélectionnez un agent" : null,
-                ),
-                items: _agentsInPlanning
-                    .map(
-                      (u) => DropdownMenuItem(
+        children: [
+          // ── Sélection de l'agent ────────────────────────────────────────
+          _SectionHeader(
+            icon: Icons.person_search_rounded,
+            label: 'Agent demandeur',
+          ),
+          const SizedBox(height: 8),
+          if (_canSelectInitiator)
+            _StyledDropdown<String>(
+              value: _initiatorId,
+              hint: 'Sélectionnez un agent',
+              items: _agentsInPlanning
+                  .map((u) => DropdownMenuItem(
                         value: u.id,
                         child: Text(u.displayName),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (v) {
-                  setState(() {
-                    _initiatorId = v;
-                  });
-                },
-              )
-            else
-              // Lecture seule pour les agents normaux
-              TextFormField(
-                initialValue:
-                    widget.currentUser.displayName,
-                decoration: const InputDecoration(labelText: "Agent à échanger"),
-                readOnly: true,
-                enabled: false,
-              ),
-            const SizedBox(height: 16),
+                      ))
+                  .toList(),
+              onChanged: (v) => setState(() => _initiatorId = v),
+            )
+          else
+            _ReadOnlyField(
+              label: 'Agent à échanger',
+              value: widget.currentUser.displayName,
+            ),
 
-            // Encart avec les détails de l'astreinte (non modifiable)
-            Card(
-              elevation: 2,
+          const SizedBox(height: 20),
+
+          // ── Détails de l'astreinte ──────────────────────────────────────
+          _SectionHeader(
+            icon: Icons.event_rounded,
+            label: "Astreinte à échanger",
+          ),
+          const SizedBox(height: 8),
+          _PlanningInfoCard(
+            planning: widget.planning,
+            formatDateTime: _formatDateTime,
+          ),
+
+          const SizedBox(height: 24),
+
+          // ── Bouton principal ────────────────────────────────────────────
+          FilledButton.icon(
+            onPressed: (_isSubmitting || !_isValid) ? null : _proposeExchange,
+            icon: _isSubmitting
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.swap_horiz_rounded, size: 20),
+            label: Text(
+              _isSubmitting ? 'Envoi en cours...' : 'Proposer un échange',
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            style: FilledButton.styleFrom(
+              backgroundColor: KColors.appNameColor,
+              minimumSize: const Size(double.infinity, 50),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: Colors.green[200]!, width: 2),
-              ),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: cardColor,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.event, color: Colors.green[700], size: 24),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Astreinte à échanger',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.green[900],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Divider(color: Colors.green[200]),
-                    const SizedBox(height: 12),
-                    // Équipe
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.group,
-                          size: 20,
-                          color: textColor.withOpacity(0.7),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Équipe ${widget.planning.team}',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500,
-                            color: textColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    // Date de début
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.event_available,
-                          size: 20,
-                          color: textColor.withOpacity(0.7),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Début: ${_formatDateTime(widget.planning.startTime)}',
-                          style: TextStyle(fontSize: 14, color: textColor),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    // Date de fin
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.event_busy,
-                          size: 20,
-                          color: textColor.withOpacity(0.7),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Fin: ${_formatDateTime(widget.planning.endTime)}',
-                          style: TextStyle(fontSize: 14, color: textColor),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    // Info : durée totale
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.green[100],
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.green[300]!),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.info_outline,
-                            size: 20,
-                            color: Colors.green[800],
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Toute la durée de l\'astreinte sera proposée à l\'échange',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.green[900],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
               ),
             ),
-            const SizedBox(height: 24),
+          ),
 
-            // Bouton "Proposer un échange"
-            ElevatedButton.icon(
-              onPressed: (_isSubmitting || !_isValid) ? null : _proposeExchange,
-              icon: _isSubmitting
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.swap_horiz),
-              label: Text(
-                _isSubmitting ? 'Envoi en cours...' : 'Proposer un échange',
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: KColors.appNameColor,
+          const SizedBox(height: 24),
+
+          // ── Comment ça marche ───────────────────────────────────────────
+          _SectionHeader(
+            icon: Icons.info_outline_rounded,
+            label: 'Comment ça marche ?',
+          ),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.04)
+                  : colorScheme.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.08)
+                    : colorScheme.outlineVariant,
               ),
             ),
-
-            const SizedBox(height: 24),
-
-            // Card explicative
-            Card(
-              color: Colors.blue[50],
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.info, color: Colors.blue[700], size: 24),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Comment ça marche ?',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.blue[900],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    _buildInfoStep(
-                      '1',
+            child: Column(
+              children: [
+                _InfoStep(
+                  number: '1',
+                  text:
                       'Votre demande sera visible par tous les agents possédant vos compétences-clés',
-                      Colors.blue[700]!,
-                    ),
-                    const SizedBox(height: 8),
-                    _buildInfoStep(
-                      '2',
-                      'Les agents intéressés pourront proposer une ou plusieurs de leurs astreintes en échange',
-                      Colors.blue[700]!,
-                    ),
-                    const SizedBox(height: 8),
-                    _buildInfoStep(
-                      '3',
-                      'Vous sélectionnerez la proposition qui vous convient le mieux',
-                      Colors.blue[700]!,
-                    ),
-                    const SizedBox(height: 8),
-                    _buildInfoStep(
-                      '4',
-                      'Les chefs des deux équipes devront valider l\'échange',
-                      Colors.blue[700]!,
-                    ),
-                  ],
                 ),
-              ),
+                const SizedBox(height: 12),
+                _InfoStep(
+                  number: '2',
+                  text:
+                      'Les agents intéressés pourront proposer une ou plusieurs de leurs astreintes en échange',
+                ),
+                const SizedBox(height: 12),
+                _InfoStep(
+                  number: '3',
+                  text:
+                      'Vous sélectionnerez la proposition qui vous convient le mieux',
+                ),
+                const SizedBox(height: 12),
+                _InfoStep(
+                  number: '4',
+                  text:
+                      "Les chefs des deux équipes devront valider l'échange",
+                ),
+              ],
             ),
-          ],
+          ),
+          const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Widgets locaux réutilisables ─────────────────────────────────────────────
+
+class _SectionHeader extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _SectionHeader({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Row(
+      children: [
+        Icon(
+          icon,
+          size: 16,
+          color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.4,
+            color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _StyledDropdown<T> extends StatelessWidget {
+  final T? value;
+  final String hint;
+  final List<DropdownMenuItem<T>> items;
+  final ValueChanged<T?> onChanged;
+
+  const _StyledDropdown({
+    required this.value,
+    required this.hint,
+    required this.items,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+      decoration: BoxDecoration(
+        color: isDark
+            ? Colors.white.withValues(alpha: 0.06)
+            : Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.12)
+              : Colors.grey.shade300,
+        ),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<T>(
+          value: value,
+          hint: Text(hint),
+          isExpanded: true,
+          items: items,
+          onChanged: onChanged,
+          borderRadius: BorderRadius.circular(12),
+          dropdownColor: isDark ? const Color(0xFF2A2A2A) : Colors.white,
         ),
       ),
     );
   }
+}
 
-  Widget _buildInfoStep(String number, String text, Color color) {
+class _ReadOnlyField extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _ReadOnlyField({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      decoration: BoxDecoration(
+        color: isDark
+            ? Colors.white.withValues(alpha: 0.04)
+            : Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.08)
+              : Colors.grey.shade200,
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.person_rounded,
+            size: 18,
+            color: isDark ? Colors.grey.shade500 : Colors.grey.shade500,
+          ),
+          const SizedBox(width: 10),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w500,
+              color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PlanningInfoCard extends StatelessWidget {
+  final Planning planning;
+  final String Function(DateTime) formatDateTime;
+
+  const _PlanningInfoCard({
+    required this.planning,
+    required this.formatDateTime,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primary = KColors.appNameColor;
+
+    final duration = planning.endTime.difference(planning.startTime);
+    final hours = duration.inHours;
+    final minutes = duration.inMinutes % 60;
+    final durationLabel =
+        minutes > 0 ? '${hours}h${minutes.toString().padLeft(2, '0')}' : '${hours}h';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            primary.withValues(alpha: isDark ? 0.12 : 0.08),
+            primary.withValues(alpha: isDark ? 0.06 : 0.03),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: primary.withValues(alpha: isDark ? 0.3 : 0.2),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Équipe + durée
+          Row(
+            children: [
+              Icon(Icons.groups_rounded, size: 18, color: primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Équipe ${planning.team}',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: primary,
+                  ),
+                ),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: primary.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  durationLabel,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: primary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _DateRow(
+            icon: Icons.play_circle_outline_rounded,
+            label: 'Début',
+            value: formatDateTime(planning.startTime),
+          ),
+          const SizedBox(height: 6),
+          _DateRow(
+            icon: Icons.stop_circle_outlined,
+            label: 'Fin',
+            value: formatDateTime(planning.endTime),
+          ),
+          const SizedBox(height: 12),
+          // Info badge
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.06)
+                  : Colors.white.withValues(alpha: 0.7),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: primary.withValues(alpha: 0.15),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.info_outline_rounded,
+                  size: 14,
+                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    "Toute la durée de l'astreinte sera proposée à l'échange",
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: isDark
+                          ? Colors.grey.shade400
+                          : Colors.grey.shade600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DateRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _DateRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Row(
+      children: [
+        Icon(
+          icon,
+          size: 16,
+          color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+        ),
+        const SizedBox(width: 8),
+        Text(
+          '$label : ',
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+            color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+          ),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: isDark ? Colors.grey.shade200 : Colors.grey.shade800,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _InfoStep extends StatelessWidget {
+  final String number;
+  final String text;
+
+  const _InfoStep({required this.number, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
-          width: 24,
-          height: 24,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          width: 22,
+          height: 22,
+          decoration: BoxDecoration(
+            color: KColors.appNameColor.withValues(alpha: 0.15),
+            shape: BoxShape.circle,
+          ),
           child: Center(
             child: Text(
               number,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
+              style: TextStyle(
+                color: KColors.appNameColor,
+                fontWeight: FontWeight.w700,
                 fontSize: 12,
               ),
             ),
@@ -424,7 +579,11 @@ class _ShiftExchangePageState extends State<ShiftExchangePage> {
         Expanded(
           child: Text(
             text,
-            style: TextStyle(fontSize: 13, color: Colors.blue[900]),
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.4,
+              color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+            ),
           ),
         ),
       ],

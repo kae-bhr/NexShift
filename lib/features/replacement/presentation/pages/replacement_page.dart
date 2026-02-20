@@ -8,7 +8,6 @@ import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:nexshift_app/core/data/models/planning_model.dart';
 import 'package:nexshift_app/core/data/models/subshift_model.dart';
 import 'package:nexshift_app/features/replacement/services/replacement_search_service.dart';
-import 'package:nexshift_app/features/replacement/presentation/widgets/planning_tile.dart';
 import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
 import 'package:nexshift_app/core/config/environment_config.dart';
 import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
@@ -78,14 +77,6 @@ class _ReplacementPageState extends State<ReplacementPage> {
           widget.currentUser!.status == KConstants.statusLeader ||
           (widget.currentUser!.status == KConstants.statusChief &&
               widget.currentUser!.team == widget.planning.team));
-
-  /// Determine if text should be dark or light based on background luminance.
-  /// If backgroundColor is null, uses the theme cardColor (Card default bg).
-  Color _adaptiveTextColor(BuildContext context, {Color? backgroundColor}) {
-    final bg = backgroundColor ?? Theme.of(context).cardColor;
-    final luminance = bg.computeLuminance();
-    return luminance > 0.5 ? Colors.black87 : Colors.white;
-  }
 
   /// Retourne le chemin de collection pour les triggers de notification
   /// En dev avec SDIS: /sdis/{sdisId}/stations/{stationId}/replacements/automatic/notificationTriggers
@@ -545,70 +536,26 @@ class _ReplacementPageState extends State<ReplacementPage> {
     return true;
   }
 
-  void _showDateTimePickerDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Modifier les horaires'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.calendar_today),
-                title: const Text('Début'),
-                subtitle: Text(
-                  startDateTime != null
-                      ? DateFormat('dd/MM/yyyy HH:mm').format(startDateTime!)
-                      : 'Non défini',
-                ),
-                trailing: const Icon(Icons.edit),
-                onTap: () async {
-                  final result = await _pickDateTime(
-                    isStart: true,
-                    initialDate: startDateTime ?? widget.planning.startTime,
-                  );
-                  if (result) {
-                    setDialogState(() {});
-                  }
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.calendar_today),
-                title: const Text('Fin'),
-                subtitle: Text(
-                  endDateTime != null
-                      ? DateFormat('dd/MM/yyyy HH:mm').format(endDateTime!)
-                      : 'Non défini',
-                ),
-                trailing: const Icon(Icons.edit),
-                onTap: () async {
-                  final result = await _pickDateTime(
-                    isStart: false,
-                    initialDate: endDateTime ?? widget.planning.endTime,
-                  );
-                  if (result) {
-                    setDialogState(() {});
-                  }
-                },
-              ),
-            ],
-          ),
-          actions: [
-            if (startDateTime != null && endDateTime != null)
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Valider'),
-              )
-            else
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Annuler'),
-              ),
-          ],
-        ),
-      ),
-    );
+  /// Returns the earliest start of the selected replaced agent's presence entries.
+  /// Falls back to planning start if no agent selected or no entries found.
+  DateTime _effectiveWindowStart() {
+    if (dataReplacedId == null) return widget.planning.startTime;
+    final entries = widget.planning.agents
+        .where((a) => a.agentId == dataReplacedId)
+        .toList();
+    if (entries.isEmpty) return widget.planning.startTime;
+    return entries.map((a) => a.start).reduce((a, b) => a.isBefore(b) ? a : b);
+  }
+
+  /// Returns the latest end of the selected replaced agent's presence entries.
+  /// Falls back to planning end if no agent selected or no entries found.
+  DateTime _effectiveWindowEnd() {
+    if (dataReplacedId == null) return widget.planning.endTime;
+    final entries = widget.planning.agents
+        .where((a) => a.agentId == dataReplacedId)
+        .toList();
+    if (entries.isEmpty) return widget.planning.endTime;
+    return entries.map((a) => a.end).reduce((a, b) => a.isAfter(b) ? a : b);
   }
 
   Future<void> _save() async {
@@ -782,21 +729,17 @@ class _ReplacementPageState extends State<ReplacementPage> {
       widget.planning,
     );
 
-    // Valider que replacedId est bien dans la liste des candidats
-    // Si non, le remettre à null pour éviter l'erreur "value not in items"
     final validReplacedId = replacedId != null &&
             replacedCandidates.any((u) => u.id == replacedId)
         ? replacedId
         : null;
 
-    // Build available replacers dropdown using service
     final availableReplacers =
         ReplacementSearchService.buildAvailableReplacersDropdown(
           allUsers,
           widget.planning,
         );
 
-    // Valider que replacerId est bien dans la liste des remplaçants disponibles
     final validReplacerId = replacerId != null &&
             availableReplacers.any((item) => item.value == replacerId)
         ? replacerId
@@ -809,405 +752,1109 @@ class _ReplacementPageState extends State<ReplacementPage> {
             : "Recherche de remplaçant",
         bottomColor: KColors.appNameColor,
       ),
-      body: Padding(
+      body: ListView(
         padding: const EdgeInsets.all(16),
-        child: ListView(
-          children: [
-            // CHAMP "REMPLACÉ" - Affiché dans tous les modes (manuel et automatique)
-            // Dropdown cliquable si user privilégié, sinon lecture seule
-            if (canSelectReplaced)
-              DropdownButtonFormField<String>(
-                value: validReplacedId,
-                decoration: InputDecoration(
-                  labelText: "Remplacé",
-                  hintText: validReplacedId == null ? "Sélectionnez un agent" : null,
-                ),
-                items: replacedCandidates
-                    .map(
-                      (u) => DropdownMenuItem(
+        children: [
+          // ── Agent remplacé ──────────────────────────────────────────────
+          _ReplacementSectionHeader(
+            icon: Icons.person_off_rounded,
+            label: 'Agent remplacé',
+          ),
+          const SizedBox(height: 8),
+          if (canSelectReplaced)
+            _ReplacementStyledDropdown<String>(
+              value: validReplacedId,
+              hint: 'Sélectionnez un agent',
+              items: replacedCandidates
+                  .map((u) => DropdownMenuItem(
                         value: u.id,
                         child: Text(u.displayName),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (v) async {
-                  setState(() {
-                    replacedId = v;
-                    _dataReplacedId = v; // Sync data ID when explicitly selected
-                  });
-                  await _loadActiveRequests();
-                  _validate();
-                },
-              )
-            else if (widget.currentUser != null)
-              // Show read-only field with current user's name
-              TextFormField(
-                initialValue:
-                    widget.currentUser!.displayName,
-                decoration: const InputDecoration(labelText: "Remplacé"),
-                readOnly: true,
-                enabled: false,
-              ),
-            const SizedBox(height: 12),
+                      ))
+                  .toList(),
+              onChanged: (v) async {
+                setState(() {
+                  replacedId = v;
+                  _dataReplacedId = v;
+                });
+                await _loadActiveRequests();
+                _validate();
+              },
+            )
+          else if (widget.currentUser != null)
+            _ReplacementReadOnlyField(
+              icon: Icons.person_rounded,
+              value: widget.currentUser!.displayName,
+            ),
 
-            // MODE MANUEL: afficher aussi le champ Remplaçant
-            if (widget.isManualMode) ...[
-              // Show replacer dropdown for all users (both privileged and regular)
-              // Everyone can select the replacer
-              DropdownButtonFormField<String>(
-                value: validReplacerId,
-                decoration: const InputDecoration(labelText: "Remplaçant"),
-                items: availableReplacers,
-                onChanged: (v) {
-                  // ignore special non-selectable tokens
-                  if (v == null ||
-                      v == '__team_header__' ||
-                      v == '__divider__')
-                    return;
-                  setState(() {
-                    replacerId = v;
-                  });
-                  _validate();
-                },
+          // ── Agent remplaçant (mode manuel) ──────────────────────────────
+          if (widget.isManualMode) ...[
+            const SizedBox(height: 20),
+            _ReplacementSectionHeader(
+              icon: Icons.person_add_rounded,
+              label: 'Agent remplaçant',
+            ),
+            const SizedBox(height: 8),
+            _ReplacementStyledDropdown<String>(
+              value: validReplacerId,
+              hint: 'Sélectionnez un remplaçant',
+              items: availableReplacers,
+              onChanged: (v) {
+                if (v == null ||
+                    v == '__team_header__' ||
+                    v == '__divider__') {
+                  return;
+                }
+                setState(() => replacerId = v);
+                _validate();
+              },
+            ),
+          ],
+
+          const SizedBox(height: 20),
+
+          // ── Détails de l'astreinte ──────────────────────────────────────
+          _ReplacementSectionHeader(
+            icon: Icons.event_rounded,
+            label: "Astreinte",
+          ),
+          const SizedBox(height: 8),
+          _PlanningDetailCard(planning: widget.planning),
+
+          const SizedBox(height: 20),
+
+          // ── Période de remplacement ─────────────────────────────────────
+          _ReplacementSectionHeader(
+            icon: Icons.schedule_rounded,
+            label: "Période de remplacement",
+          ),
+          const SizedBox(height: 8),
+          _ReplacementPeriodCard(
+            startDateTime: startDateTime,
+            endDateTime: endDateTime,
+            errorMessage: error,
+            uncoveredPeriods: dataReplacedId != null
+                ? _uncoveredPeriodsFor(dataReplacedId!)
+                : const [],
+            onPickStart: () => _pickDateTime(
+              isStart: true,
+              initialDate: startDateTime ?? _effectiveWindowStart(),
+            ),
+            onPickEnd: () => _pickDateTime(
+              isStart: false,
+              initialDate: endDateTime ?? _effectiveWindowEnd(),
+            ),
+          ),
+
+          // ── Mode SOS (automatique uniquement) ───────────────────────────
+          if (!widget.isManualMode) ...[
+            const SizedBox(height: 20),
+            _ReplacementSectionHeader(
+              icon: Icons.warning_amber_rounded,
+              label: 'Options',
+            ),
+            const SizedBox(height: 8),
+            _SOSCard(
+              isSOS: isSOS,
+              onToggle: () => setState(() => isSOS = !isSOS),
+            ),
+          ],
+
+          const SizedBox(height: 24),
+
+          // ── Bouton principal ────────────────────────────────────────────
+          FilledButton.icon(
+            onPressed: isValid
+                ? (widget.isManualMode ? _save : _searchForReplacer)
+                : null,
+            icon: Icon(
+              widget.isManualMode ? Icons.check_rounded : Icons.search_rounded,
+              size: 20,
+            ),
+            label: Text(
+              widget.isManualMode ? "Valider le remplacement" : "Rechercher un remplaçant",
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            style: FilledButton.styleFrom(
+              backgroundColor: KColors.appNameColor,
+              minimumSize: const Size(double.infinity, 50),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
               ),
-              const SizedBox(height: 16),
+            ),
+          ),
+
+          // ── Sections mode manuel ────────────────────────────────────────
+          if (widget.isManualMode) ...[
+            // Indisponibilités du remplaçant
+            if (replacerId != null) ...[
+              const SizedBox(height: 20),
+              Builder(builder: (context) {
+                final user = allUsers.firstWhere(
+                  (u) => u.id == replacerId,
+                  orElse: User.empty,
+                );
+                final busy = _unavailablePeriodsFor(replacerId!);
+                return _UnavailabilityCard(
+                  agentName: user.displayName,
+                  busyPeriods: busy,
+                );
+              }),
             ],
 
-            // Card Astreinte avec les horaires + périodes à couvrir
-            PlanningTile(
-              planning: widget.planning,
-              startDateTime: startDateTime,
-              endDateTime: endDateTime,
-              errorMessage: error,
-              onTap: () => _showDateTimePickerDialog(),
-              uncoveredPeriods: dataReplacedId != null
-                  ? _uncoveredPeriodsFor(dataReplacedId!)
-                  : const [],
-            ),
-            const SizedBox(height: 16),
+            // Impact sur les compétences
+            if (canSelectReplaced && dataReplacedId != null) ...[
+              const SizedBox(height: 16),
+              Builder(builder: (context) {
+                final replacedUser = allUsers.firstWhere(
+                  (u) => u.id == dataReplacedId,
+                  orElse: User.empty,
+                );
+                final replacerUser = replacerId != null
+                    ? allUsers.firstWhere(
+                        (u) => u.id == replacerId,
+                        orElse: User.empty,
+                      )
+                    : User.empty();
+                final replacedSkills = Set<String>.from(replacedUser.skills);
+                final replacerSkills = Set<String>.from(replacerUser.skills);
+                final gained =
+                    replacerSkills.difference(replacedSkills).toList()..sort();
+                final lost =
+                    replacedSkills.difference(replacerSkills).toList()..sort();
+                return _SkillsImpactCard(
+                  gained: gained,
+                  lost: lost,
+                  noReplacerSelected: replacerId == null,
+                );
+              }),
+            ],
+          ],
 
-            // Mode SOS - uniquement en mode automatique
-            if (!widget.isManualMode) ...[
-              Card(
-                elevation: 2,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  side: BorderSide(
-                    color: isSOS ? Colors.red : Colors.grey[300]!,
-                    width: 2,
-                  ),
+          const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Widgets locaux ────────────────────────────────────────────────────────────
+
+class _ReplacementSectionHeader extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _ReplacementSectionHeader({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Row(
+      children: [
+        Icon(icon,
+            size: 15,
+            color: isDark ? Colors.grey.shade400 : Colors.grey.shade600),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.4,
+            color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ReplacementStyledDropdown<T> extends StatelessWidget {
+  final T? value;
+  final String hint;
+  final List<DropdownMenuItem<T>> items;
+  final ValueChanged<T?> onChanged;
+
+  const _ReplacementStyledDropdown({
+    required this.value,
+    required this.hint,
+    required this.items,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+      decoration: BoxDecoration(
+        color: isDark
+            ? Colors.white.withValues(alpha: 0.06)
+            : Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.12)
+              : Colors.grey.shade300,
+        ),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<T>(
+          value: value,
+          hint: Text(hint),
+          isExpanded: true,
+          items: items,
+          onChanged: onChanged,
+          borderRadius: BorderRadius.circular(12),
+          dropdownColor: isDark ? const Color(0xFF2A2A2A) : Colors.white,
+        ),
+      ),
+    );
+  }
+}
+
+class _ReplacementReadOnlyField extends StatelessWidget {
+  final IconData icon;
+  final String value;
+
+  const _ReplacementReadOnlyField({required this.icon, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      decoration: BoxDecoration(
+        color: isDark
+            ? Colors.white.withValues(alpha: 0.04)
+            : Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.08)
+              : Colors.grey.shade200,
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(icon,
+              size: 18,
+              color: isDark ? Colors.grey.shade500 : Colors.grey.shade500),
+          const SizedBox(width: 10),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w500,
+              color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SOSCard extends StatelessWidget {
+  final bool isSOS;
+  final VoidCallback onToggle;
+
+  const _SOSCard({required this.isSOS, required this.onToggle});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final sosColor = Colors.red.shade600;
+
+    return GestureDetector(
+      onTap: onToggle,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: isSOS
+              ? sosColor.withValues(alpha: isDark ? 0.18 : 0.08)
+              : (isDark
+                  ? Colors.white.withValues(alpha: 0.04)
+                  : Colors.grey.shade50),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSOS
+                ? sosColor.withValues(alpha: 0.5)
+                : (isDark
+                    ? Colors.white.withValues(alpha: 0.12)
+                    : Colors.grey.shade300),
+            width: isSOS ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            // Toggle indicator
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              width: 22,
+              height: 22,
+              decoration: BoxDecoration(
+                color: isSOS ? sosColor : Colors.transparent,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: isSOS
+                      ? sosColor
+                      : (isDark ? Colors.grey.shade500 : Colors.grey.shade400),
+                  width: 2,
                 ),
-                color: isSOS ? Colors.red[50] : Colors.white,
-                child: InkWell(
-                  onTap: () {
-                    setState(() {
-                      isSOS = !isSOS;
-                    });
-                  },
-                  borderRadius: BorderRadius.circular(12),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 24,
-                          height: 24,
-                          decoration: BoxDecoration(
-                            color: isSOS ? Colors.red : Colors.white,
-                            border: Border.all(
-                              color: isSOS ? Colors.red : Colors.grey[400]!,
-                              width: 2,
-                            ),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: isSOS
-                              ? const Icon(
-                                  Icons.check,
-                                  size: 18,
-                                  color: Colors.white,
-                                )
-                              : null,
+              ),
+              child: isSOS
+                  ? const Icon(Icons.check_rounded, size: 14, color: Colors.white)
+                  : null,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.bolt_rounded,
+                        size: 16,
+                        color: isSOS
+                            ? sosColor
+                            : (isDark
+                                ? Colors.grey.shade400
+                                : Colors.grey.shade600),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Mode SOS',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                          color: isSOS
+                              ? sosColor
+                              : (isDark
+                                  ? Colors.grey.shade300
+                                  : Colors.grey.shade700),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
+                      ),
+                      const SizedBox(width: 6),
+                      GestureDetector(
+                        onTap: () {
+                          showDialog(
+                            context: context,
+                            builder: (context) => AlertDialog(
+                              title: Row(
                                 children: [
-                                  Icon(
-                                    Icons.warning,
-                                    size: 18,
-                                    color: isSOS ? Colors.red : Colors.grey[600],
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    'Mode SOS',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16,
-                                      color: isSOS ? Colors.red[700] : Colors.grey[700],
-                                    ),
-                                  ),
+                                  Icon(Icons.bolt_rounded,
+                                      color: Colors.red.shade600),
                                   const SizedBox(width: 8),
-                                  InkWell(
-                                    onTap: () {
-                                      showDialog(
-                                        context: context,
-                                        builder: (context) => AlertDialog(
-                                          title: Row(
-                                            children: [
-                                              Icon(Icons.local_hospital, color: Colors.red[700]),
-                                              const SizedBox(width: 8),
-                                              const Text('Mode SOS'),
-                                            ],
-                                          ),
-                                          content: const Text(
-                                            'Le mode SOS permet d\'envoyer TOUTES les vagues de notifications simultanément au lieu de les envoyer progressivement.\n\n'
-                                            'Utilisez ce mode uniquement en cas d\'urgence pour maximiser les chances de trouver rapidement un remplaçant.\n\n'
-                                            'Note : Le filtrage par compétences-clés reste actif.',
-                                            style: TextStyle(fontSize: 14),
-                                          ),
-                                          actions: [
-                                            TextButton(
-                                              onPressed: () => Navigator.pop(context),
-                                              child: const Text('Compris'),
-                                            ),
-                                          ],
-                                        ),
-                                      );
-                                    },
-                                    child: Icon(
-                                      Icons.help_outline,
-                                      size: 18,
-                                      color: Colors.grey[600],
-                                    ),
-                                  ),
+                                  const Text('Mode SOS'),
                                 ],
                               ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'Envoyer toutes les vagues simultanément',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey[600],
-                                ),
+                              content: const Text(
+                                'Le mode SOS permet d\'envoyer TOUTES les vagues de notifications simultanément au lieu de les envoyer progressivement.\n\n'
+                                'Utilisez ce mode uniquement en cas d\'urgence pour maximiser les chances de trouver rapidement un remplaçant.\n\n'
+                                'Note : Le filtrage par compétences-clés reste actif.',
+                                style: TextStyle(fontSize: 14, height: 1.5),
                               ),
-                            ],
-                          ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(context),
+                                  child: const Text('Compris'),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                        child: Icon(
+                          Icons.help_outline_rounded,
+                          size: 16,
+                          color: isDark
+                              ? Colors.grey.shade500
+                              : Colors.grey.shade500,
                         ),
-                      ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Envoyer toutes les vagues simultanément',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: isDark ? Colors.grey.shade500 : Colors.grey.shade500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _UnavailabilityCard extends StatelessWidget {
+  final String agentName;
+  final List<Map<String, DateTime>> busyPeriods;
+
+  const _UnavailabilityCard({
+    required this.agentName,
+    required this.busyPeriods,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final fmt = DateFormat('dd/MM/yyyy HH:mm');
+    final isFree = busyPeriods.isEmpty;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isFree
+            ? Colors.green.withValues(alpha: isDark ? 0.12 : 0.06)
+            : (isDark
+                ? Colors.white.withValues(alpha: 0.04)
+                : Colors.grey.shade50),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isFree
+              ? Colors.green.withValues(alpha: 0.35)
+              : (isDark
+                  ? Colors.white.withValues(alpha: 0.10)
+                  : Colors.grey.shade200),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                isFree
+                    ? Icons.check_circle_outline_rounded
+                    : Icons.block_rounded,
+                size: 16,
+                color: isFree
+                    ? Colors.green.shade600
+                    : (isDark ? Colors.grey.shade400 : Colors.grey.shade600),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  isFree
+                      ? '$agentName est disponible sur toute l\'astreinte'
+                      : 'Indisponibilités de $agentName',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: isFree
+                        ? Colors.green.shade600
+                        : (isDark
+                            ? Colors.grey.shade300
+                            : Colors.grey.shade700),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (!isFree) ...[
+            const SizedBox(height: 10),
+            ...busyPeriods.map((g) {
+              final s = g['start']!;
+              final e = g['end']!;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 3,
+                      height: 16,
+                      margin: const EdgeInsets.only(right: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.shade400,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        '${fmt.format(s)} → ${fmt.format(e)}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDark
+                              ? Colors.grey.shade300
+                              : Colors.grey.shade700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _SkillsImpactCard extends StatelessWidget {
+  final List<String> gained;
+  final List<String> lost;
+  final bool noReplacerSelected;
+
+  const _SkillsImpactCard({
+    required this.gained,
+    required this.lost,
+    required this.noReplacerSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final hasImpact = gained.isNotEmpty || lost.isNotEmpty;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isDark
+            ? Colors.white.withValues(alpha: 0.04)
+            : Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.10)
+              : Colors.grey.shade200,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.workspace_premium_rounded,
+                size: 16,
+                color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'Impact sur les compétences',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (!hasImpact)
+            Text(
+              'Aucun impact détecté — les compétences sont identiques.',
+              style: TextStyle(
+                fontSize: 13,
+                color: isDark ? Colors.grey.shade400 : Colors.grey.shade500,
+              ),
+            )
+          else ...[
+            if (gained.isNotEmpty) ...[
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: gained
+                    .map((s) => _SkillChip(label: s, isGain: true))
+                    .toList(),
+              ),
+              if (lost.isNotEmpty) const SizedBox(height: 8),
+            ],
+            if (lost.isNotEmpty)
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: lost
+                    .map((s) => _SkillChip(label: s, isGain: false))
+                    .toList(),
+              ),
+            if (noReplacerSelected && lost.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Icon(Icons.info_outline_rounded,
+                      size: 14,
+                      color: isDark
+                          ? Colors.grey.shade500
+                          : Colors.grey.shade500),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Aucun remplaçant sélectionné — ces compétences seraient manquantes.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontStyle: FontStyle.italic,
+                        color: isDark
+                            ? Colors.grey.shade500
+                            : Colors.grey.shade500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _SkillChip extends StatelessWidget {
+  final String label;
+  final bool isGain;
+
+  const _SkillChip({required this.label, required this.isGain});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final color = isGain ? Colors.green : Colors.red;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: isDark ? 0.18 : 0.10),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isGain ? Icons.add_rounded : Icons.remove_rounded,
+            size: 12,
+            color: isDark ? color.shade300 : color.shade700,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: isDark ? color.shade300 : color.shade700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Card affichant les infos de l'astreinte en lecture seule (équipe, début, fin).
+class _PlanningDetailCard extends StatelessWidget {
+  final Planning planning;
+
+  const _PlanningDetailCard({required this.planning});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primary = KColors.appNameColor;
+    final fmt = DateFormat('dd/MM/yyyy HH:mm');
+
+    final duration = planning.endTime.difference(planning.startTime);
+    final hours = duration.inHours;
+    final minutes = duration.inMinutes % 60;
+    final durationLabel =
+        minutes > 0 ? '${hours}h${minutes.toString().padLeft(2, '0')}' : '${hours}h';
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            primary.withValues(alpha: isDark ? 0.12 : 0.07),
+            primary.withValues(alpha: isDark ? 0.05 : 0.02),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: primary.withValues(alpha: isDark ? 0.28 : 0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Équipe + durée
+          Row(
+            children: [
+              Icon(Icons.groups_rounded, size: 16, color: primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Équipe ${planning.team}',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: primary,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                decoration: BoxDecoration(
+                  color: primary.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  durationLabel,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: primary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          // Début
+          Row(
+            children: [
+              Icon(Icons.play_circle_outline_rounded,
+                  size: 14,
+                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade500),
+              const SizedBox(width: 7),
+              Text(
+                'Début : ',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade500,
+                ),
+              ),
+              Text(
+                fmt.format(planning.startTime),
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.grey.shade200 : Colors.grey.shade800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 5),
+          // Fin
+          Row(
+            children: [
+              Icon(Icons.stop_circle_outlined,
+                  size: 14,
+                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade500),
+              const SizedBox(width: 7),
+              Text(
+                'Fin : ',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade500,
+                ),
+              ),
+              Text(
+                fmt.format(planning.endTime),
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.grey.shade200 : Colors.grey.shade800,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Card de sélection de la période de remplacement avec pickers inline.
+/// Change de couleur selon l'état : neutre → vert (valide) → rouge (erreur).
+class _ReplacementPeriodCard extends StatelessWidget {
+  final DateTime? startDateTime;
+  final DateTime? endDateTime;
+  final String? errorMessage;
+  final List<Map<String, DateTime>> uncoveredPeriods;
+  final Future<bool> Function() onPickStart;
+  final Future<bool> Function() onPickEnd;
+
+  const _ReplacementPeriodCard({
+    required this.startDateTime,
+    required this.endDateTime,
+    required this.errorMessage,
+    required this.uncoveredPeriods,
+    required this.onPickStart,
+    required this.onPickEnd,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final fmt = DateFormat('dd/MM/yyyy HH:mm');
+
+    final hasError = errorMessage != null && errorMessage!.isNotEmpty;
+    final isValid = !hasError && startDateTime != null && endDateTime != null;
+
+    // Couleurs adaptatives selon l'état
+    final Color containerColor;
+    final Color borderColor;
+    final Color accentColor;
+
+    if (hasError) {
+      containerColor = isDark
+          ? Colors.red.withValues(alpha: 0.12)
+          : Colors.red.shade50;
+      borderColor = isDark
+          ? Colors.red.withValues(alpha: 0.40)
+          : Colors.red.shade300;
+      accentColor = isDark ? Colors.red.shade300 : Colors.red.shade700;
+    } else if (isValid) {
+      containerColor = isDark
+          ? Colors.green.withValues(alpha: 0.10)
+          : Colors.green.shade50;
+      borderColor = isDark
+          ? Colors.green.withValues(alpha: 0.35)
+          : Colors.green.shade300;
+      accentColor = isDark ? Colors.green.shade300 : Colors.green.shade700;
+    } else {
+      containerColor = isDark
+          ? Colors.white.withValues(alpha: 0.04)
+          : Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3);
+      borderColor = isDark
+          ? Colors.white.withValues(alpha: 0.12)
+          : Theme.of(context).colorScheme.primary.withValues(alpha: 0.3);
+      accentColor = Theme.of(context).colorScheme.primary;
+    }
+
+    final subtleColor = isDark ? Colors.grey.shade400 : Colors.grey.shade600;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: containerColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Picker début
+          _InlineDatePicker(
+            label: 'Début',
+            dateTime: startDateTime,
+            placeholder: 'Sélectionner...',
+            fmt: fmt,
+            accentColor: accentColor,
+            subtleColor: subtleColor,
+            onTap: onPickStart,
+          ),
+          const SizedBox(height: 8),
+          Divider(
+            height: 1,
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.08)
+                : Colors.grey.withValues(alpha: 0.15),
+          ),
+          const SizedBox(height: 8),
+          // Picker fin
+          _InlineDatePicker(
+            label: 'Fin',
+            dateTime: endDateTime,
+            placeholder: 'Sélectionner...',
+            fmt: fmt,
+            accentColor: accentColor,
+            subtleColor: subtleColor,
+            onTap: onPickEnd,
+          ),
+
+          // Message d'erreur
+          if (hasError) ...[
+            const SizedBox(height: 10),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.error_outline_rounded,
+                    size: 14,
+                    color: isDark ? Colors.red.shade300 : Colors.red.shade700),
+                const SizedBox(width: 7),
+                Expanded(
+                  child: Text(
+                    errorMessage!,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: isDark ? Colors.red.shade300 : Colors.red.shade700,
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 16),
-            ],
+              ],
+            ),
+          ],
 
-            // Bouton différent selon le mode
-            ElevatedButton.icon(
-              onPressed: isValid
-                  ? (widget.isManualMode ? _save : _searchForReplacer)
-                  : null,
-              icon: Icon(widget.isManualMode ? Icons.check : Icons.search),
-              label: Text(
-                widget.isManualMode ? "Valider" : "Rechercher un remplaçant",
+          // Périodes non couvertes
+          if (uncoveredPeriods.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? Colors.orange.withValues(alpha: 0.12)
+                    : Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: isDark
+                      ? Colors.orange.withValues(alpha: 0.30)
+                      : Colors.orange.shade200,
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Périodes à couvrir :',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: isDark
+                          ? Colors.orange.shade300
+                          : Colors.orange.shade800,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  ...uncoveredPeriods.map((g) {
+                    final s = g['start']!;
+                    final e = g['end']!;
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 3,
+                            height: 14,
+                            margin: const EdgeInsets.only(right: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.shade400,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                          Expanded(
+                            child: Text(
+                              '${fmt.format(s)} → ${fmt.format(e)}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: isDark
+                                    ? Colors.orange.shade300
+                                    : Colors.orange.shade800,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                ],
               ),
             ),
+          ],
+        ],
+      ),
+    );
+  }
+}
 
-            const SizedBox(height: 16),
+/// Ligne de sélection de date/heure inline (style "Modifier la présence").
+class _InlineDatePicker extends StatelessWidget {
+  final String label;
+  final DateTime? dateTime;
+  final String placeholder;
+  final DateFormat fmt;
+  final Color accentColor;
+  final Color subtleColor;
+  final Future<bool> Function() onTap;
 
-            // --- Sections affichées seulement en mode manuel ---
-            if (widget.isManualMode) ...[
-              // --- Display unavailable periods for the selected replacer ---
-              if (replacerId != null) ...[
-                const SizedBox(height: 12),
-                Builder(
-                  builder: (context) {
-                    final user = allUsers.firstWhere(
-                      (u) => u.id == replacerId,
-                      orElse: User.empty,
-                    );
-                    final busy = _unavailablePeriodsFor(replacerId!);
-                    final cardColor = busy.isEmpty ? Colors.green[50] : null;
-                    final textColor = _adaptiveTextColor(
-                      context,
-                      backgroundColor: cardColor,
-                    );
-                    return Card(
-                      color: cardColor,
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              "Périodes où ${user.displayName} est indisponible :",
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: textColor,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            if (busy.isEmpty)
-                              Text(
-                                "Aucune indisponibilité détectée.",
-                                style: TextStyle(color: textColor),
-                              )
-                            else
-                              ...busy.map((g) {
-                                final s = g['start']!;
-                                final e = g['end']!;
-                                return Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 4,
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      const Icon(
-                                        Icons.block,
-                                        size: 16,
-                                        color: Colors.orange,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          "${DateFormat('dd/MM/yyyy HH:mm').format(s)} — ${DateFormat('dd/MM/yyyy HH:mm').format(e)}",
-                                          style: TextStyle(color: textColor),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              }).toList(),
-                          ],
+  const _InlineDatePicker({
+    required this.label,
+    required this.dateTime,
+    required this.placeholder,
+    required this.fmt,
+    required this.accentColor,
+    required this.subtleColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isSet = dateTime != null;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            // Label
+            SizedBox(
+              width: 44,
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: subtleColor,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            // Picker button
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? Colors.white.withValues(alpha: 0.06)
+                      : Colors.white.withValues(alpha: 0.7),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: isSet
+                        ? accentColor.withValues(alpha: 0.4)
+                        : (isDark
+                            ? Colors.white.withValues(alpha: 0.10)
+                            : Colors.grey.withValues(alpha: 0.25)),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.schedule_rounded,
+                      size: 15,
+                      color: isSet ? accentColor : subtleColor,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        isSet ? fmt.format(dateTime!) : placeholder,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight:
+                              isSet ? FontWeight.w600 : FontWeight.w400,
+                          color: isSet ? accentColor : subtleColor,
                         ),
                       ),
-                    );
-                  },
+                    ),
+                    Icon(
+                      Icons.edit_rounded,
+                      size: 13,
+                      color: subtleColor.withValues(alpha: 0.6),
+                    ),
+                  ],
                 ),
-              ],
-
-              // --- Skills impact due to the replacement ---
-              // Afficher le delta de compétences seulement en mode manuel
-              if (canSelectReplaced && (dataReplacedId != null)) ...[
-                const SizedBox(height: 12),
-                Builder(
-                  builder: (context) {
-                    final replacedUser = allUsers.firstWhere(
-                      (u) => u.id == dataReplacedId,
-                      orElse: User.empty,
-                    );
-                    final replacerUser = replacerId != null
-                        ? allUsers.firstWhere(
-                            (u) => u.id == replacerId,
-                            orElse: User.empty,
-                          )
-                        : User.empty();
-                    final replacedSkills = Set<String>.from(
-                      replacedUser.skills,
-                    );
-                    final replacerSkills = Set<String>.from(
-                      replacerUser.skills,
-                    );
-                    final gained =
-                        replacerSkills.difference(replacedSkills).toList()
-                          ..sort();
-                    final lost =
-                        replacedSkills.difference(replacerSkills).toList()
-                          ..sort();
-                    return Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              "Impact sur les compétences :",
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            if (gained.isEmpty && lost.isEmpty)
-                              const Text(
-                                "Aucun impact sur les compétences pour la période sélectionnée.",
-                              ),
-                            if (gained.isNotEmpty) ...[
-                              const Text(
-                                "Compétences gagnées :",
-                                style: TextStyle(
-                                  color: Colors.green,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              ...gained.map(
-                                (s) => Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 2.0,
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      const Icon(
-                                        Icons.add_circle,
-                                        size: 16,
-                                        color: Colors.green,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(child: Text(s)),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ],
-                            if (lost.isNotEmpty) ...[
-                              const SizedBox(height: 8),
-                              const Text(
-                                "Compétences perdues :",
-                                style: TextStyle(
-                                  color: Colors.red,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              ...lost.map(
-                                (s) => Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 2.0,
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      const Icon(
-                                        Icons.remove_circle,
-                                        size: 16,
-                                        color: Colors.red,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(child: Text(s)),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ],
-                            if (replacerId == null && lost.isNotEmpty) ...[
-                              const SizedBox(height: 8),
-                              const Text(
-                                "Remarque : aucun remplaçant sélectionné — ces compétences seraient perdues si elles ne sont pas  uvertes.",
-                                style: TextStyle(
-                                  color: Colors.black54,
-                                  fontStyle: FontStyle.italic,
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ],
-            ], // Fin du bloc if (widget.isManualMode)
+              ),
+            ),
           ],
         ),
       ),
