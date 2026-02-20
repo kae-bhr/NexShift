@@ -101,7 +101,7 @@ class _ReplacementTileWrapperState extends State<ReplacementTileWrapper> {
       final requester = await _userRepository.getById(widget.request.requesterId);
       final requesterName = requester != null
           ? requester.displayName
-          : 'Inconnu';
+          : 'Agent ${widget.request.requesterId}';
 
       // Charger le remplaçant si accepté
       User? replacer;
@@ -387,6 +387,14 @@ class _ManualProposalTileWrapperState extends State<ManualProposalTileWrapper> {
   UnifiedTileData _buildTileData() {
     final proposal = widget.proposal;
 
+    // Fallback "Agent <matricule>" si prénom/nom absent (agent créé mais non enregistré)
+    final replacedName = proposal.replacedName.trim().isNotEmpty
+        ? proposal.replacedName
+        : 'Agent ${proposal.replacedId}';
+    final replacerName = proposal.replacerName.trim().isNotEmpty
+        ? proposal.replacerName
+        : 'Agent ${proposal.replacerId}';
+
     return UnifiedTileData(
       id: proposal.id,
       requestType: UnifiedRequestType.manualReplacement,
@@ -394,7 +402,7 @@ class _ManualProposalTileWrapperState extends State<ManualProposalTileWrapper> {
       createdAt: proposal.createdAt ?? DateTime.now(),
       leftColumn: AgentColumnData(
         agentId: proposal.replacedId,
-        agentName: proposal.replacedName,
+        agentName: replacedName,
         team: _replacedTeam ?? proposal.replacedTeam,
         startTime: proposal.startTime,
         endTime: proposal.endTime,
@@ -402,7 +410,7 @@ class _ManualProposalTileWrapperState extends State<ManualProposalTileWrapper> {
       ),
       rightColumn: AgentColumnData(
         agentId: proposal.replacerId,
-        agentName: proposal.replacerName,
+        agentName: replacerName,
         team: _replacerTeam ?? proposal.replacerTeam,
         startTime: proposal.startTime,
         endTime: proposal.endTime,

@@ -87,7 +87,7 @@ class ShiftExchangeService {
       final request = ShiftExchangeRequest(
         id: const Uuid().v4(),
         initiatorId: initiatorId,
-        initiatorName: '${initiator.firstName} ${initiator.lastName}',
+        initiatorName: initiator.displayName,
         initiatorPlanningId: planningId,
         initiatorStartTime: planning.startTime,
         initiatorEndTime: planning.endTime,
@@ -375,7 +375,7 @@ class ShiftExchangeService {
         id: const Uuid().v4(),
         requestId: requestId,
         proposerId: proposerId,
-        proposerName: '${proposer.firstName} ${proposer.lastName}',
+        proposerName: proposer.displayName,
         proposedPlanningIds: planningIds,
         isProposerChief: isProposerChief,
         proposerTeamId: proposerTeamId,

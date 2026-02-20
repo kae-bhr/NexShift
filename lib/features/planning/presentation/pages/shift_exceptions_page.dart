@@ -154,172 +154,266 @@ class _ShiftExceptionsPageState extends State<ShiftExceptionsPage> {
         '${dt.hour.toString().padLeft(2, '0')}h${dt.minute.toString().padLeft(2, '0')}';
   }
 
+  Widget _buildExRow(IconData icon, String text, bool isDark) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Row(
+        children: [
+          Icon(icon, size: 13, color: isDark ? Colors.grey[400] : Colors.grey[600]),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 12,
+                color: isDark ? Colors.grey[400] : Colors.grey[600],
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: const CustomAppBar(title: 'Dates exceptionnelles'),
-      body: Column(
-        children: [
-          // Sélecteur d'année
-          Container(
-            padding: const EdgeInsets.all(16),
-            color: Theme.of(context).colorScheme.surfaceContainerHighest,
-            child: Row(
-              children: [
-                IconButton(
-                  onPressed: () {
-                    setState(() => _selectedYear--);
-                    _loadExceptions();
-                  },
-                  icon: const Icon(Icons.chevron_left),
-                ),
-                Expanded(
-                  child: Text(
-                    '$_selectedYear',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.titleLarge,
+      body: Builder(
+        builder: (context) {
+          final isDark = Theme.of(context).brightness == Brightness.dark;
+          return Column(
+            children: [
+              // Sélecteur d'année
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                decoration: BoxDecoration(
+                  color: KColors.appNameColor.withValues(alpha: isDark ? 0.1 : 0.05),
+                  border: Border(
+                    bottom: BorderSide(
+                      color: KColors.appNameColor.withValues(alpha: 0.15),
+                    ),
                   ),
                 ),
-                IconButton(
-                  onPressed: () {
-                    setState(() => _selectedYear++);
-                    _loadExceptions();
-                  },
-                  icon: const Icon(Icons.chevron_right),
-                ),
-              ],
-            ),
-          ),
-          // Bouton de suppression
-          if (_exceptions.isNotEmpty && _canManage)
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: _deleteAllForYear,
-                  icon: const Icon(Icons.delete_sweep),
-                  label: const Text('Supprimer toutes les exceptions'),
-                  style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+                child: Row(
+                  children: [
+                    IconButton(
+                      onPressed: () {
+                        setState(() => _selectedYear--);
+                        _loadExceptions();
+                      },
+                      icon: const Icon(Icons.chevron_left_rounded),
+                      color: KColors.appNameColor,
+                    ),
+                    Expanded(
+                      child: Text(
+                        '$_selectedYear',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: KColors.appNameColor,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () {
+                        setState(() => _selectedYear++);
+                        _loadExceptions();
+                      },
+                      icon: const Icon(Icons.chevron_right_rounded),
+                      color: KColors.appNameColor,
+                    ),
+                  ],
                 ),
               ),
-            ),
-          // Liste des exceptions
-          Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : _exceptions.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.event_busy,
-                          size: 64,
-                          color: Colors.grey[400],
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Aucune exception pour $_selectedYear',
-                          style: TextStyle(
-                            color: Colors.grey[600],
-                            fontSize: 16,
-                          ),
-                        ),
-                      ],
+
+              // Bouton de suppression globale
+              if (_exceptions.isNotEmpty && _canManage)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _deleteAllForYear,
+                      icon: const Icon(Icons.delete_sweep_rounded, size: 18),
+                      label: const Text('Supprimer toutes les exceptions'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.red,
+                        side: const BorderSide(color: Colors.red),
+                      ),
                     ),
-                  )
-                : ListView.builder(
-                    itemCount: _exceptions.length,
-                    padding: const EdgeInsets.all(16),
-                    itemBuilder: (context, index) {
-                      final exception = _exceptions[index];
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: exception.teamId == null
-                                ? Colors.red
-                                : KColors.appNameColor,
-                            child: Icon(
-                              exception.teamId == null
-                                  ? Icons.cancel
-                                  : Icons.swap_horiz,
-                              color: Colors.white,
-                            ),
-                          ),
-                          title: Text(
-                            exception.reason,
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const SizedBox(height: 4),
-                              Text(
-                                'De: ${_formatDateTime(exception.startDateTime)}',
-                              ),
-                              Text(
-                                'À: ${_formatDateTime(exception.endDateTime)}',
-                              ),
-                              if (exception.teamId != null) ...[
-                                Text('Équipe: ${exception.teamId}'),
-                                Row(
-                                  children: [
-                                    Icon(
-                                      Icons.group,
-                                      size: 14,
-                                      color: Colors.grey[600],
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      'Max ${exception.maxAgents} agents',
-                                      style: TextStyle(
-                                        color: Colors.grey[700],
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ] else
-                                const Text(
-                                  'Astreinte annulée',
-                                  style: TextStyle(
-                                    color: Colors.red,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                            ],
-                          ),
-                          trailing: _canManage
-                              ? Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    IconButton(
-                                      icon: const Icon(Icons.edit_outlined),
-                                      onPressed: () => _editException(exception),
-                                      tooltip: 'Modifier',
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(Icons.delete_outline),
-                                      onPressed: () => _deleteException(exception),
-                                      tooltip: 'Supprimer',
-                                    ),
-                                  ],
-                                )
-                              : null,
-                        ),
-                      );
-                    },
                   ),
-          ),
-        ],
+                ),
+
+              // Liste des exceptions
+              Expanded(
+                child: _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _exceptions.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.event_busy_rounded,
+                              size: 56,
+                              color: isDark ? Colors.grey[600] : Colors.grey[400],
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Aucune exception pour $_selectedYear',
+                              style: TextStyle(
+                                color: isDark ? Colors.grey[400] : Colors.grey[600],
+                                fontSize: 15,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.builder(
+                        itemCount: _exceptions.length,
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 80),
+                        itemBuilder: (context, index) {
+                          final exception = _exceptions[index];
+                          final isCancelled = exception.teamId == null;
+                          final accentColor = isCancelled ? Colors.red : KColors.appNameColor;
+
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 10),
+                            decoration: BoxDecoration(
+                              color: isDark
+                                  ? Colors.white.withValues(alpha: 0.04)
+                                  : accentColor.withValues(alpha: 0.03),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: accentColor.withValues(
+                                  alpha: isDark ? 0.3 : 0.2,
+                                ),
+                                width: 1.5,
+                              ),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.all(14),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // Icon badge
+                                  Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: accentColor.withValues(alpha: 0.12),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Icon(
+                                      isCancelled
+                                          ? Icons.cancel_rounded
+                                          : Icons.swap_horiz_rounded,
+                                      color: accentColor,
+                                      size: 20,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+
+                                  // Content
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          exception.reason,
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 14,
+                                            color: isDark ? Colors.white : Colors.black87,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 5),
+                                        _buildExRow(
+                                          Icons.play_arrow_rounded,
+                                          _formatDateTime(exception.startDateTime),
+                                          isDark,
+                                        ),
+                                        _buildExRow(
+                                          Icons.stop_rounded,
+                                          _formatDateTime(exception.endDateTime),
+                                          isDark,
+                                        ),
+                                        if (isCancelled)
+                                          Padding(
+                                            padding: const EdgeInsets.only(top: 4),
+                                            child: Container(
+                                              padding: const EdgeInsets.symmetric(
+                                                horizontal: 7,
+                                                vertical: 2,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color: Colors.red.withValues(alpha: 0.12),
+                                                borderRadius: BorderRadius.circular(6),
+                                              ),
+                                              child: const Text(
+                                                'Astreinte annulée',
+                                                style: TextStyle(
+                                                  color: Colors.red,
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 11,
+                                                ),
+                                              ),
+                                            ),
+                                          )
+                                        else ...[
+                                          _buildExRow(
+                                            Icons.group_rounded,
+                                            'Équipe ${exception.teamId} · max ${exception.maxAgents} agents',
+                                            isDark,
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+
+                                  // Actions
+                                  if (_canManage)
+                                    Column(
+                                      children: [
+                                        IconButton(
+                                          icon: const Icon(Icons.edit_rounded, size: 18),
+                                          onPressed: () => _editException(exception),
+                                          tooltip: 'Modifier',
+                                          color: isDark ? Colors.grey[400] : Colors.grey[600],
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(),
+                                        ),
+                                        const SizedBox(height: 8),
+                                        IconButton(
+                                          icon: const Icon(Icons.delete_rounded, size: 18),
+                                          onPressed: () => _deleteException(exception),
+                                          tooltip: 'Supprimer',
+                                          color: Colors.red[400],
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(),
+                                        ),
+                                      ],
+                                    ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          );
+        },
       ),
       floatingActionButton: _canManage
           ? FloatingActionButton.extended(
-              backgroundColor: Theme.of(context).colorScheme.primary,
+              backgroundColor: KColors.appNameColor,
+              foregroundColor: Colors.white,
               onPressed: _addException,
-              icon: const Icon(Icons.add),
+              icon: const Icon(Icons.add_rounded),
               label: const Text('Ajouter'),
             )
           : null,
@@ -684,18 +778,53 @@ class _ExceptionDialogState extends State<_ExceptionDialog> {
               if (_isLoadingStation)
                 const Center(child: CircularProgressIndicator())
               else
-                Card(
-                  child: ListTile(
-                    leading: const Icon(Icons.group),
-                    title: const Text('Nombre maximum d\'agents'),
-                    subtitle: const Text('Défini dans Administration'),
-                    trailing: Text(
-                      '$_maxAgents agents',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: KColors.appNameColor.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: KColors.appNameColor.withValues(alpha: 0.2),
                     ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.group_rounded,
+                        size: 20,
+                        color: KColors.appNameColor,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Maximum d\'agents',
+                              style: TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                            Text(
+                              'Défini dans Administration',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Text(
+                        '$_maxAgents agents',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: KColors.appNameColor,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
             ],

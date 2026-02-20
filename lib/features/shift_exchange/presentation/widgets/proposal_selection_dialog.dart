@@ -50,6 +50,7 @@ String _formatDuration(int minutes) {
 /// Structure pour représenter une astreinte individuelle proposée
 class _IndividualProposal {
   final String proposalId;
+  final String proposerId;
   final String planningId;
   final Planning planning;
   final String proposerName;
@@ -60,6 +61,7 @@ class _IndividualProposal {
 
   _IndividualProposal({
     required this.proposalId,
+    required this.proposerId,
     required this.planningId,
     required this.planning,
     required this.proposerName,
@@ -144,6 +146,7 @@ class _ProposalSelectionDialogState extends State<_ProposalSelectionDialog> {
             allIndividualProposals.add(
               _IndividualProposal(
                 proposalId: proposal.id,
+                proposerId: proposal.proposerId,
                 planningId: planningId,
                 planning: planning,
                 proposerName: proposal.proposerName,
@@ -590,7 +593,9 @@ class _ProposalSelectionDialogState extends State<_ProposalSelectionDialog> {
                                               ),
                                               const SizedBox(height: 1),
                                               Text(
-                                                individual.proposerName,
+                                                individual.proposerName.trim().isNotEmpty
+                                                    ? individual.proposerName
+                                                    : 'Agent ${individual.proposerId}',
                                                 style: TextStyle(
                                                   fontSize: 12,
                                                   color: isRejected

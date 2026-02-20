@@ -5,6 +5,7 @@ import 'package:nexshift_app/core/repositories/team_repository.dart';
 import 'package:nexshift_app/core/repositories/local_repositories.dart';
 import 'package:nexshift_app/core/data/datasources/notifiers.dart';
 import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
+import 'package:nexshift_app/core/utils/constants.dart';
 
 /// Teams tab page - manages station teams
 class TeamsTabPage extends StatefulWidget {
@@ -41,6 +42,8 @@ class _TeamsTabPageState extends State<TeamsTabPage> {
     final sortedTeams = List<Team>.from(widget.allTeams)
       ..sort((a, b) => a.order.compareTo(b.order));
 
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
       body: CustomScrollView(
         slivers: [
@@ -48,43 +51,45 @@ class _TeamsTabPageState extends State<TeamsTabPage> {
           SliverToBoxAdapter(
             child: Container(
               margin: const EdgeInsets.all(16),
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
-                    Theme.of(context).colorScheme.primary.withOpacity(0.1),
-                    Theme.of(context).colorScheme.primary.withOpacity(0.05),
+                    KColors.appNameColor.withValues(alpha: isDark ? 0.2 : 0.1),
+                    KColors.appNameColor.withValues(alpha: isDark ? 0.08 : 0.04),
                   ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(14),
                 border: Border.all(
-                  color: Theme.of(context).colorScheme.primary.withOpacity(0.2),
+                  color: KColors.appNameColor.withValues(alpha: 0.25),
                 ),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
                   _buildStatColumn(
-                    icon: Icons.groups,
+                    icon: Icons.groups_rounded,
                     value: '$totalTeams',
                     label: 'Équipe${totalTeams > 1 ? 's' : ''}',
-                    color: Theme.of(context).colorScheme.primary,
                   ),
-                  Container(width: 1, height: 40, color: Colors.grey.shade300),
+                  Container(
+                    width: 1,
+                    height: 36,
+                    color: KColors.appNameColor.withValues(alpha: 0.2),
+                  ),
                   _buildStatColumn(
-                    icon: Icons.people,
+                    icon: Icons.people_rounded,
                     value: '$totalAgents',
                     label: 'Agent${totalAgents > 1 ? 's' : ''}',
-                    color: Theme.of(context).colorScheme.primary,
                   ),
                 ],
               ),
             ),
           ),
 
-          // Teams Grid
+          // Teams list
           if (sortedTeams.isEmpty)
             SliverFillRemaining(
               child: Center(
@@ -92,21 +97,24 @@ class _TeamsTabPageState extends State<TeamsTabPage> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(
-                      Icons.group_off,
-                      size: 64,
-                      color: Colors.grey.shade400,
+                      Icons.group_off_rounded,
+                      size: 56,
+                      color: isDark ? Colors.grey[600] : Colors.grey.shade400,
                     ),
                     const SizedBox(height: 16),
                     Text(
                       'Aucune équipe',
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        color: Colors.grey.shade600,
+                        color: isDark ? Colors.grey[400] : Colors.grey.shade600,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                     const SizedBox(height: 8),
                     Text(
                       'Appuyez sur + pour créer une équipe',
-                      style: TextStyle(color: Colors.grey.shade500),
+                      style: TextStyle(
+                        color: isDark ? Colors.grey[500] : Colors.grey.shade500,
+                      ),
                     ),
                   ],
                 ),
@@ -155,9 +163,10 @@ class _TeamsTabPageState extends State<TeamsTabPage> {
       floatingActionButton: _isLeader
           ? FloatingActionButton.extended(
               onPressed: _showAddTeamDialog,
-              icon: const Icon(Icons.add),
+              icon: const Icon(Icons.add_rounded),
               label: const Text('Nouvelle équipe'),
-              backgroundColor: Theme.of(context).colorScheme.primary,
+              backgroundColor: KColors.appNameColor,
+              foregroundColor: Colors.white,
             )
           : null,
     );
@@ -167,23 +176,30 @@ class _TeamsTabPageState extends State<TeamsTabPage> {
     required IconData icon,
     required String value,
     required String label,
-    required Color color,
   }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final color = isDark
+        ? KColors.appNameColor.withValues(alpha: 0.85)
+        : KColors.appNameColor;
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 32, color: color),
-        const SizedBox(height: 8),
+        Icon(icon, size: 28, color: color),
+        const SizedBox(height: 6),
         Text(
           value,
           style: TextStyle(
-            fontSize: 28,
+            fontSize: 26,
             fontWeight: FontWeight.bold,
             color: color,
           ),
         ),
         Text(
           label,
-          style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+          style: TextStyle(
+            fontSize: 13,
+            color: isDark ? Colors.grey[400] : Colors.grey[600],
+          ),
         ),
       ],
     );
@@ -212,80 +228,91 @@ class _TeamsTabPageState extends State<TeamsTabPage> {
   Widget _buildTeamListCard(Team team, int index, {Key? key}) {
     final teamUsers = widget.usersByTeam[team.id] ?? [];
     final textColor = _getTextColorForBackground(team.color);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Card(
+    return Container(
       key: key,
-      margin: const EdgeInsets.only(bottom: 12),
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: team.color.withOpacity(0.3), width: 2),
-      ),
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          gradient: LinearGradient(
-            colors: [
-              team.color.withOpacity(0.15),
-              team.color.withOpacity(0.05),
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: isDark
+            ? Colors.white.withValues(alpha: 0.04)
+            : team.color.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: team.color.withValues(alpha: isDark ? 0.4 : 0.3),
+          width: 1.5,
         ),
-        child: ListTile(
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 8,
-          ),
-          leading: Row(
-            mainAxisSize: MainAxisSize.min,
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: null,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
             children: [
-              if (_isLeader)
-                Icon(Icons.drag_handle, color: team.color.withOpacity(0.5)),
-              const SizedBox(width: 8),
+              // Drag handle (leaders only)
+              if (_isLeader) ...[
+                Icon(
+                  Icons.drag_handle_rounded,
+                  color: team.color.withValues(alpha: 0.5),
+                  size: 20,
+                ),
+                const SizedBox(width: 10),
+              ],
+
+              // Team badge
               Container(
-                width: 48,
-                height: 48,
+                width: 44,
+                height: 44,
                 decoration: BoxDecoration(
                   color: team.color,
                   shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: team.color.withOpacity(0.4),
-                      blurRadius: 8,
-                      spreadRadius: 2,
-                    ),
-                  ],
                 ),
                 child: Center(
                   child: Text(
                     team.id,
                     style: TextStyle(
                       color: textColor,
-                      fontSize: 20,
+                      fontSize: 18,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                 ),
               ),
-            ],
-          ),
-          title: Text(
-            team.name,
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
-              color: team.color,
-            ),
-          ),
-          subtitle: Text(
-            '${teamUsers.length} membre${teamUsers.length > 1 ? 's' : ''}',
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-          ),
-          trailing: _isLeader
-              ? PopupMenuButton<String>(
-                  icon: Icon(Icons.more_vert, color: team.color),
+              const SizedBox(width: 14),
+
+              // Name + member count
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      team.name,
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                        color: team.color,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${teamUsers.length} membre${teamUsers.length > 1 ? 's' : ''}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isDark ? Colors.grey[400] : Colors.grey[600],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Actions menu (leaders only)
+              if (_isLeader)
+                PopupMenuButton<String>(
+                  icon: Icon(
+                    Icons.more_vert_rounded,
+                    color: isDark ? Colors.grey[400] : Colors.grey[600],
+                  ),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -294,7 +321,7 @@ class _TeamsTabPageState extends State<TeamsTabPage> {
                       value: 'edit_name',
                       child: Row(
                         children: [
-                          Icon(Icons.edit, size: 18),
+                          Icon(Icons.edit_rounded, size: 18),
                           SizedBox(width: 8),
                           Text('Modifier le nom'),
                         ],
@@ -304,7 +331,7 @@ class _TeamsTabPageState extends State<TeamsTabPage> {
                       value: 'edit_color',
                       child: Row(
                         children: [
-                          Icon(Icons.palette, size: 18),
+                          Icon(Icons.palette_rounded, size: 18),
                           SizedBox(width: 8),
                           Text('Modifier la couleur'),
                         ],
@@ -315,7 +342,7 @@ class _TeamsTabPageState extends State<TeamsTabPage> {
                       child: Row(
                         children: [
                           Icon(
-                            Icons.delete,
+                            Icons.delete_rounded,
                             size: 18,
                             color: Colors.red.shade700,
                           ),
@@ -329,8 +356,9 @@ class _TeamsTabPageState extends State<TeamsTabPage> {
                     ),
                   ],
                   onSelected: (value) => _handleTeamAction(value, team),
-                )
-              : null,
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -571,12 +599,20 @@ class _TeamsTabPageState extends State<TeamsTabPage> {
             children: [
               // Preview
               Container(
-                width: 80,
-                height: 80,
+                width: 72,
+                height: 72,
                 decoration: BoxDecoration(
                   color: selectedColor,
                   shape: BoxShape.circle,
-                  border: Border.all(color: Colors.grey.shade300, width: 2),
+                  border: Border.all(
+                    color: selectedColor.withValues(alpha: 0.5),
+                    width: 3,
+                  ),
+                ),
+                child: Icon(
+                  Icons.groups_rounded,
+                  color: _getTextColorForBackground(selectedColor),
+                  size: 32,
                 ),
               ),
               const SizedBox(height: 24),
@@ -593,20 +629,33 @@ class _TeamsTabPageState extends State<TeamsTabPage> {
                       });
                     },
                     child: Container(
-                      width: 50,
-                      height: 50,
+                      width: 48,
+                      height: 48,
                       decoration: BoxDecoration(
                         color: color,
                         shape: BoxShape.circle,
                         border: Border.all(
                           color: isSelected
-                              ? Colors.black
-                              : Colors.grey.shade300,
-                          width: isSelected ? 3 : 2,
+                              ? color.withValues(alpha: 0.9)
+                              : Colors.transparent,
+                          width: isSelected ? 3 : 0,
                         ),
+                        boxShadow: isSelected
+                            ? [
+                                BoxShadow(
+                                  color: color.withValues(alpha: 0.5),
+                                  blurRadius: 6,
+                                  spreadRadius: 1,
+                                ),
+                              ]
+                            : null,
                       ),
                       child: isSelected
-                          ? const Icon(Icons.check, color: Colors.white)
+                          ? Icon(
+                              Icons.check_rounded,
+                              color: _getTextColorForBackground(color),
+                              size: 22,
+                            )
                           : null,
                     ),
                   );
@@ -662,7 +711,7 @@ class _TeamsTabPageState extends State<TeamsTabPage> {
           FilledButton(
             onPressed: () async {
               // Delete team directly from Firestore
-              await TeamRepository().delete(team.id);
+              await TeamRepository().delete(team.id, stationId: team.stationId);
 
               // Notify other parts of the app to reload team data
               teamDataChangedNotifier.value++;

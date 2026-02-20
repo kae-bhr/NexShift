@@ -39,7 +39,6 @@ class _TeamPageState extends State<TeamPage> {
   String _searchQuery = '';
   TeamViewMode _viewMode = TeamViewMode.rolesBased;
   bool _showAllStaff = false;
-  // Cache des couleurs d'équipe pour le mode "Effectif complet"
   Map<String, Color> _teamColors = {};
 
   @override
@@ -47,9 +46,7 @@ class _TeamPageState extends State<TeamPage> {
     super.initState();
     _teamId = widget.teamId ?? userNotifier.value?.team ?? '';
     _init();
-    // Listen to team data changes
     teamDataChangedNotifier.addListener(_onTeamDataChanged);
-    // Listen to user changes to update team if user's team changed
     userNotifier.addListener(_onUserChanged);
   }
 
@@ -61,21 +58,12 @@ class _TeamPageState extends State<TeamPage> {
     super.dispose();
   }
 
-  void _onTeamDataChanged() {
-    // Reload team data when notified of changes
-    _init();
-  }
+  void _onTeamDataChanged() => _init();
 
   void _onUserChanged() {
-    // Update team ID if user's team changed (e.g., after team rename)
     final newTeamId = userNotifier.value?.team;
-    // Update if:
-    // 1. New team ID is different from current
-    // 2. Either widget.teamId is null (showing user's team) OR widget.teamId matches old team (was set to old team at navigation)
     if (newTeamId != null && newTeamId != _teamId) {
-      setState(() {
-        _teamId = newTeamId;
-      });
+      setState(() => _teamId = newTeamId);
       _init();
     }
   }
@@ -87,16 +75,12 @@ class _TeamPageState extends State<TeamPage> {
     });
 
     try {
-      // Get stationId from userNotifier for dev mode
       final stationId = userNotifier.value?.station;
-      if (stationId == null) {
-        throw Exception('User station is null');
-      }
+      if (stationId == null) throw Exception('User station is null');
 
       final users = await UserRepository().getByStation(stationId);
       final teams = await TeamRepository().getByStation(stationId);
 
-      // Construire le cache des couleurs d'équipe
       final colorsMap = <String, Color>{};
       for (final t in teams) {
         colorsMap[t.id] = t.color;
@@ -115,19 +99,16 @@ class _TeamPageState extends State<TeamPage> {
           ? null
           : await TeamRepository().getById(_teamId, stationId: stationId);
 
-      // Load positions for the team's station
-      final positions = await _positionRepo
-          .getPositionsByStation(stationId)
-          .first;
+      final positions =
+          await _positionRepo.getPositionsByStation(stationId).first;
 
       setState(() {
         _teamUsers = filtered;
         _filteredUsers = filtered;
         _positions = positions;
         _teamColors = colorsMap;
-        _teamName = _showAllStaff
-            ? 'Effectif complet'
-            : (team?.name ?? 'Équipe $_teamId');
+        _teamName =
+            _showAllStaff ? 'Effectif complet' : (team?.name ?? 'Équipe $_teamId');
         _teamColor = _showAllStaff ? KColors.appNameColor : team?.color;
         _loading = false;
       });
@@ -142,18 +123,19 @@ class _TeamPageState extends State<TeamPage> {
 
   void _applySearch() {
     if (_searchQuery.isEmpty) {
-      setState(() {
-        _filteredUsers = _teamUsers;
-      });
+      setState(() => _filteredUsers = _teamUsers);
     } else {
       final query = _searchQuery.toLowerCase();
       setState(() {
         _filteredUsers = _teamUsers.where((user) {
-          final fullName = user.displayName.toLowerCase();
-          return fullName.contains(query);
+          return user.displayName.toLowerCase().contains(query);
         }).toList();
       });
     }
+  }
+
+  Color _getTextColorForBackground(Color bg) {
+    return bg.computeLuminance() > 0.5 ? Colors.black : Colors.white;
   }
 
   @override
@@ -173,6 +155,9 @@ class _TeamPageState extends State<TeamPage> {
                   : Icons.shield_moon,
               color: accent,
             ),
+            tooltip: _viewMode == TeamViewMode.rolesBased
+                ? 'Vue par postes'
+                : 'Vue par rôles',
             onPressed: () {
               HapticFeedback.lightImpact();
               setState(() {
@@ -181,9 +166,6 @@ class _TeamPageState extends State<TeamPage> {
                     : TeamViewMode.rolesBased;
               });
             },
-            tooltip: _viewMode == TeamViewMode.rolesBased
-                ? 'Vue par postes'
-                : 'Vue par rôles',
           ),
         ],
       ),
@@ -197,73 +179,154 @@ class _TeamPageState extends State<TeamPage> {
 
   Widget _buildBody(BuildContext context) {
     return _viewMode == TeamViewMode.rolesBased
-        ? _buildRolesBasedView(context)
-        : _buildPositionsBasedView(context);
+        ? _buildRolesView(context)
+        : _buildPositionsView(context);
   }
 
-  Widget _buildRolesBasedView(BuildContext context) {
-    final leaders =
-        _filteredUsers
-            .where(
-              (u) =>
-                  u.status == KConstants.statusLeader ||
-                  u.status == KConstants.statusChief,
-            )
-            .toList()
-          ..sort((a, b) => a.lastName.compareTo(b.lastName));
-    final agents =
-        _filteredUsers.where((u) => u.status == KConstants.statusAgent).toList()
-          ..sort((a, b) => a.lastName.compareTo(b.lastName));
+  // ── Barre de recherche commune ──────────────────────────────────────────────
+  Widget _buildSearchBar(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: isDark
+            ? Colors.white.withValues(alpha: 0.06)
+            : Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.10)
+              : Colors.grey.shade200,
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.search_rounded,
+              size: 18,
+              color: isDark ? Colors.grey.shade500 : Colors.grey.shade500),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              controller: _searchController,
+              onChanged: (value) {
+                setState(() => _searchQuery = value);
+                _applySearch();
+              },
+              style: TextStyle(
+                fontSize: 14,
+                color: isDark ? Colors.grey.shade200 : Colors.grey.shade800,
+              ),
+              decoration: InputDecoration(
+                hintText: 'Rechercher un agent...',
+                hintStyle: TextStyle(
+                  fontSize: 14,
+                  color: isDark ? Colors.grey.shade600 : Colors.grey.shade500,
+                ),
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+          ),
+          if (_searchQuery.isNotEmpty)
+            GestureDetector(
+              onTap: () {
+                _searchController.clear();
+                setState(() => _searchQuery = '');
+                _applySearch();
+              },
+              child: Icon(Icons.close_rounded,
+                  size: 16,
+                  color: isDark ? Colors.grey.shade500 : Colors.grey.shade400),
+            ),
+        ],
+      ),
+    );
+  }
 
-    final totalCount = _filteredUsers.length;
-    final leaderCount = leaders.length;
-    final agentCount = agents.length;
+  // ── Stats badge ─────────────────────────────────────────────────────────────
+  Widget _buildStatsBadge(
+      BuildContext context, int total, int leaders, int agents) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final accent = _teamColor ?? Theme.of(context).colorScheme.primary;
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: isDark ? 0.10 : 0.06),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+            color: accent.withValues(alpha: isDark ? 0.25 : 0.18)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _StatItem(icon: Icons.groups_rounded, value: '$total', label: 'Total', color: accent),
+          Container(width: 1, height: 28, color: accent.withValues(alpha: 0.20)),
+          _StatItem(icon: Icons.shield_moon_rounded, value: '$leaders', label: 'Chefs', color: accent),
+          Container(width: 1, height: 28, color: accent.withValues(alpha: 0.20)),
+          _StatItem(icon: Icons.person_rounded, value: '$agents', label: 'Agents', color: accent),
+        ],
+      ),
+    );
+  }
+
+  // ── Section header ──────────────────────────────────────────────────────────
+  Widget _buildSectionHeader(BuildContext context, String label,
+      {IconData? icon}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final accent = _teamColor ?? Theme.of(context).colorScheme.primary;
+    final textColor = isDark ? Colors.grey.shade400 : Colors.grey.shade600;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+      child: Row(
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 14, color: textColor),
+            const SizedBox(width: 6),
+          ],
+          Text(
+            label.toUpperCase(),
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.6,
+              color: textColor,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Container(
+              height: 1,
+              color: accent.withValues(alpha: 0.20),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Vue par rôles ───────────────────────────────────────────────────────────
+  Widget _buildRolesView(BuildContext context) {
+    final leaders = _filteredUsers
+        .where((u) =>
+            u.status == KConstants.statusLeader ||
+            u.status == KConstants.statusChief)
+        .toList()
+      ..sort((a, b) => a.lastName.compareTo(b.lastName));
+    final agents = _filteredUsers
+        .where((u) => u.status == KConstants.statusAgent)
+        .toList()
+      ..sort((a, b) => a.lastName.compareTo(b.lastName));
 
     return Column(
       children: [
-        // Search bar
-        Padding(
-          padding: KSpacing.paddingM,
-          child: TextField(
-            controller: _searchController,
-            onChanged: (value) {
-              setState(() {
-                _searchQuery = value;
-              });
-              _applySearch();
-            },
-            decoration: InputDecoration(
-              hintText: 'Rechercher un agent...',
-              hintStyle: KTypography.body(
-                color: Theme.of(context).colorScheme.tertiary,
-              ),
-              prefixIcon: Icon(
-                Icons.search,
-                color: Theme.of(context).colorScheme.tertiary,
-              ),
-              suffixIcon: _searchQuery.isNotEmpty
-                  ? IconButton(
-                      icon: const Icon(Icons.clear),
-                      onPressed: () {
-                        _searchController.clear();
-                        setState(() {
-                          _searchQuery = '';
-                        });
-                        _applySearch();
-                      },
-                    )
-                  : null,
-              filled: true,
-              fillColor: Theme.of(context).colorScheme.surface,
-              border: OutlineInputBorder(
-                borderRadius: KBorderRadius.circularM,
-                borderSide: BorderSide.none,
-              ),
-              contentPadding: KSpacing.paddingM,
-            ),
-          ),
-        ),
-        // List
+        _buildSearchBar(context),
+        if (_searchQuery.isEmpty)
+          _buildStatsBadge(
+              context, _filteredUsers.length, leaders.length, agents.length),
         Expanded(
           child: _filteredUsers.isEmpty
               ? custom.EmptyStateWidget(
@@ -275,81 +338,32 @@ class _TeamPageState extends State<TeamPage> {
                       : Icons.search_off,
                 )
               : ListView(
-                  padding: KSpacing.paddingL,
                   children: [
-                    // Stats badge
-                    if (_searchQuery.isEmpty) ...[
+                    if (leaders.isNotEmpty) ...[
+                      _buildSectionHeader(context, 'Chef de garde',
+                          icon: Icons.shield_moon_rounded),
                       Padding(
-                        padding: KSpacing.paddingHorizontalL,
-                        child: Container(
-                          padding: KSpacing.paddingM,
-                          decoration: BoxDecoration(
-                            color:
-                                (_teamColor ??
-                                        Theme.of(context).colorScheme.primary)
-                                    .withOpacity(0.1),
-                            borderRadius: KBorderRadius.circularM,
-                            border: Border.all(
-                              color:
-                                  (_teamColor ??
-                                          Theme.of(context).colorScheme.primary)
-                                      .withOpacity(0.3),
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceAround,
-                            children: [
-                              _buildStatItem(
-                                context,
-                                Icons.groups,
-                                '$totalCount',
-                                'Total',
-                              ),
-                              Container(
-                                width: 1,
-                                height: 24,
-                                color: Colors.grey[300],
-                              ),
-                              _buildStatItem(
-                                context,
-                                Icons.shield_moon,
-                                '$leaderCount',
-                                'Chefs',
-                              ),
-                              Container(
-                                width: 1,
-                                height: 24,
-                                color: Colors.grey[300],
-                              ),
-                              _buildStatItem(
-                                context,
-                                Icons.person,
-                                '$agentCount',
-                                'Agents',
-                              ),
-                            ],
-                          ),
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Column(
+                          children: leaders
+                              .map((u) => _buildUserTile(context, u, isLeader: true))
+                              .toList(),
                         ),
                       ),
                     ],
-                    SizedBox(height: KSpacing.xl),
-                    if (leaders.isNotEmpty) ...[
-                      _sectionHeader(
-                        context,
-                        'Chef de garde',
-                        icon: Icons.shield_moon,
-                      ),
-                      SizedBox(height: KSpacing.s),
-                      ...leaders.map(
-                        (u) => _userTile(context, u, isLeader: true),
-                      ),
-                      SizedBox(height: KSpacing.l),
-                    ],
                     if (agents.isNotEmpty) ...[
-                      _sectionHeader(context, 'Agents', icon: Icons.group),
-                      SizedBox(height: KSpacing.s),
-                      ...agents.map((u) => _userTile(context, u)),
+                      _buildSectionHeader(context, 'Agents',
+                          icon: Icons.groups_rounded),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Column(
+                          children: agents
+                              .map((u) => _buildUserTile(context, u))
+                              .toList(),
+                        ),
+                      ),
                     ],
+                    const SizedBox(height: 24),
                   ],
                 ),
         ),
@@ -357,69 +371,21 @@ class _TeamPageState extends State<TeamPage> {
     );
   }
 
-  Widget _buildPositionsBasedView(BuildContext context) {
-    // Group users by position
+  // ── Vue par postes ──────────────────────────────────────────────────────────
+  Widget _buildPositionsView(BuildContext context) {
     final usersByPosition = <String?, List<User>>{};
     for (final user in _filteredUsers) {
-      final positionId = user.positionId;
-      if (!usersByPosition.containsKey(positionId)) {
-        usersByPosition[positionId] = [];
-      }
-      usersByPosition[positionId]!.add(user);
+      usersByPosition.putIfAbsent(user.positionId, () => []).add(user);
     }
-
-    // Sort users in each position group
     for (final users in usersByPosition.values) {
       users.sort((a, b) => a.lastName.compareTo(b.lastName));
     }
 
-    final totalCount = _filteredUsers.length;
-
     return Column(
       children: [
-        // Search bar
-        Padding(
-          padding: KSpacing.paddingM,
-          child: TextField(
-            controller: _searchController,
-            onChanged: (value) {
-              setState(() {
-                _searchQuery = value;
-              });
-              _applySearch();
-            },
-            decoration: InputDecoration(
-              hintText: 'Rechercher un agent...',
-              hintStyle: KTypography.body(
-                color: Theme.of(context).colorScheme.tertiary,
-              ),
-              prefixIcon: Icon(
-                Icons.search,
-                color: Theme.of(context).colorScheme.tertiary,
-              ),
-              suffixIcon: _searchQuery.isNotEmpty
-                  ? IconButton(
-                      icon: const Icon(Icons.clear),
-                      onPressed: () {
-                        _searchController.clear();
-                        setState(() {
-                          _searchQuery = '';
-                        });
-                        _applySearch();
-                      },
-                    )
-                  : null,
-              filled: true,
-              fillColor: Theme.of(context).colorScheme.surface,
-              border: OutlineInputBorder(
-                borderRadius: KBorderRadius.circularM,
-                borderSide: BorderSide.none,
-              ),
-              contentPadding: KSpacing.paddingM,
-            ),
-          ),
-        ),
-        // List
+        _buildSearchBar(context),
+        if (_searchQuery.isEmpty)
+          _buildStatsBadge(context, _filteredUsers.length, 0, 0),
         Expanded(
           child: _filteredUsers.isEmpty
               ? custom.EmptyStateWidget(
@@ -431,75 +397,45 @@ class _TeamPageState extends State<TeamPage> {
                       : Icons.search_off,
                 )
               : ListView(
-                  padding: KSpacing.paddingL,
                   children: [
-                    // Stats badge
-                    if (_searchQuery.isEmpty) ...[
-                      Padding(
-                        padding: KSpacing.paddingHorizontalL,
-                        child: Container(
-                          padding: KSpacing.paddingM,
-                          decoration: BoxDecoration(
-                            color:
-                                (_teamColor ??
-                                        Theme.of(context).colorScheme.primary)
-                                    .withOpacity(0.1),
-                            borderRadius: KBorderRadius.circularM,
-                            border: Border.all(
-                              color:
-                                  (_teamColor ??
-                                          Theme.of(context).colorScheme.primary)
-                                      .withOpacity(0.3),
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              _buildStatItem(
-                                context,
-                                Icons.groups,
-                                '$totalCount',
-                                'Total',
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                    SizedBox(height: KSpacing.xl),
-                    // Display users grouped by position
                     ..._positions.map((position) {
                       final users = usersByPosition[position.id] ?? [];
                       if (users.isEmpty) return const SizedBox.shrink();
-
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          _sectionHeader(
+                          _buildSectionHeader(
                             context,
                             position.name,
                             icon: position.iconName != null
                                 ? KSkills.positionIcons[position.iconName]
                                 : Icons.work_outline,
                           ),
-                          SizedBox(height: KSpacing.s),
-                          ...users.map((u) => _userTile(context, u)),
-                          SizedBox(height: KSpacing.l),
+                          Padding(
+                            padding:
+                                const EdgeInsets.symmetric(horizontal: 16),
+                            child: Column(
+                              children: users
+                                  .map((u) => _buildUserTile(context, u))
+                                  .toList(),
+                            ),
+                          ),
                         ],
                       );
                     }),
-                    // Display users without position
                     if (usersByPosition[null]?.isNotEmpty ?? false) ...[
-                      _sectionHeader(
-                        context,
-                        'Sans poste défini',
-                        icon: Icons.person_outline,
-                      ),
-                      SizedBox(height: KSpacing.s),
-                      ...usersByPosition[null]!.map(
-                        (u) => _userTile(context, u),
+                      _buildSectionHeader(context, 'Sans poste défini',
+                          icon: Icons.person_outline),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Column(
+                          children: usersByPosition[null]!
+                              .map((u) => _buildUserTile(context, u))
+                              .toList(),
+                        ),
                       ),
                     ],
+                    const SizedBox(height: 24),
                   ],
                 ),
         ),
@@ -507,163 +443,99 @@ class _TeamPageState extends State<TeamPage> {
     );
   }
 
-  Widget _buildStatItem(
-    BuildContext context,
-    IconData icon,
-    String value,
-    String label,
-  ) {
-    final color = _teamColor ?? Theme.of(context).colorScheme.primary;
-    return Column(
-      children: [
-        Icon(icon, size: KIconSize.m, color: color),
-        SizedBox(height: KSpacing.xs),
-        Text(
-          value,
-          style: KTypography.headline(
-            color: color,
-            fontWeight: KTypography.fontWeightBold,
-          ),
-        ),
-        Text(
-          label,
-          style: KTypography.caption(
-            color: Theme.of(context).colorScheme.tertiary,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _sectionHeader(BuildContext context, String label, {IconData? icon}) {
-    final accent = _teamColor ?? Theme.of(context).colorScheme.primary;
-    final isDark = isDarkModeNotifier.value;
-    Color headerTextColor;
-    double luminance = accent.computeLuminance();
-    Color darkenColor(Color color, [double amount = .1]) {
-      final hsl = HSLColor.fromColor(color);
-      final hslDark = hsl.withLightness(
-        (hsl.lightness - amount).clamp(0.0, 1.0),
-      );
-      return hslDark.toColor();
-    }
-
-    if (isDark) {
-      if (luminance > 0.85) {
-        headerTextColor = Colors.black;
-      } else if (luminance > 0.5) {
-        headerTextColor = darkenColor(accent, 0.35);
-      } else {
-        headerTextColor = Colors.white;
-      }
-    } else {
-      if (luminance > 0.85) {
-        headerTextColor = Colors.black;
-      } else if (luminance > 0.5) {
-        headerTextColor = darkenColor(accent, 0.35);
-      } else {
-        headerTextColor = darkenColor(accent, 0.35);
-      }
-    }
-    return Row(
-      children: [
-        if (icon != null) ...[
-          Icon(icon, size: KIconSize.s, color: accent),
-          SizedBox(width: KSpacing.s / 2),
-        ],
-        Text(
-          label,
-          style: KTypography.body(
-            color: headerTextColor,
-            fontWeight: KTypography.fontWeightBold,
-          ),
-        ),
-        SizedBox(width: KSpacing.s),
-        Expanded(child: Divider(thickness: 1, color: accent.withOpacity(0.4))),
-      ],
-    );
-  }
-
-  Widget _userTile(BuildContext context, User user, {bool isLeader = false}) {
-    // En mode "Effectif complet", utiliser la couleur de l'équipe de l'agent
+  // ── Tuile utilisateur ───────────────────────────────────────────────────────
+  Widget _buildUserTile(BuildContext context, User user,
+      {bool isLeader = false}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final accent = _showAllStaff
         ? (_teamColors[user.team] ?? Theme.of(context).colorScheme.primary)
         : (_teamColor ?? Theme.of(context).colorScheme.primary);
-    final isDark = isDarkModeNotifier.value;
-    Color avatarTextColor;
-    double luminance = accent.computeLuminance();
-    Color darkenColor(Color color, [double amount = .1]) {
-      final hsl = HSLColor.fromColor(color);
-      final hslDark = hsl.withLightness(
-        (hsl.lightness - amount).clamp(0.0, 1.0),
-      );
-      return hslDark.toColor();
-    }
 
-    if (isDark) {
-      if (luminance > 0.85) {
-        avatarTextColor = Colors.black;
-      } else if (luminance > 0.5) {
-        avatarTextColor = darkenColor(accent, 0.35);
-      } else {
-        avatarTextColor = Colors.white;
-      }
-    } else {
-      if (luminance > 0.85) {
-        avatarTextColor = Colors.black;
-      } else if (luminance > 0.5) {
-        avatarTextColor = darkenColor(accent, 0.35);
-      } else {
-        avatarTextColor = darkenColor(accent, 0.35);
-      }
-    }
+    final avatarTextColor = _getTextColorForBackground(accent);
 
-    return Card(
-      margin: EdgeInsets.symmetric(vertical: KSpacing.s / 2),
-      elevation: KElevation.low,
-      shape: RoundedRectangleBorder(borderRadius: KBorderRadius.circularM),
+    // En mode "Effectif complet", afficher un point coloré de l'équipe
+    final teamDot = _showAllStaff
+        ? Container(
+            width: 8,
+            height: 8,
+            margin: const EdgeInsets.only(right: 6),
+            decoration: BoxDecoration(
+              color: accent,
+              shape: BoxShape.circle,
+            ),
+          )
+        : const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
       child: InkWell(
         onTap: () {
           HapticFeedback.lightImpact();
           _openSkills(context, user);
         },
-        borderRadius: KBorderRadius.circularM,
-        child: Padding(
-          padding: KSpacing.paddingM,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+          decoration: BoxDecoration(
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.04)
+                : Colors.grey.shade50,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.08)
+                  : Colors.grey.shade200,
+            ),
+          ),
           child: Row(
             children: [
               Hero(
                 tag: 'avatar_${user.id}',
                 child: CircleAvatar(
-                  radius: KAvatarSize.s / 2,
-                  backgroundColor: accent.withOpacity(isLeader ? 0.25 : 0.15),
+                  radius: 18,
+                  backgroundColor:
+                      accent.withValues(alpha: isLeader ? 0.25 : 0.15),
                   child: Text(
                     user.initials,
-                    style: KTypography.body(
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
                       color: avatarTextColor,
-                      fontWeight: KTypography.fontWeightBold,
                     ),
                   ),
                 ),
               ),
-              SizedBox(width: KSpacing.m),
+              const SizedBox(width: 12),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Row(
                   children: [
-                    Text(
-                      user.displayName,
-                      style: KTypography.body(
-                        fontWeight: KTypography.fontWeightSemiBold,
+                    if (_showAllStaff) teamDot,
+                    Expanded(
+                      child: Text(
+                        user.displayName,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: isDark
+                              ? Colors.grey.shade200
+                              : Colors.grey.shade800,
+                        ),
                       ),
                     ),
                   ],
                 ),
               ),
+              if (isLeader)
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: Icon(Icons.shield_moon_rounded,
+                      size: 14,
+                      color: accent.withValues(alpha: 0.7)),
+                ),
               Icon(
-                Icons.chevron_right,
-                color: Theme.of(context).colorScheme.tertiary,
-                size: KIconSize.m,
+                Icons.chevron_right_rounded,
+                size: 16,
+                color: isDark ? Colors.grey.shade600 : Colors.grey.shade400,
               ),
             ],
           ),
@@ -684,240 +556,273 @@ class _TeamPageState extends State<TeamPage> {
     );
   }
 
+  // ── Sélecteur d'équipe ──────────────────────────────────────────────────────
   void _showTeamPicker(BuildContext context) async {
     HapticFeedback.mediumImpact();
-
-    // Load teams from repository filtered by user's station
     final userStation = userNotifier.value?.station ?? KConstants.station;
     final teams = await TeamRepository().getByStation(userStation);
-
     if (!context.mounted) return;
 
-    showDialog(
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    showModalBottomSheet(
       context: context,
-      builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: KBorderRadius.circularXL),
-        child: Padding(
-          padding: KSpacing.paddingXL,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Handle
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.grey.shade700 : Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            // Titre
+            Row(
+              children: [
+                Icon(Icons.groups_rounded,
+                    size: 18,
+                    color: isDark ? Colors.grey.shade400 : Colors.grey.shade600),
+                const SizedBox(width: 8),
+                Text(
+                  'CHOISIR UNE ÉQUIPE',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.6,
+                    color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // Option "Effectif complet"
+            _TeamPickerItem(
+              label: 'Effectif complet',
+              subtitle: 'Tous les agents de la caserne',
+              color: KColors.appNameColor,
+              dotContent: Icon(Icons.groups_rounded,
+                  color: Colors.white, size: 14),
+              isSelected: _showAllStaff,
+              isDark: isDark,
+              onTap: () {
+                HapticFeedback.selectionClick();
+                Navigator.pop(context);
+                if (!_showAllStaff) {
+                  setState(() {
+                    _showAllStaff = true;
+                    _teamName = 'Effectif complet';
+                    _teamColor = KColors.appNameColor;
+                  });
+                  _init();
+                }
+              },
+            ),
+
+            Divider(
+              height: 16,
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.08)
+                  : Colors.grey.shade200,
+            ),
+
+            ...teams.map((team) {
+              final isSelected = !_showAllStaff && team.id == _teamId;
+              return _TeamPickerItem(
+                label: team.name,
+                subtitle: 'Équipe ${team.id}',
+                color: team.color,
+                dotContent: Text(
+                  team.id,
+                  style: TextStyle(
+                    color: _getTextColorForBackground(team.color),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                ),
+                isSelected: isSelected,
+                isDark: isDark,
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  Navigator.pop(context);
+                  if (team.id != _teamId || _showAllStaff) {
+                    setState(() {
+                      _showAllStaff = false;
+                      _teamId = team.id;
+                      _teamName = team.name;
+                      _teamColor = team.color;
+                    });
+                    _init();
+                  }
+                },
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Widgets locaux ─────────────────────────────────────────────────────────────
+
+class _StatItem extends StatelessWidget {
+  final IconData icon;
+  final String value;
+  final String label;
+  final Color color;
+
+  const _StatItem({
+    required this.icon,
+    required this.value,
+    required this.label,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 16, color: color),
+        const SizedBox(height: 3),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+            color: color,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w500,
+            color: color.withValues(alpha: 0.7),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TeamPickerItem extends StatelessWidget {
+  final String label;
+  final String subtitle;
+  final Color color;
+  final Widget dotContent;
+  final bool isSelected;
+  final bool isDark;
+  final VoidCallback onTap;
+
+  const _TeamPickerItem({
+    required this.label,
+    required this.subtitle,
+    required this.color,
+    required this.dotContent,
+    required this.isSelected,
+    required this.isDark,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? color.withValues(alpha: isDark ? 0.15 : 0.08)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isSelected
+                  ? color.withValues(alpha: 0.50)
+                  : (isDark
+                      ? Colors.white.withValues(alpha: 0.08)
+                      : Colors.grey.shade200),
+              width: isSelected ? 1.5 : 1,
+            ),
+          ),
+          child: Row(
             children: [
-              Row(
-                children: [
-                  Icon(
-                    Icons.groups,
-                    color: Theme.of(context).colorScheme.primary,
-                    size: KIconSize.l,
-                  ),
-                  SizedBox(width: KSpacing.m),
-                  Text(
-                    'Choisir une équipe',
-                    style: KTypography.headline(
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
-                ],
-              ),
-              SizedBox(height: KSpacing.xl),
-              // Option "Effectif complet"
-              Padding(
-                padding: EdgeInsets.only(bottom: KSpacing.m),
-                child: InkWell(
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    Navigator.pop(context);
-                    if (!_showAllStaff) {
-                      setState(() {
-                        _showAllStaff = true;
-                        _teamName = 'Effectif complet';
-                        _teamColor = KColors.appNameColor;
-                      });
-                      _init();
-                    }
-                  },
-                  borderRadius: KBorderRadius.circularM,
-                  child: AnimatedContainer(
-                    duration: KAnimations.durationFast,
-                    padding: KSpacing.paddingM,
-                    decoration: BoxDecoration(
-                      color: _showAllStaff
-                          ? KColors.appNameColor.withOpacity(0.15)
-                          : Colors.transparent,
-                      border: Border.all(
-                        color: _showAllStaff
-                            ? KColors.appNameColor
-                            : Theme.of(context).dividerColor.withOpacity(0.3),
-                        width: _showAllStaff ? 2 : 1,
-                      ),
-                      borderRadius: KBorderRadius.circularM,
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: KAvatarSize.m,
-                          height: KAvatarSize.m,
-                          decoration: BoxDecoration(
-                            color: KColors.appNameColor,
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: KColors.appNameColor.withOpacity(0.4),
-                                blurRadius: 8,
-                                spreadRadius: 1,
-                              ),
-                            ],
+              // Point/cercle coloré
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: color,
+                  shape: BoxShape.circle,
+                  boxShadow: isSelected
+                      ? [
+                          BoxShadow(
+                            color: color.withValues(alpha: 0.35),
+                            blurRadius: 6,
+                            spreadRadius: 0,
                           ),
-                          child: const Center(
-                            child: Icon(
-                              Icons.groups,
-                              color: Colors.white,
-                              size: 20,
-                            ),
-                          ),
-                        ),
-                        SizedBox(width: KSpacing.l),
-                        Expanded(
-                          child: Text(
-                            'Effectif complet',
-                            style: KTypography.bodyLarge(
-                              color: _showAllStaff
-                                  ? KColors.appNameColor
-                                  : Theme.of(
-                                      context,
-                                    ).textTheme.bodyLarge?.color,
-                              fontWeight: _showAllStaff
-                                  ? KTypography.fontWeightBold
-                                  : KTypography.fontWeightMedium,
-                            ),
-                          ),
-                        ),
-                        if (_showAllStaff)
-                          Icon(
-                            Icons.check_circle,
-                            color: KColors.appNameColor,
-                            size: KIconSize.m,
-                          ),
-                      ],
-                    ),
-                  ),
+                        ]
+                      : null,
                 ),
+                child: Center(child: dotContent),
               ),
-              Divider(
-                height: KSpacing.m,
-                color: Theme.of(context).dividerColor.withOpacity(0.3),
-              ),
-              SizedBox(height: KSpacing.s),
-              ...teams.map((team) {
-                final isSelected = !_showAllStaff && team.id == _teamId;
-                return Padding(
-                  padding: EdgeInsets.only(bottom: KSpacing.m),
-                  child: InkWell(
-                    onTap: () {
-                      HapticFeedback.selectionClick();
-                      Navigator.pop(context);
-                      if (team.id != _teamId || _showAllStaff) {
-                        setState(() {
-                          _showAllStaff = false;
-                          _teamId = team.id;
-                          _teamName = team.name;
-                          _teamColor = team.color;
-                        });
-                        _init();
-                      }
-                    },
-                    borderRadius: KBorderRadius.circularM,
-                    child: AnimatedContainer(
-                      duration: KAnimations.durationFast,
-                      padding: KSpacing.paddingM,
-                      decoration: BoxDecoration(
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: isSelected
+                            ? FontWeight.w700
+                            : FontWeight.w500,
                         color: isSelected
-                            ? team.color.withOpacity(0.15)
-                            : Colors.transparent,
-                        border: Border.all(
-                          color: isSelected
-                              ? team.color
-                              : Theme.of(context).dividerColor.withOpacity(0.3),
-                          width: isSelected ? 2 : 1,
-                        ),
-                        borderRadius: KBorderRadius.circularM,
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: KAvatarSize.m,
-                            height: KAvatarSize.m,
-                            decoration: BoxDecoration(
-                              color: team.color,
-                              shape: BoxShape.circle,
-                              boxShadow: [
-                                BoxShadow(
-                                  color: team.color.withOpacity(0.4),
-                                  blurRadius: 8,
-                                  spreadRadius: 1,
-                                ),
-                              ],
-                            ),
-                            child: Center(
-                              child: Text(
-                                team.id,
-                                style: KTypography.title(
-                                  color: _getTextColorForBackground(team.color),
-                                  fontWeight: KTypography.fontWeightBold,
-                                ),
-                              ),
-                            ),
-                          ),
-                          SizedBox(width: KSpacing.l),
-                          Expanded(
-                            child: Text(
-                              team.name,
-                              style: KTypography.bodyLarge(
-                                color: isSelected
-                                    ? team.color
-                                    : Theme.of(
-                                        context,
-                                      ).textTheme.bodyLarge?.color,
-                                fontWeight: isSelected
-                                    ? KTypography.fontWeightBold
-                                    : KTypography.fontWeightMedium,
-                              ),
-                            ),
-                          ),
-                          if (isSelected)
-                            Icon(
-                              Icons.check_circle,
-                              color: team.color,
-                              size: KIconSize.m,
-                            ),
-                        ],
+                            ? color
+                            : (isDark
+                                ? Colors.grey.shade200
+                                : Colors.grey.shade800),
                       ),
                     ),
-                  ),
-                );
-              }).toList(),
-              SizedBox(height: KSpacing.s),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: Text(
-                    'Annuler',
-                    style: KTypography.body(
-                      color: Theme.of(context).colorScheme.tertiary,
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: isDark
+                            ? Colors.grey.shade500
+                            : Colors.grey.shade500,
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ),
+              if (isSelected)
+                Icon(Icons.check_circle_rounded, color: color, size: 18),
             ],
           ),
         ),
       ),
     );
-  }
-
-  Color _getTextColorForBackground(Color backgroundColor) {
-    final luminance = backgroundColor.computeLuminance();
-    return luminance > 0.5 ? Colors.black : Colors.white;
   }
 }

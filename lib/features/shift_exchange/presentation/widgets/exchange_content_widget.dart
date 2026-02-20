@@ -504,7 +504,9 @@ class _ExchangeContentWidgetState extends State<ExchangeContentWidget>
     RequestActionsBottomSheet.show(
       context: context,
       requestType: UnifiedRequestType.exchange,
-      initiatorName: request.initiatorName,
+      initiatorName: request.initiatorName.trim().isNotEmpty
+          ? request.initiatorName
+          : 'Agent ${request.initiatorId}',
       team: request.initiatorTeam,
       station: stationName,
       startTime: request.initiatorStartTime,
@@ -836,7 +838,9 @@ class _ExchangeContentWidgetState extends State<ExchangeContentWidget>
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  request.initiatorName,
+                                  request.initiatorName.trim().isNotEmpty
+                                      ? request.initiatorName
+                                      : 'Agent ${request.initiatorId}',
                                   style: const TextStyle(
                                     fontWeight: FontWeight.bold,
                                     fontSize: 16,
@@ -1305,7 +1309,9 @@ class _ExchangeContentWidgetState extends State<ExchangeContentWidget>
                             Expanded(
                               child: _buildExchangeColumn(
                                 label: initiatorTeam ?? '?',
-                                agentName: request.initiatorName,
+                                agentName: request.initiatorName.trim().isNotEmpty
+                                    ? request.initiatorName
+                                    : 'Agent ${request.initiatorId}',
                                 badge: initiatorTeamValidated
                                     ? _buildStatusBadge(
                                         'Validé',
@@ -1337,7 +1343,9 @@ class _ExchangeContentWidgetState extends State<ExchangeContentWidget>
                             Expanded(
                               child: _buildExchangeColumn(
                                 label: proposerTeam ?? '?',
-                                agentName: proposal.proposerName,
+                                agentName: proposal.proposerName.trim().isNotEmpty
+                                    ? proposal.proposerName
+                                    : 'Agent ${proposal.proposerId}',
                                 badge: proposerTeamValidated
                                     ? _buildStatusBadge(
                                         'Validé',
@@ -1505,7 +1513,9 @@ class _ExchangeContentWidgetState extends State<ExchangeContentWidget>
                             Expanded(
                               child: _buildExchangeColumn(
                                 label: initiatorTeam ?? '?',
-                                agentName: request.initiatorName,
+                                agentName: request.initiatorName.trim().isNotEmpty
+                                    ? request.initiatorName
+                                    : 'Agent ${request.initiatorId}',
                                 badge: _buildStatusBadge(
                                   statusText,
                                   statusColor,
@@ -1532,7 +1542,9 @@ class _ExchangeContentWidgetState extends State<ExchangeContentWidget>
                               child: selectedProposal != null
                                   ? _buildExchangeColumn(
                                       label: proposerTeam ?? '?',
-                                      agentName: selectedProposal.proposerName,
+                                      agentName: selectedProposal.proposerName.trim().isNotEmpty
+                                          ? selectedProposal.proposerName
+                                          : 'Agent ${selectedProposal.proposerId}',
                                       badge: _buildStatusBadge(
                                         statusText,
                                         statusColor,

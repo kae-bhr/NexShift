@@ -13,7 +13,7 @@ class AgentWithSimilarity {
   final User user;
   final int wave;
   final double similarity;
-  final double totalPoints; // Points totaux de criticité
+  final double totalPoints;
 
   AgentWithSimilarity({
     required this.user,
@@ -24,10 +24,7 @@ class AgentWithSimilarity {
 }
 
 /// Page affichant tous les agents avec leur score de similarité par rapport à l'utilisateur courant
-/// Organisé par vagues de notification
 class SimilarAgentsPage extends StatefulWidget {
-  /// Si fourni, affiche les similarités pour cet agent spécifique
-  /// Sinon, affiche les similarités pour l'utilisateur connecté
   final User? targetUser;
 
   const SimilarAgentsPage({super.key, this.targetUser});
@@ -40,10 +37,41 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
   bool _isLoading = true;
   User? _currentUser;
   List<AgentWithSimilarity> _agents = [];
-  Map<String, double> _skillWeights = {}; // Poids de chaque compétence
-  double _currentUserTotalPoints =
-      0.0; // Points totaux de l'utilisateur courant
+  Map<String, double> _skillWeights = {};
+  double _currentUserTotalPoints = 0.0;
   final _waveCalculationService = WaveCalculationService();
+
+  // Couleurs des vagues — constantes partagées
+  static const Map<int, Color> _waveColors = {
+    0: Colors.grey,
+    1: Colors.purple,
+    2: Colors.green,
+    3: Colors.blue,
+    4: Colors.orange,
+    5: Colors.brown,
+  };
+
+  static const Map<int, String> _waveTitles = {
+    0: 'Non notifiés',
+    1: 'Même équipe',
+    2: 'Identiques',
+    3: 'Très similaires',
+    4: 'Similaires',
+    5: 'Autres',
+  };
+
+  static const Map<int, String> _waveFullTitles = {
+    0: 'Agents non notifiés',
+    1: 'Vague 1 — Même équipe',
+    2: 'Vague 2 — Compétences identiques',
+    3: 'Vague 3 — Très similaires (80%+)',
+    4: 'Vague 4 — Similaires (60%+)',
+    5: 'Vague 5 — Autres agents',
+  };
+
+  static const Map<int, String> _waveDescriptions = {
+    0: 'Agents en astreinte, remplaçants ou ne possédant pas toutes les compétences clés.',
+  };
 
   @override
   void initState() {
@@ -54,7 +82,6 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
 
-    // Utiliser targetUser si fourni, sinon l'utilisateur connecté
     final currentUser = widget.targetUser ?? userNotifier.value;
     if (currentUser == null) {
       setState(() => _isLoading = false);
@@ -63,82 +90,57 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
 
     final userRepo = UserRepository();
     final allUsers = await userRepo.getByStation(currentUser.station);
-
-    // Filtrer pour exclure l'utilisateur courant
     final stationUsers = allUsers.where((u) => u.id != currentUser.id).toList();
 
-    // Charger la configuration de la station pour obtenir les skillWeights
     final stationRepo = StationRepository();
     final station = await stationRepo.getById(currentUser.station);
     final stationSkillWeights = station?.skillWeights ?? {};
 
-    // Convertir les skillWeights en Map<String, double> pour compatibilité
-    // Utilisation UNIQUEMENT des poids configurés dans l'AdminPage (poids de base = 1.0)
     final skillWeights = <String, double>{};
-
-    // Récupérer toutes les compétences possibles
     final allPossibleSkills = <String>{};
     for (final user in allUsers) {
       allPossibleSkills.addAll(user.skills);
     }
-
-    // Appliquer la pondération de la station (poids de base × pondération)
     for (final skill in allPossibleSkills) {
-      final baseWeight =
-          1.0; // Poids de base standard pour toutes les compétences
+      const baseWeight = 1.0;
       final stationMultiplier = stationSkillWeights[skill] ?? 1.0;
       skillWeights[skill] = baseWeight * stationMultiplier;
     }
 
-    // Calculer les points totaux de l'utilisateur courant
     double currentUserPoints = 0.0;
     for (final skill in currentUser.skills) {
       currentUserPoints += skillWeights[skill] ?? 0.0;
     }
 
-    // Convertir skillWeights en Map<String, int> pour compatibilité avec calculateWave
-    // (multiplication par 100 pour conserver la précision)
     final skillWeightsInt = <String, int>{};
     for (final entry in skillWeights.entries) {
       skillWeightsInt[entry.key] = (entry.value * 100).round();
     }
 
-    // Calculer la vague et la similarité pour chaque agent
     final agentsWithSimilarity = <AgentWithSimilarity>[];
     for (final user in stationUsers) {
       final wave = _waveCalculationService.calculateWave(
         requester: currentUser,
         candidate: user,
         planningTeam: currentUser.team,
-        agentsInPlanning: [], // On simule sans planning actif
+        agentsInPlanning: [],
         skillRarityWeights: skillWeightsInt,
         stationSkillWeights: stationSkillWeights,
       );
-
-      // Calculer la similarité avec les poids configurés
-      final similarity = _calculateSkillSimilarity(
-        currentUser,
-        user,
-        skillWeights,
-      );
-
-      // Calculer les points totaux de cet agent
+      final similarity =
+          _calculateSkillSimilarity(currentUser, user, skillWeights);
       double agentTotalPoints = 0.0;
       for (final skill in user.skills) {
         agentTotalPoints += skillWeights[skill] ?? 0.0;
       }
-
-      agentsWithSimilarity.add(
-        AgentWithSimilarity(
-          user: user,
-          wave: wave,
-          similarity: similarity,
-          totalPoints: agentTotalPoints,
-        ),
-      );
+      agentsWithSimilarity.add(AgentWithSimilarity(
+        user: user,
+        wave: wave,
+        similarity: similarity,
+        totalPoints: agentTotalPoints,
+      ));
     }
 
-    // Trier par vague, puis par similarité décroissante
     agentsWithSimilarity.sort((a, b) {
       if (a.wave != b.wave) return a.wave.compareTo(b.wave);
       return b.similarity.compareTo(a.similarity);
@@ -153,126 +155,91 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
     });
   }
 
-  /// Détails du calcul de compatibilité pour affichage dans les tooltips
-  String _getSimilarityExplanation(
-    User user1,
-    User user2,
-    Map<String, double> skillWeights,
-    double compatibility,
-  ) {
+  double _calculateSkillSimilarity(
+      User user1, User user2, Map<String, double> skillWeights) {
     final skills1 = Set<String>.from(user1.skills);
     final skills2 = Set<String>.from(user2.skills);
+    if (skills1.isEmpty) return 0.0;
 
-    if (skills1.isEmpty) return 'Aucune compétence à comparer';
-
-    // Calculer le poids total des compétences de user1 (requises)
     double totalWeightUser1 = 0.0;
     for (final skill in skills1) {
       totalWeightUser1 += skillWeights[skill] ?? 0.0;
     }
-
-    // Calculer le poids total des compétences de user2 (candidat)
     double totalWeightUser2 = 0.0;
     for (final skill in skills2) {
       totalWeightUser2 += skillWeights[skill] ?? 0.0;
     }
 
+    if (totalWeightUser1 == 0) {
+      return skills2.containsAll(skills1) ? 1.0 : 0.0;
+    }
+
+    double matchedWeight = 0.0;
+    for (final skill in skills1) {
+      if (skills2.contains(skill)) {
+        matchedWeight += skillWeights[skill] ?? 0.0;
+      }
+    }
+
+    final coverage = matchedWeight / totalWeightUser1;
+    final precision =
+        totalWeightUser2 > 0 ? matchedWeight / totalWeightUser2 : 0.0;
+    return ((coverage + precision) / 2).clamp(0.0, 1.0);
+  }
+
+  String _getSimilarityExplanation(User user1, User user2,
+      Map<String, double> skillWeights, double compatibility) {
+    final skills1 = Set<String>.from(user1.skills);
+    final skills2 = Set<String>.from(user2.skills);
+    if (skills1.isEmpty) return 'Aucune compétence à comparer';
+
+    double totalWeightUser1 = 0.0;
+    for (final skill in skills1) {
+      totalWeightUser1 += skillWeights[skill] ?? 0.0;
+    }
+    double totalWeightUser2 = 0.0;
+    for (final skill in skills2) {
+      totalWeightUser2 += skillWeights[skill] ?? 0.0;
+    }
     if (totalWeightUser1 == 0) {
       return skills2.containsAll(skills1)
           ? 'Compétences identiques (non requises)'
           : 'Aucune compétence en commun';
     }
-
-    // Calculer le poids des compétences en commun
     double matchedWeight = 0.0;
     for (final skill in skills1) {
       if (skills2.contains(skill)) {
         matchedWeight += skillWeights[skill] ?? 0.0;
       }
     }
-
-    // Calculer les ratios
     final coverage = matchedWeight / totalWeightUser1;
-    final precision = totalWeightUser2 > 0 ? matchedWeight / totalWeightUser2 : 0.0;
+    final precision =
+        totalWeightUser2 > 0 ? matchedWeight / totalWeightUser2 : 0.0;
 
-    // Formater l'explication
     final buffer = StringBuffer();
-    buffer.writeln('📊 Détails du calcul de compatibilité\n');
+    buffer.writeln('Détails du calcul\n');
     buffer.writeln('Points requis : ${totalWeightUser1.toStringAsFixed(1)} pts');
-    buffer.writeln('Points de l\'agent : ${totalWeightUser2.toStringAsFixed(1)} pts');
-    buffer.writeln('Points en commun : ${matchedWeight.toStringAsFixed(1)} pts\n');
-    buffer.writeln('Couverture des besoins : ${(coverage * 100).round()}%');
-    buffer.writeln('Précision du profil : ${(precision * 100).round()}%');
-    buffer.writeln('═══════════════════');
-    buffer.write('Compatibilité finale : ${(compatibility * 100).round()}%');
-
+    buffer.writeln(
+        'Points de l\'agent : ${totalWeightUser2.toStringAsFixed(1)} pts');
+    buffer.writeln(
+        'Points en commun : ${matchedWeight.toStringAsFixed(1)} pts\n');
+    buffer.writeln('Couverture : ${(coverage * 100).round()}%');
+    buffer.writeln('Précision : ${(precision * 100).round()}%');
+    buffer.write('Compatibilité : ${(compatibility * 100).round()}%');
     return buffer.toString();
   }
 
-  /// Calcule la similarité entre deux utilisateurs basée sur leurs compétences
-  ///
-  /// La compatibilité mesure à quel point user2 peut remplacer user1 :
-  /// - 100% = match parfait (user2 a exactement les compétences de user1)
-  /// - 0% = aucune compatibilité
-  ///
-  /// Système bidirectionnel qui pénalise autant la surqualification que la sous-qualification :
-  /// - Couverture : user2 possède-t-il ce que user1 demande ?
-  /// - Précision : user2 ne possède-t-il que ce que user1 demande ?
-  /// - Compatibilité : moyenne des deux ratios
-  double _calculateSkillSimilarity(
-    User user1,
-    User user2,
-    Map<String, double> skillWeights,
-  ) {
-    final skills1 = Set<String>.from(user1.skills);
-    final skills2 = Set<String>.from(user2.skills);
-
-    if (skills1.isEmpty) return 0.0;
-
-    // Calculer le poids total des compétences de user1 (compétences requises)
-    double totalWeightUser1 = 0.0;
-    for (final skill in skills1) {
-      totalWeightUser1 += skillWeights[skill] ?? 0.0;
-    }
-
-    // Calculer le poids total des compétences de user2 (compétences du candidat)
-    double totalWeightUser2 = 0.0;
-    for (final skill in skills2) {
-      totalWeightUser2 += skillWeights[skill] ?? 0.0;
-    }
-
-    // Si user1 n'a que des compétences non requises (poids 0),
-    // retourner 100% si user2 les a aussi, 0% sinon
-    if (totalWeightUser1 == 0) {
-      return skills2.containsAll(skills1) ? 1.0 : 0.0;
-    }
-
-    // Calculer le poids des compétences en commun
-    double matchedWeight = 0.0;
-    for (final skill in skills1) {
-      if (skills2.contains(skill)) {
-        matchedWeight += skillWeights[skill] ?? 0.0;
-      }
-    }
-
-    // Ratio 1 : Couverture des besoins (user2 a-t-il ce que user1 demande ?)
-    final coverage = matchedWeight / totalWeightUser1;
-
-    // Ratio 2 : Précision du profil (user2 n'a-t-il que ce que user1 demande ?)
-    // Si user2 n'a aucune compétence pondérée, précision = 0
-    final precision = totalWeightUser2 > 0 ? matchedWeight / totalWeightUser2 : 0.0;
-
-    // Compatibilité finale : moyenne des deux ratios
-    final compatibility = (coverage + precision) / 2;
-
-    return compatibility.clamp(0.0, 1.0);
-  }
+  Color _waveColor(int wave) => _waveColors[wave] ?? Colors.grey;
+  String _waveTitle(int wave) => _waveTitles[wave] ?? 'Vague $wave';
+  String _waveFullTitle(int wave) => _waveFullTitles[wave] ?? 'Vague $wave';
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
       appBar: CustomAppBar(
-        title: "Agents similaires",
+        title: 'Agents similaires',
         bottomColor: KColors.appNameColor,
       ),
       body: _isLoading
@@ -282,25 +249,21 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
           : RefreshIndicator(
               onRefresh: _loadData,
               child: ListView(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
                 children: [
-                  // En-tête avec info utilisateur courant
-                  _buildCurrentUserHeader(),
-                  const SizedBox(height: 24),
-
-                  // Légende des vagues
-                  _buildWaveLegend(),
-                  const SizedBox(height: 24),
-
-                  // Liste des agents par vague
-                  ..._buildAgentsByWave(),
+                  _buildCurrentUserCard(isDark),
+                  const SizedBox(height: 16),
+                  _buildWaveLegendCard(isDark),
+                  const SizedBox(height: 20),
+                  ..._buildAgentsByWave(isDark),
                 ],
               ),
             ),
     );
   }
 
-  Widget _buildCurrentUserHeader() {
+  // ── Carte utilisateur courant ───────────────────────────────────────────────
+  Widget _buildCurrentUserCard(bool isDark) {
     return FutureBuilder(
       future: _currentUser!.team.isNotEmpty
           ? TeamRepository().getById(
@@ -312,315 +275,296 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
         final team = snapshot.data;
         final teamColor = team?.color ?? Colors.grey;
 
-        return Card(
-          elevation: 4,
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                Row(
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                KColors.appNameColor.withValues(alpha: isDark ? 0.14 : 0.08),
+                KColors.appNameColor.withValues(alpha: isDark ? 0.05 : 0.03),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: KColors.appNameColor.withValues(alpha: isDark ? 0.28 : 0.18),
+            ),
+          ),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 26,
+                backgroundColor: teamColor.withValues(alpha: 0.20),
+                child: Text(
+                  _currentUser!.initials,
+                  style: TextStyle(
+                    color: teamColor,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 20,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    CircleAvatar(
-                      radius: 30,
-                      backgroundColor: teamColor.withOpacity(0.2),
-                      child: Text(
-                        _currentUser!.initials,
-                        style: TextStyle(
-                          color: teamColor,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 24,
-                        ),
+                    Text(
+                      _currentUser!.displayName,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: isDark ? Colors.grey.shade100 : Colors.grey.shade900,
                       ),
                     ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _currentUser!.displayName,
-                            style: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                            ),
+                    const SizedBox(height: 3),
+                    Row(
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 8,
+                          margin: const EdgeInsets.only(right: 5),
+                          decoration: BoxDecoration(
+                            color: teamColor,
+                            shape: BoxShape.circle,
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Équipe ${_currentUser!.team}',
-                            style: TextStyle(color: teamColor, fontSize: 14),
+                        ),
+                        Text(
+                          'Équipe ${_currentUser!.team}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: teamColor,
+                            fontWeight: FontWeight.w600,
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '${_currentUser!.skills.length} compétence(s) - ${_currentUserTotalPoints.toStringAsFixed(1)} points',
-                            style: TextStyle(
-                              color: Colors.grey[600],
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${_currentUser!.skills.length} compétences — ${_currentUserTotalPoints.toStringAsFixed(1)} pts',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: isDark ? Colors.grey.shade400 : Colors.grey.shade500,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 12),
-                const Divider(height: 1),
-                const SizedBox(height: 12),
-                Text(
-                  'Trouvez les agents les plus similaires pour un remplacement optimal',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         );
       },
     );
   }
 
-  Widget _buildWaveLegend() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.info_outline, color: Colors.blue[700], size: 20),
-                const SizedBox(width: 8),
-                const Text(
-                  'Vagues de notification',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            _buildWaveLegendItem(
-              1,
-              'Même équipe',
-              Colors.purple,
-              'Agents de votre équipe',
-            ),
-            _buildWaveLegendItem(
-              2,
-              'Compétences identiques',
-              Colors.green,
-              'Exactement les mêmes compétences',
-            ),
-            _buildWaveLegendItem(
-              3,
-              'Très similaires (80%+)',
-              Colors.blue,
-              'Compétences très proches',
-            ),
-            _buildWaveLegendItem(
-              4,
-              'Similaires (60%+)',
-              Colors.orange,
-              'Compétences relativement proches',
-            ),
-            _buildWaveLegendItem(
-              5,
-              'Autres agents',
-              Colors.brown,
-              'Tous les autres agents disponibles',
-            ),
-            _buildWaveLegendItem(
-              6,
-              'Agents non notifiés',
-              Colors.grey,
-              'Ne possèdent pas la ou les compétences clés',
-            ),
-          ],
+  // ── Légende des vagues ──────────────────────────────────────────────────────
+  Widget _buildWaveLegendCard(bool isDark) {
+    final waveEntries = [
+      (1, 'Même équipe', 'Agents de votre équipe'),
+      (2, 'Compétences identiques', 'Exactement les mêmes compétences'),
+      (3, 'Très similaires (80%+)', 'Compétences très proches'),
+      (4, 'Similaires (60%+)', 'Compétences relativement proches'),
+      (5, 'Autres agents', 'Tous les autres agents disponibles'),
+      (0, 'Agents non notifiés', 'Ne possèdent pas les compétences clés'),
+    ];
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isDark
+            ? Colors.white.withValues(alpha: 0.04)
+            : Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.08)
+              : Colors.grey.shade200,
         ),
       ),
-    );
-  }
-
-  Widget _buildWaveLegendItem(
-    int wave,
-    String title,
-    Color color,
-    String description,
-  ) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: color, width: 2),
-            ),
-            child: Center(
-              child: Text(
-                '$wave',
+          Row(
+            children: [
+              Icon(Icons.info_outline_rounded,
+                  size: 14,
+                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600),
+              const SizedBox(width: 6),
+              Text(
+                'VAGUES DE NOTIFICATION',
                 style: TextStyle(
-                  color: color,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.5,
+                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
                 ),
               ),
-            ),
+            ],
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
+          const SizedBox(height: 10),
+          ...waveEntries.map((entry) {
+            final wave = entry.$1;
+            final title = entry.$2;
+            final desc = entry.$3;
+            final color = _waveColor(wave);
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                children: [
+                  Container(
+                    width: 26,
+                    height: 26,
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                          color: color.withValues(alpha: 0.50)),
+                    ),
+                    child: Center(
+                      child: Text(
+                        '$wave',
+                        style: TextStyle(
+                          color: color,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-                Text(
-                  description,
-                  style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                ),
-              ],
-            ),
-          ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: isDark
+                                ? Colors.grey.shade200
+                                : Colors.grey.shade800,
+                          ),
+                        ),
+                        Text(
+                          desc,
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: isDark
+                                ? Colors.grey.shade500
+                                : Colors.grey.shade500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
         ],
       ),
     );
   }
 
-  List<Widget> _buildAgentsByWave() {
-    final widgets = <Widget>[];
-
-    // Grouper les agents par vague
+  // ── Sections par vague ──────────────────────────────────────────────────────
+  List<Widget> _buildAgentsByWave(bool isDark) {
     final agentsByWave = <int, List<AgentWithSimilarity>>{};
     for (final agent in _agents) {
-      // Inclure toutes les vagues, y compris la vague 0 (agents non-notifiés)
       agentsByWave.putIfAbsent(agent.wave, () => []).add(agent);
     }
 
-    // Créer une section pour chaque vague
+    if (agentsByWave.isEmpty) {
+      return [
+        const Center(
+          child: Padding(
+            padding: EdgeInsets.all(32),
+            child: Text('Aucun agent trouvé',
+                style: TextStyle(color: Colors.grey)),
+          ),
+        ),
+      ];
+    }
+
+    final widgets = <Widget>[];
     final sortedWaves = agentsByWave.keys.toList()..sort();
     for (final wave in sortedWaves) {
       final agents = agentsByWave[wave]!;
-      widgets.add(_buildWaveSection(wave, agents));
+      widgets.add(_buildWaveSection(wave, agents, isDark));
       widgets.add(const SizedBox(height: 16));
     }
-
-    if (widgets.isEmpty) {
-      widgets.add(
-        const Center(
-          child: Padding(
-            padding: EdgeInsets.all(32.0),
-            child: Text(
-              'Aucun agent trouvé',
-              style: TextStyle(color: Colors.grey),
-            ),
-          ),
-        ),
-      );
-    }
-
     return widgets;
   }
 
-  Widget _buildWaveSection(int wave, List<AgentWithSimilarity> agents) {
-    final waveColors = {
-      0: Colors.grey,
-      1: Colors.purple,
-      2: Colors.green,
-      3: Colors.blue,
-      4: Colors.orange,
-      5: Colors.brown,
-    };
-
-    final waveTitles = {
-      0: 'Agents non-notifiés',
-      1: 'Vague 1 - Même équipe',
-      2: 'Vague 2 - Compétences identiques',
-      3: 'Vague 3 - Très similaires (80%+)',
-      4: 'Vague 4 - Similaires (60%+)',
-      5: 'Vague 5 - Autres agents',
-    };
-
-    final waveDescriptions = {
-      0: 'Agents en astreinte, remplaçants ou ne possédant pas toutes les compétences clés.',
-    };
-
-    final color = waveColors[wave] ?? Colors.grey;
-    final title = waveTitles[wave] ?? 'Vague $wave';
-    final description = waveDescriptions[wave];
+  Widget _buildWaveSection(
+      int wave, List<AgentWithSimilarity> agents, bool isDark) {
+    final color = _waveColor(wave);
+    final description = _waveDescriptions[wave];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // En-tête de vague
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: color.withOpacity(0.3)),
+            color: color.withValues(alpha: isDark ? 0.12 : 0.07),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: color.withValues(alpha: isDark ? 0.30 : 0.20)),
           ),
           child: Row(
             children: [
               Container(
-                width: 28,
-                height: 28,
+                width: 26,
+                height: 26,
                 decoration: BoxDecoration(color: color, shape: BoxShape.circle),
                 child: Center(
                   child: Text(
                     '$wave',
                     style: const TextStyle(
                       color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13,
                     ),
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      title,
+                      _waveFullTitle(wave),
                       style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
                         color: color,
                       ),
                     ),
-                    if (description != null) ...[
-                      const SizedBox(height: 4),
+                    if (description != null)
                       Text(
                         description,
                         style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[600],
+                          fontSize: 11,
+                          color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
                         ),
                       ),
-                    ],
                   ],
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(12),
+                  color: color.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
                   '${agents.length}',
                   style: TextStyle(
                     color: color,
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w800,
                     fontSize: 12,
                   ),
                 ),
@@ -628,15 +572,18 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
             ],
           ),
         ),
-        const SizedBox(height: 12),
-        ...agents.map((agent) => _buildAgentCard(agent, color)),
+        const SizedBox(height: 8),
+        ...agents
+            .map((agent) => _buildAgentCard(agent, color, isDark)),
       ],
     );
   }
 
-  Widget _buildAgentCard(AgentWithSimilarity agentSimilarity, Color waveColor) {
+  Widget _buildAgentCard(
+      AgentWithSimilarity agentSimilarity, Color waveColor, bool isDark) {
     final agent = agentSimilarity.user;
     final similarity = agentSimilarity.similarity;
+    final pct = (similarity * 100).toInt();
 
     return FutureBuilder(
       future: agent.team.isNotEmpty
@@ -646,60 +593,89 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
         final team = snapshot.data;
         final teamColor = team?.color ?? Colors.grey;
 
-        return Card(
-          margin: const EdgeInsets.only(bottom: 8),
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 6),
           child: InkWell(
             onTap: () => _showAgentDetails(agentSimilarity),
             borderRadius: BorderRadius.circular(12),
-            child: Padding(
-              padding: const EdgeInsets.all(12),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.04)
+                    : Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: isDark
+                      ? Colors.white.withValues(alpha: 0.08)
+                      : Colors.grey.shade200,
+                ),
+              ),
               child: Row(
                 children: [
+                  // Avatar
                   CircleAvatar(
-                    radius: 24,
-                    backgroundColor: teamColor.withOpacity(0.2),
+                    radius: 20,
+                    backgroundColor: teamColor.withValues(alpha: 0.18),
                     child: Text(
                       agent.initials,
                       style: TextStyle(
                         color: teamColor,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
                       ),
                     ),
                   ),
                   const SizedBox(width: 12),
+                  // Infos
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
                           agent.displayName,
-                          style: const TextStyle(
-                            fontSize: 15,
+                          style: TextStyle(
+                            fontSize: 14,
                             fontWeight: FontWeight.w600,
+                            color: isDark
+                                ? Colors.grey.shade200
+                                : Colors.grey.shade800,
                           ),
                         ),
-                        const SizedBox(height: 2),
+                        const SizedBox(height: 3),
                         Row(
                           children: [
-                            Icon(Icons.groups, size: 12, color: teamColor),
-                            const SizedBox(width: 4),
+                            Container(
+                              width: 7,
+                              height: 7,
+                              margin: const EdgeInsets.only(right: 5),
+                              decoration: BoxDecoration(
+                                color: teamColor,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
                             Text(
                               'Équipe ${agent.team}',
-                              style: TextStyle(fontSize: 11, color: teamColor),
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: teamColor,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                             const SizedBox(width: 8),
-                            Icon(
-                              Icons.workspace_premium,
-                              size: 12,
-                              color: Colors.grey[600],
-                            ),
-                            const SizedBox(width: 4),
+                            Icon(Icons.workspace_premium_rounded,
+                                size: 11,
+                                color: isDark
+                                    ? Colors.grey.shade500
+                                    : Colors.grey.shade500),
+                            const SizedBox(width: 3),
                             Text(
                               '${agent.skills.length}',
                               style: TextStyle(
                                 fontSize: 11,
-                                color: Colors.grey[600],
+                                color: isDark
+                                    ? Colors.grey.shade500
+                                    : Colors.grey.shade500,
                               ),
                             ),
                           ],
@@ -707,44 +683,37 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
                       ],
                     ),
                   ),
-                  Column(
-                    children: [
-                      // Barre de progression circulaire
-                      Tooltip(
-                        message: _getSimilarityExplanation(
-                          _currentUser!,
-                          agent,
-                          _skillWeights,
-                          similarity,
-                        ),
-                        preferBelow: false,
-                        child: SizedBox(
-                          width: 50,
-                          height: 50,
-                          child: Stack(
-                            alignment: Alignment.center,
-                            children: [
-                              CircularProgressIndicator(
-                                value: similarity,
-                                backgroundColor: Colors.grey[300],
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  waveColor,
-                                ),
-                                strokeWidth: 4,
-                              ),
-                              Text(
-                                '${(similarity * 100).toInt()}%',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                  color: waveColor,
-                                ),
-                              ),
-                            ],
+                  // Gauge de compatibilité
+                  Tooltip(
+                    message: _getSimilarityExplanation(
+                        _currentUser!, agent, _skillWeights, similarity),
+                    preferBelow: false,
+                    child: SizedBox(
+                      width: 44,
+                      height: 44,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          CircularProgressIndicator(
+                            value: similarity,
+                            backgroundColor: isDark
+                                ? Colors.white.withValues(alpha: 0.10)
+                                : Colors.grey.shade200,
+                            valueColor:
+                                AlwaysStoppedAnimation<Color>(waveColor),
+                            strokeWidth: 3.5,
                           ),
-                        ),
+                          Text(
+                            '$pct%',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              color: waveColor,
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ],
               ),
@@ -755,6 +724,7 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
     );
   }
 
+  // ── Détail agent (bottom sheet) ─────────────────────────────────────────────
   void _showAgentDetails(AgentWithSimilarity agentSimilarity) {
     final agent = agentSimilarity.user;
     final similarity = agentSimilarity.similarity;
@@ -762,353 +732,259 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
 
     final currentSkills = Set<String>.from(_currentUser!.skills);
     final agentSkills = Set<String>.from(agent.skills);
-    final commonSkills = currentSkills.intersection(agentSkills).toList()
-      ..sort();
-    // Filtrer les compétences à pondération 0 des listes "manquantes" et "supplémentaires"
-    final onlyCurrentSkills = currentSkills.difference(agentSkills)
-        .where((skill) => (_skillWeights[skill] ?? 1.0) > 0.0)
+    final commonSkills = currentSkills.intersection(agentSkills).toList()..sort();
+    final onlyCurrentSkills = currentSkills
+        .difference(agentSkills)
+        .where((s) => (_skillWeights[s] ?? 1.0) > 0.0)
         .toList()
       ..sort();
-    final onlyAgentSkills = agentSkills.difference(currentSkills)
-        .where((skill) => (_skillWeights[skill] ?? 1.0) > 0.0)
+    final onlyAgentSkills = agentSkills
+        .difference(currentSkills)
+        .where((s) => (_skillWeights[s] ?? 1.0) > 0.0)
         .toList()
       ..sort();
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      backgroundColor: Colors.transparent,
       builder: (context) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
         return DraggableScrollableSheet(
-          initialChildSize: 0.6,
+          initialChildSize: 0.65,
           minChildSize: 0.4,
-          maxChildSize: 0.9,
+          maxChildSize: 0.92,
           expand: false,
           builder: (context, scrollController) {
-            return FutureBuilder(
-              future: agent.team.isNotEmpty
-                  ? TeamRepository().getById(
-                      agent.team,
-                      stationId: agent.station,
-                    )
-                  : Future.value(null),
-              builder: (context, snapshot) {
-                final team = snapshot.data;
-                final teamColor = team?.color ?? Colors.grey;
+            return Container(
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: FutureBuilder(
+                future: agent.team.isNotEmpty
+                    ? TeamRepository().getById(
+                        agent.team,
+                        stationId: agent.station,
+                      )
+                    : Future.value(null),
+                builder: (context, snapshot) {
+                  final team = snapshot.data;
+                  final teamColor = team?.color ?? Colors.grey;
+                  final waveColor = _waveColor(wave);
 
-                return ListView(
-                  controller: scrollController,
-                  padding: const EdgeInsets.all(20),
-                  children: [
-                    // Handle
-                    Center(
-                      child: Container(
-                        width: 40,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: Colors.grey[300],
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // En-tête agent
-                    Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 30,
-                          backgroundColor: teamColor.withOpacity(0.2),
-                          child: Text(
-                            agent.initials,
-                            style: TextStyle(
-                              color: teamColor,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 24,
-                            ),
+                  return ListView(
+                    controller: scrollController,
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+                    children: [
+                      // Handle
+                      Center(
+                        child: Container(
+                          width: 36,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? Colors.grey.shade700
+                                : Colors.grey.shade300,
+                            borderRadius: BorderRadius.circular(2),
                           ),
                         ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                agent.displayName,
-                                style: const TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              Text(
-                                'Équipe ${agent.team}',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: teamColor,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                '${agentSimilarity.totalPoints.toStringAsFixed(1)} points',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey[600],
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 20),
-                    const Divider(),
-                    const SizedBox(height: 20),
-
-                    // Score de similarité
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            _getWaveColor(wave).withOpacity(0.1),
-                            _getWaveColor(wave).withOpacity(0.05),
-                          ],
-                        ),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: _getWaveColor(wave).withOpacity(0.3),
-                        ),
                       ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      const SizedBox(height: 16),
+
+                      // En-tête agent
+                      Row(
                         children: [
-                          Tooltip(
-                            message: _getSimilarityExplanation(
-                              _currentUser!,
-                              agentSimilarity.user,
-                              _skillWeights,
-                              similarity,
+                          CircleAvatar(
+                            radius: 26,
+                            backgroundColor: teamColor.withValues(alpha: 0.18),
+                            child: Text(
+                              agent.initials,
+                              style: TextStyle(
+                                color: teamColor,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 20,
+                              ),
                             ),
-                            preferBelow: true,
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
                             child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  '${(similarity * 100).toInt()}%',
+                                  agent.displayName,
                                   style: TextStyle(
-                                    fontSize: 36,
-                                    fontWeight: FontWeight.bold,
-                                    color: _getWaveColor(wave),
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                    color: isDark
+                                        ? Colors.grey.shade100
+                                        : Colors.grey.shade900,
                                   ),
                                 ),
-                                const Text(
-                                  'Compatibilité',
-                                  style: TextStyle(fontSize: 12),
+                                Row(
+                                  children: [
+                                    Container(
+                                      width: 8,
+                                      height: 8,
+                                      margin: const EdgeInsets.only(right: 5),
+                                      decoration: BoxDecoration(
+                                        color: teamColor,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                    Text(
+                                      'Équipe ${agent.team}',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: teamColor,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                Text(
+                                  '${agentSimilarity.totalPoints.toStringAsFixed(1)} points',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: isDark
+                                        ? Colors.grey.shade500
+                                        : Colors.grey.shade500,
+                                  ),
                                 ),
                               ],
                             ),
                           ),
-                          Container(
-                            width: 1,
-                            height: 40,
-                            color: Colors.grey[300],
-                          ),
-                          Column(
-                            children: [
-                              Text(
-                                'Vague $wave',
-                                style: TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                  color: _getWaveColor(wave),
+                        ],
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      // Score de compatibilité
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: waveColor.withValues(alpha: isDark ? 0.12 : 0.07),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                              color: waveColor.withValues(
+                                  alpha: isDark ? 0.30 : 0.20)),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceAround,
+                          children: [
+                            Column(
+                              children: [
+                                Text(
+                                  '${(similarity * 100).toInt()}%',
+                                  style: TextStyle(
+                                    fontSize: 32,
+                                    fontWeight: FontWeight.w800,
+                                    color: waveColor,
+                                  ),
                                 ),
-                              ),
-                              Text(
-                                _getWaveTitle(wave),
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    const SizedBox(height: 20),
-
-                    // Compétences en commun
-                    if (commonSkills.isNotEmpty) ...[
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.check_circle,
-                            color: Colors.green[600],
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Compétences en commun (${commonSkills.length})',
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
+                                Text(
+                                  'Compatibilité',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: isDark
+                                        ? Colors.grey.shade400
+                                        : Colors.grey.shade600,
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 6,
-                        children: commonSkills.map((skill) {
-                          final skillLevelColor = KSkills.skillColors[skill];
-                          final skillColor = skillLevelColor != null
-                              ? KSkills.getColorForSkillLevel(
-                                  skillLevelColor,
-                                  context,
-                                )
-                              : Colors.grey;
-                          final skillPoints = _skillWeights[skill] ?? 0.0;
-
-                          return Tooltip(
-                            message: '$skill : ${skillPoints.toStringAsFixed(1)} points',
-                            child: Chip(
-                              label: Text(
-                                skill,
-                                style: const TextStyle(fontSize: 11),
-                              ),
-                              backgroundColor: skillColor.withOpacity(0.2),
-                              side: BorderSide(color: skillColor),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 4,
-                              ),
-                              materialTapTargetSize:
-                                  MaterialTapTargetSize.shrinkWrap,
+                            Container(
+                              width: 1,
+                              height: 40,
+                              color: waveColor.withValues(alpha: 0.25),
                             ),
-                          );
-                        }).toList(),
+                            Column(
+                              children: [
+                                Container(
+                                  width: 30,
+                                  height: 30,
+                                  decoration: BoxDecoration(
+                                    color: waveColor,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Center(
+                                    child: Text(
+                                      '$wave',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  _waveTitle(wave),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: isDark
+                                        ? Colors.grey.shade400
+                                        : Colors.grey.shade600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
+
                       const SizedBox(height: 16),
-                    ],
 
-                    // Compétences manquantes
-                    if (onlyCurrentSkills.isNotEmpty) ...[
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.remove_circle,
-                            color: Colors.red[600],
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Compétences manquantes (${onlyCurrentSkills.length})',
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 6,
-                        children: onlyCurrentSkills.map((skill) {
-                          final skillLevelColor = KSkills.skillColors[skill];
-                          final skillColor = skillLevelColor != null
-                              ? KSkills.getColorForSkillLevel(
-                                  skillLevelColor,
-                                  context,
-                                )
-                              : Colors.grey;
-                          final skillPoints = _skillWeights[skill] ?? 0.0;
+                      // Compétences en commun
+                      if (commonSkills.isNotEmpty)
+                        _SkillSection(
+                          label: 'En commun',
+                          count: commonSkills.length,
+                          icon: Icons.check_circle_rounded,
+                          color: Colors.green,
+                          skills: commonSkills,
+                          skillWeights: _skillWeights,
+                          isDark: isDark,
+                        ),
 
-                          return Tooltip(
-                            message: '$skill : ${skillPoints.toStringAsFixed(1)} points',
-                            child: Chip(
-                              label: Text(
-                                skill,
-                                style: const TextStyle(fontSize: 11),
-                              ),
-                              backgroundColor: skillColor.withOpacity(0.1),
-                              side: BorderSide(
-                                color: skillColor.withOpacity(0.3),
-                              ),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 4,
-                              ),
-                              materialTapTargetSize:
-                                  MaterialTapTargetSize.shrinkWrap,
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                      const SizedBox(height: 16),
-                    ],
+                      // Compétences manquantes
+                      if (onlyCurrentSkills.isNotEmpty) ...[
+                        if (commonSkills.isNotEmpty)
+                          const SizedBox(height: 10),
+                        _SkillSection(
+                          label: 'Manquantes',
+                          count: onlyCurrentSkills.length,
+                          icon: Icons.remove_circle_rounded,
+                          color: Colors.red,
+                          skills: onlyCurrentSkills,
+                          skillWeights: _skillWeights,
+                          isDark: isDark,
+                        ),
+                      ],
 
-                    // Compétences supplémentaires
-                    if (onlyAgentSkills.isNotEmpty) ...[
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.add_circle,
-                            color: Colors.blue[600],
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Compétences supplémentaires (${onlyAgentSkills.length})',
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 6,
-                        children: onlyAgentSkills.map((skill) {
-                          final skillLevelColor = KSkills.skillColors[skill];
-                          final skillColor = skillLevelColor != null
-                              ? KSkills.getColorForSkillLevel(
-                                  skillLevelColor,
-                                  context,
-                                )
-                              : Colors.grey;
-                          final skillPoints = _skillWeights[skill] ?? 0.0;
+                      // Compétences supplémentaires
+                      if (onlyAgentSkills.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        _SkillSection(
+                          label: 'Supplémentaires',
+                          count: onlyAgentSkills.length,
+                          icon: Icons.add_circle_rounded,
+                          color: Colors.blue,
+                          skills: onlyAgentSkills,
+                          skillWeights: _skillWeights,
+                          isDark: isDark,
+                        ),
+                      ],
 
-                          return Tooltip(
-                            message: '$skill : ${skillPoints.toStringAsFixed(1)} points',
-                            child: Chip(
-                              label: Text(
-                                skill,
-                                style: const TextStyle(fontSize: 11),
-                              ),
-                              backgroundColor: skillColor.withOpacity(0.2),
-                              side: BorderSide(color: skillColor),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 4,
-                              ),
-                              materialTapTargetSize:
-                                  MaterialTapTargetSize.shrinkWrap,
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                    ],
+                      const SizedBox(height: 20),
 
-                    // Bouton pour voir les similarités de cet agent
-                    const SizedBox(height: 24),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
+                      // Bouton "Voir les agents similaires de cet agent"
+                      FilledButton.icon(
                         onPressed: () {
-                          Navigator.pop(context); // Close current bottom sheet
-                          // Navigate to SimilarAgentsPage with this agent
+                          Navigator.pop(context);
                           Navigator.pushReplacement(
                             context,
                             MaterialPageRoute(
@@ -1117,48 +993,117 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
                             ),
                           );
                         },
-                        icon: const Icon(Icons.people_alt),
-                        label: const Text('Voir les agents similaires'),
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        icon: const Icon(Icons.people_alt_rounded, size: 18),
+                        label: const Text(
+                          'Agents similaires à cet agent',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: KColors.appNameColor,
+                          minimumSize: const Size(double.infinity, 46),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                  ],
-                );
-              },
+                    ],
+                  );
+                },
+              ),
             );
           },
         );
       },
     );
   }
+}
 
-  Color _getWaveColor(int wave) {
-    const waveColors = {
-      0: Colors.grey,
-      1: Colors.purple,
-      2: Colors.green,
-      3: Colors.blue,
-      4: Colors.orange,
-      5: Colors.brown,
-    };
-    return waveColors[wave] ?? Colors.grey;
-  }
+// ── Widgets locaux ─────────────────────────────────────────────────────────────
 
-  String _getWaveTitle(int wave) {
-    const waveTitles = {
-      0: 'Non notifiés',
-      1: 'Même équipe',
-      2: 'Identiques',
-      3: 'Très similaires',
-      4: 'Similaires',
-      5: 'Autres',
-    };
-    return waveTitles[wave] ?? 'Vague $wave';
+class _SkillSection extends StatelessWidget {
+  final String label;
+  final int count;
+  final IconData icon;
+  final Color color;
+  final List<String> skills;
+  final Map<String, double> skillWeights;
+  final bool isDark;
+
+  const _SkillSection({
+    required this.label,
+    required this.count,
+    required this.icon,
+    required this.color,
+    required this.skills,
+    required this.skillWeights,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: isDark ? 0.08 : 0.05),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+            color: color.withValues(alpha: isDark ? 0.25 : 0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 14, color: color),
+              const SizedBox(width: 6),
+              Text(
+                '$label ($count)',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 5,
+            runSpacing: 5,
+            children: skills.map((skill) {
+              final skillLevelColor = KSkills.skillColors[skill];
+              final skillColor = skillLevelColor != null
+                  ? KSkills.getColorForSkillLevel(skillLevelColor, context)
+                  : Colors.grey;
+              final pts = skillWeights[skill] ?? 0.0;
+
+              return Tooltip(
+                message: '$skill : ${pts.toStringAsFixed(1)} pts',
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: skillColor.withValues(alpha: isDark ? 0.18 : 0.12),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                        color: skillColor.withValues(alpha: 0.40)),
+                  ),
+                  child: Text(
+                    skill,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: isDark
+                          ? skillColor.withValues(alpha: 0.90)
+                          : skillColor,
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
   }
 }

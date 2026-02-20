@@ -254,7 +254,7 @@ class _ProposeShiftDialogState extends State<_ProposeShiftDialog> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                '${widget.request.initiatorName} propose',
+                                '${widget.request.initiatorName.trim().isNotEmpty ? widget.request.initiatorName : 'Agent ${widget.request.initiatorId}'} propose',
                                 style: TextStyle(
                                   fontWeight: FontWeight.w600,
                                   color: colorScheme.primary,

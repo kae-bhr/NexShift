@@ -57,6 +57,18 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
       widget.currentUser?.status == 'leader' ||
       widget.currentUser?.admin == true;
 
+  bool get _allExpanded =>
+      widget.allTeams.every((t) => _expandedTeams[t.id] ?? true);
+
+  void _toggleAllExpanded() {
+    final expand = !_allExpanded;
+    setState(() {
+      for (final team in widget.allTeams) {
+        _expandedTeams[team.id] = expand;
+      }
+    });
+  }
+
   /// Renvoie la compétence la plus haute pour une catégorie donnée (SUAP/PPBE/INC/COD)
   String? _highestForCategory(List<String> skills, String category) {
     // Ordre de priorité spécifique par catégorie (du plus haut vers le plus bas)
@@ -212,6 +224,46 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
       body: CustomScrollView(
         controller: _agentsScrollController,
         slivers: [
+          // Collapse all / Expand all header
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 12, 0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${widget.allTeams.length} équipe${widget.allTeams.length > 1 ? 's' : ''} · ${widget.allUsers.length} agent${widget.allUsers.length > 1 ? 's' : ''}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).brightness == Brightness.dark
+                            ? Colors.grey[400]
+                            : Colors.grey[600],
+                      ),
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: _toggleAllExpanded,
+                    icon: Icon(
+                      _allExpanded
+                          ? Icons.unfold_less_rounded
+                          : Icons.unfold_more_rounded,
+                      size: 16,
+                    ),
+                    label: Text(
+                      _allExpanded ? 'Tout réduire' : 'Tout déplier',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    style: TextButton.styleFrom(
+                      foregroundColor: KColors.appNameColor,
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
           // Teams with agents
           ...sortedTeams.map((team) {
             final teamUsers = (widget.usersByTeam[team.id] ?? [])
@@ -223,23 +275,20 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
 
             final isExpanded = _expandedTeams[team.id] ?? true;
 
+            final isDark =
+                    Theme.of(context).brightness == Brightness.dark;
+            final surfaceColor = isDark
+                ? Colors.white.withValues(alpha: 0.05)
+                : Colors.white;
+            final borderColor = team.color.withValues(alpha: 0.3);
+
             return SliverToBoxAdapter(
               child: Container(
                 margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: surfaceColor,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: team.color.withOpacity(0.3),
-                    width: 2,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
-                      blurRadius: 4,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
+                  border: Border.all(color: borderColor, width: 1.5),
                 ),
                 child: Column(
                   children: [
@@ -256,7 +305,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                       child: Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: team.color.withOpacity(0.1),
+                          color: team.color.withValues(alpha: isDark ? 0.15 : 0.08),
                           borderRadius: const BorderRadius.vertical(
                             top: Radius.circular(10),
                           ),
@@ -299,7 +348,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                                     '${teamUsers.length} agent${teamUsers.length > 1 ? 's' : ''}',
                                     style: TextStyle(
                                       fontSize: 12,
-                                      color: Colors.grey[600],
+                                      color: isDark ? Colors.grey[400] : Colors.grey[600],
                                     ),
                                   ),
                                 ],
@@ -317,26 +366,25 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                     ),
 
                     // Divider
-                    Divider(height: 1, color: team.color.withOpacity(0.3)),
+                    Divider(height: 1, color: team.color.withValues(alpha: 0.3)),
 
                     // Agents list (collapsible) with DragTarget for leaders
                     if (isExpanded)
                       if (_isLeader)
                         DragTarget<User>(
-                          onAccept: (user) async {
-                            // Update user's team
-                            await _moveUserToTeam(user, team.id);
+                          onAcceptWithDetails: (details) async {
+                            await _moveUserToTeam(details.data, team.id);
                           },
                           builder: (context, candidateData, rejectedData) {
                             final isDraggingOver = candidateData.isNotEmpty;
                             final borderDecoration = BoxDecoration(
                               color: isDraggingOver
-                                  ? team.color.withOpacity(0.08)
+                                  ? team.color.withValues(alpha: 0.08)
                                   : null,
                               border: Border.all(
                                 color: isDraggingOver
                                     ? team.color
-                                    : team.color.withOpacity(0.15),
+                                    : team.color.withValues(alpha: 0.15),
                                 width: isDraggingOver ? 2 : 1,
                               ),
                               borderRadius: BorderRadius.circular(8),
@@ -377,7 +425,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                             return Container(
                               decoration: isDraggingOver
                                   ? BoxDecoration(
-                                      color: team.color.withOpacity(0.1),
+                                      color: team.color.withValues(alpha: 0.1),
                                       border: Border.all(
                                         color: team.color,
                                         width: 2,
@@ -397,8 +445,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                         )
                       else
                         ...teamUsers
-                            .map((user) => _buildAgentCard(user, team))
-                            .toList(),
+                            .map((user) => _buildAgentCard(user, team)),
                   ],
                 ),
               ),
@@ -408,100 +455,118 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
           // Agents without team
           if (usersWithoutTeam.isNotEmpty)
             SliverToBoxAdapter(
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey.shade300, width: 2),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
-                      blurRadius: 4,
-                      offset: const Offset(0, 2),
+              child: Builder(
+                builder: (context) {
+                  final isDark =
+                      Theme.of(context).brightness == Brightness.dark;
+                  return Container(
+                    margin: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
                     ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    // Header
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.shade50,
-                        borderRadius: const BorderRadius.vertical(
-                          top: Radius.circular(10),
-                        ),
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? Colors.white.withValues(alpha: 0.05)
+                          : Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.orange.withValues(alpha: 0.4),
+                        width: 1.5,
                       ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.warning_amber,
-                            color: Colors.orange.shade700,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Agents sans équipe',
-                                  style: TextStyle(
-                                    color: Colors.black87,
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                Text(
-                                  '${usersWithoutTeam.length} agent${usersWithoutTeam.length > 1 ? 's' : ''}',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey[600],
-                                  ),
-                                ),
-                              ],
+                    ),
+                    child: Column(
+                      children: [
+                        // Header
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.withValues(
+                              alpha: isDark ? 0.15 : 0.08,
+                            ),
+                            borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(10),
                             ),
                           ),
-                        ],
-                      ),
-                    ),
-                    Divider(height: 1, color: Colors.grey.shade300),
-                    // Agents without team - with DragTarget for leaders
-                    if (_isLeader)
-                      DragTarget<User>(
-                        onAccept: (user) async {
-                          // Remove user from team
-                          await _moveUserToTeam(user, '');
-                        },
-                        builder: (context, candidateData, rejectedData) {
-                          final isDraggingOver = candidateData.isNotEmpty;
-                          return Container(
-                            decoration: isDraggingOver
-                                ? BoxDecoration(
-                                    color: Colors.orange.shade50,
-                                    border: Border.all(
-                                      color: Colors.orange.shade700,
-                                      width: 2,
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.warning_amber_rounded,
+                                color: Colors.orange.shade700,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Agents sans équipe',
+                                      style: TextStyle(
+                                        color: isDark
+                                            ? Colors.orange.shade300
+                                            : Colors.orange.shade800,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                      ),
                                     ),
-                                  )
-                                : null,
-                            child: Column(
-                              children: usersWithoutTeam
-                                  .map(
-                                    (user) =>
-                                        _buildDraggableAgentCard(user, null),
-                                  )
-                                  .toList(),
-                            ),
-                          );
-                        },
-                      )
-                    else
-                      ...usersWithoutTeam
-                          .map((user) => _buildAgentCard(user, null))
-                          .toList(),
-                  ],
-                ),
+                                    Text(
+                                      '${usersWithoutTeam.length} agent${usersWithoutTeam.length > 1 ? 's' : ''}',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: isDark
+                                            ? Colors.grey[400]
+                                            : Colors.grey[600],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Divider(
+                          height: 1,
+                          color: Colors.orange.withValues(alpha: 0.3),
+                        ),
+                        // Agents without team - with DragTarget for leaders
+                        if (_isLeader)
+                          DragTarget<User>(
+                            onAcceptWithDetails: (details) async {
+                              await _moveUserToTeam(details.data, '');
+                            },
+                            builder: (context, candidateData, rejectedData) {
+                              final isDraggingOver = candidateData.isNotEmpty;
+                              return Container(
+                                decoration: isDraggingOver
+                                    ? BoxDecoration(
+                                        color: Colors.orange.withValues(
+                                          alpha: 0.1,
+                                        ),
+                                        border: Border.all(
+                                          color: Colors.orange.shade700,
+                                          width: 2,
+                                        ),
+                                      )
+                                    : null,
+                                child: Column(
+                                  children: usersWithoutTeam
+                                      .map(
+                                        (user) => _buildDraggableAgentCard(
+                                          user,
+                                          null,
+                                        ),
+                                      )
+                                      .toList(),
+                                ),
+                              );
+                            },
+                          )
+                        else
+                          ...usersWithoutTeam
+                              .map((user) => _buildAgentCard(user, null)),
+                      ],
+                    ),
+                  );
+                },
               ),
             ),
 
@@ -512,9 +577,10 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
       floatingActionButton: _isLeader
           ? FloatingActionButton.extended(
               onPressed: _showAddAgentDialog,
-              icon: const Icon(Icons.person_add),
+              icon: const Icon(Icons.person_add_rounded),
               label: const Text('Ajouter un agent'),
-              backgroundColor: Theme.of(context).colorScheme.primary,
+              backgroundColor: KColors.appNameColor,
+              foregroundColor: Colors.white,
             )
           : null,
     );
@@ -732,6 +798,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
 
   Widget _buildAgentCard(User user, Team? team) {
     final teamColor = team?.color ?? Colors.grey;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final position = user.positionId != null
         ? widget.allPositions.firstWhere(
             (p) => p.id == user.positionId,
@@ -739,6 +806,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
           )
         : null;
     final hasPosition = position != null && position.id.isNotEmpty;
+    final subtitleColor = isDark ? Colors.grey[400] : Colors.grey[600];
 
     return InkWell(
       onTap: () async {
@@ -755,20 +823,26 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
-          border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+          border: Border(
+            bottom: BorderSide(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.07)
+                  : Colors.grey.shade100,
+            ),
+          ),
         ),
         child: Row(
           children: [
             // Avatar
             CircleAvatar(
-              radius: 24,
-              backgroundColor: teamColor.withOpacity(0.2),
+              radius: 22,
+              backgroundColor: teamColor.withValues(alpha: 0.18),
               child: Text(
                 user.initials,
                 style: TextStyle(
                   color: teamColor,
                   fontWeight: FontWeight.bold,
-                  fontSize: 16,
+                  fontSize: 15,
                 ),
               ),
             ),
@@ -782,8 +856,8 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                   Text(
                     user.displayName,
                     style: TextStyle(
-                      color: Colors.black,
-                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.white : Colors.black87,
+                      fontWeight: FontWeight.w600,
                       fontSize: 15,
                       fontStyle: user.isPreRegistered
                           ? FontStyle.italic
@@ -795,12 +869,12 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                     children: [
                       Icon(
                         user.status == KConstants.statusLeader
-                            ? Icons.shield_moon
+                            ? Icons.shield_moon_rounded
                             : user.status == KConstants.statusChief
-                            ? Icons.verified_user
-                            : Icons.person,
-                        size: 14,
-                        color: Colors.grey[600],
+                            ? Icons.verified_user_rounded
+                            : Icons.person_rounded,
+                        size: 13,
+                        color: subtitleColor,
                       ),
                       const SizedBox(width: 4),
                       Text(
@@ -809,30 +883,39 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                             : user.status == KConstants.statusChief
                             ? 'Chef de garde'
                             : 'Agent',
-                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                        style: TextStyle(fontSize: 12, color: subtitleColor),
                       ),
                       if (user.admin) ...[
-                        const SizedBox(width: 4),
-                        Text(
-                          '•',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[600],
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 5,
+                            vertical: 1,
                           ),
-                        ),
-                        const SizedBox(width: 4),
-                        const Icon(
-                          Icons.settings,
-                          color: Colors.teal,
-                          size: 12,
-                        ),
-                        const SizedBox(width: 4),
-                        const Text(
-                          'Admin',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.teal,
-                            fontWeight: FontWeight.w600,
+                          decoration: BoxDecoration(
+                            color: Colors.teal.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.settings_rounded,
+                                color: Colors.teal,
+                                size: 10,
+                              ),
+                              const SizedBox(width: 3),
+                              Text(
+                                'Admin',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: isDark
+                                      ? Colors.teal.shade200
+                                      : Colors.teal.shade700,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
@@ -845,8 +928,8 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                         if (position.iconName != null) ...[
                           Icon(
                             KSkills.positionIcons[position.iconName],
-                            size: 14,
-                            color: Colors.grey[600],
+                            size: 13,
+                            color: subtitleColor,
                           ),
                           const SizedBox(width: 4),
                         ],
@@ -855,14 +938,14 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                           style: TextStyle(
                             fontSize: 12,
                             fontStyle: FontStyle.italic,
-                            color: Colors.grey[600],
+                            color: subtitleColor,
                           ),
                         ),
                       ],
                     ),
                   ],
                   if (user.skills.isNotEmpty) ...[
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 5),
                     Wrap(
                       spacing: 4,
                       runSpacing: 4,
@@ -887,7 +970,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                                   vertical: 2,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: color.withOpacity(0.15),
+                                  color: color.withValues(alpha: 0.15),
                                   borderRadius: BorderRadius.circular(4),
                                 ),
                                 child: Row(
@@ -897,7 +980,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                                       const Padding(
                                         padding: EdgeInsets.only(right: 2),
                                         child: Icon(
-                                          Icons.star,
+                                          Icons.star_rounded,
                                           size: 10,
                                           color: Colors.amber,
                                         ),
@@ -913,26 +996,25 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                                   ],
                                 ),
                               );
-                            })
-                            .toList(),
+                            }),
+                        // Extra skills count
+                        if (user.skills.length >
+                            ['SUAP', 'PPBE', 'INC', 'COD']
+                                .map(
+                                  (cat) =>
+                                      _highestForCategory(user.skills, cat),
+                                )
+                                .where((s) => s != null)
+                                .length)
+                          Text(
+                            '+${user.skills.length - ['SUAP', 'PPBE', 'INC', 'COD'].map((cat) => _highestForCategory(user.skills, cat)).where((s) => s != null).length}',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: subtitleColor,
+                            ),
+                          ),
                       ],
                     ),
-                    // Skills count if more than displayed (SUAP, PPBE, INC, COD)
-                    if (user.skills.length >
-                        ['SUAP', 'PPBE', 'INC', 'COD']
-                            .map((cat) => _highestForCategory(user.skills, cat))
-                            .where((s) => s != null)
-                            .length)
-                      Padding(
-                        padding: const EdgeInsets.only(left: 4),
-                        child: Text(
-                          '+${user.skills.length - ['SUAP', 'PPBE', 'INC', 'COD'].map((cat) => _highestForCategory(user.skills, cat)).where((s) => s != null).length}',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ),
                   ],
                 ],
               ),
@@ -941,7 +1023,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
             // Actions menu (only for leaders)
             if (_isLeader)
               PopupMenuButton<String>(
-                icon: Icon(Icons.more_vert, color: teamColor),
+                icon: Icon(Icons.more_vert, color: subtitleColor),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -950,7 +1032,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                     value: 'team',
                     child: Row(
                       children: [
-                        Icon(Icons.group, size: 18),
+                        Icon(Icons.group_rounded, size: 18),
                         SizedBox(width: 8),
                         Text('Changer d\'équipe'),
                       ],
@@ -960,7 +1042,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                     value: 'skills',
                     child: Row(
                       children: [
-                        Icon(Icons.workspace_premium, size: 18),
+                        Icon(Icons.workspace_premium_rounded, size: 18),
                         SizedBox(width: 8),
                         Text('Compétences'),
                       ],
@@ -970,7 +1052,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                     value: 'similarities',
                     child: Row(
                       children: [
-                        Icon(Icons.people_alt, size: 18),
+                        Icon(Icons.people_alt_rounded, size: 18),
                         SizedBox(width: 8),
                         Text('Similarités'),
                       ],
@@ -980,7 +1062,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                     value: 'role',
                     child: Row(
                       children: [
-                        Icon(Icons.manage_accounts, size: 18),
+                        Icon(Icons.manage_accounts_rounded, size: 18),
                         SizedBox(width: 8),
                         Text('Changer le rôle'),
                       ],
@@ -990,20 +1072,19 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                     value: 'position',
                     child: Row(
                       children: [
-                        Icon(Icons.work_outline, size: 18),
+                        Icon(Icons.work_outline_rounded, size: 18),
                         SizedBox(width: 8),
                         Text('Définir le poste'),
                       ],
                     ),
                   ),
-                  // Option de test de notification (uniquement pour les admins)
                   if (widget.currentUser?.admin == true)
                     const PopupMenuItem(
                       value: 'test_notification',
                       child: Row(
                         children: [
                           Icon(
-                            Icons.notifications_active,
+                            Icons.notifications_active_rounded,
                             size: 18,
                             color: Colors.blue,
                           ),
@@ -1020,7 +1101,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                     child: Row(
                       children: [
                         Icon(
-                          Icons.person_remove,
+                          Icons.person_remove_rounded,
                           size: 18,
                           color: Colors.orange.shade700,
                         ),
@@ -1063,11 +1144,12 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
       feedback: Material(
         elevation: 8,
         borderRadius: BorderRadius.circular(12),
+        color: Colors.transparent,
         child: Container(
           width: 300,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: Theme.of(context).cardColor,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: team?.color ?? Colors.grey, width: 2),
           ),
@@ -1076,7 +1158,9 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
             children: [
               CircleAvatar(
                 radius: 20,
-                backgroundColor: (team?.color ?? Colors.grey).withOpacity(0.2),
+                backgroundColor: (team?.color ?? Colors.grey).withValues(
+                  alpha: 0.2,
+                ),
                 child: Text(
                   user.initials,
                   style: TextStyle(
@@ -1776,7 +1860,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
           ),
           borderRadius: BorderRadius.circular(12),
           color: isSelected
-              ? colorScheme.primaryContainer.withOpacity(0.3)
+              ? colorScheme.primaryContainer.withValues(alpha: 0.3)
               : Colors.transparent,
         ),
         child: Row(
@@ -1784,7 +1868,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: iconColor.withOpacity(0.15),
+                color: iconColor.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(icon, color: iconColor, size: 24),
@@ -1844,7 +1928,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
           ),
           borderRadius: BorderRadius.circular(12),
           color: isSelected
-              ? colorScheme.primaryContainer.withOpacity(0.3)
+              ? colorScheme.primaryContainer.withValues(alpha: 0.3)
               : Colors.transparent,
         ),
         child: Row(
@@ -1852,7 +1936,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: iconColor.withOpacity(0.15),
+                color: iconColor.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(icon, color: iconColor, size: 24),

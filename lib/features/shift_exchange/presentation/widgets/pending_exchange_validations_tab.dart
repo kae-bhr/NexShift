@@ -321,7 +321,7 @@ class _PendingExchangeValidationsTabState
                       const Icon(Icons.person, size: 16, color: Colors.blue),
                       const SizedBox(width: 4),
                       Text(
-                        '${request.initiatorName} propose',
+                        '${request.initiatorName.trim().isNotEmpty ? request.initiatorName : 'Agent ${request.initiatorId}'} propose',
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
                           color: Colors.blue,
@@ -372,7 +372,7 @@ class _PendingExchangeValidationsTabState
                       const SizedBox(width: 4),
                       Expanded(
                         child: Text(
-                          '${proposal.proposerName} propose en échange',
+                          '${proposal.proposerName.trim().isNotEmpty ? proposal.proposerName : 'Agent ${proposal.proposerId}'} propose en échange',
                           style: const TextStyle(
                             fontWeight: FontWeight.bold,
                             color: Colors.green,

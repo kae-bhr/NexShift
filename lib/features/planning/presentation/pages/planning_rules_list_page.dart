@@ -132,7 +132,8 @@ class _PlanningRulesListPageState extends State<PlanningRulesListPage> {
     return Scaffold(
       floatingActionButton: _canManageRules
           ? FloatingActionButton.extended(
-              backgroundColor: Theme.of(context).colorScheme.primary,
+              backgroundColor: KColors.appNameColor,
+              foregroundColor: Colors.white,
               onPressed: () async {
                 final result = await Navigator.push(
                   context,
@@ -144,7 +145,7 @@ class _PlanningRulesListPageState extends State<PlanningRulesListPage> {
                   _loadRules();
                 }
               },
-              icon: const Icon(Icons.add),
+              icon: const Icon(Icons.add_rounded),
               label: const Text('Nouvelle règle'),
             )
           : null,
@@ -174,12 +175,16 @@ class _PlanningRulesListPageState extends State<PlanningRulesListPage> {
   }
 
   Widget _buildActionButtons() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: KColors.appNameColor.withOpacity(0.05),
+        color: KColors.appNameColor.withValues(alpha: isDark ? 0.08 : 0.04),
         border: Border(
-          bottom: BorderSide(color: Colors.grey.withOpacity(0.2), width: 1),
+          bottom: BorderSide(
+            color: KColors.appNameColor.withValues(alpha: 0.12),
+            width: 1,
+          ),
         ),
       ),
       child: Column(
@@ -255,33 +260,43 @@ class _PlanningRulesListPageState extends State<PlanningRulesListPage> {
   }
 
   Widget _buildEmptyState() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.rule, size: 64, color: Colors.grey[400]),
+          Icon(
+            Icons.rule_rounded,
+            size: 56,
+            color: isDark ? Colors.grey[600] : Colors.grey[400],
+          ),
           const SizedBox(height: 16),
           Text(
             'Aucune règle d\'astreinte',
             style: TextStyle(
               fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.grey[600],
+              fontWeight: FontWeight.w600,
+              color: isDark ? Colors.grey[400] : Colors.grey[600],
             ),
           ),
           const SizedBox(height: 8),
           Text(
             'Créez une règle pour commencer',
-            style: TextStyle(color: Colors.grey[600]),
+            style: TextStyle(
+              color: isDark ? Colors.grey[500] : Colors.grey[600],
+            ),
           ),
           const SizedBox(height: 24),
           FilledButton.icon(
             onPressed: () async {
-              await _repository.resetToDefaultRules(stationId: _currentUser!.station);
+              await _repository.resetToDefaultRules(
+                stationId: _currentUser!.station,
+              );
               _loadRules();
             },
-            icon: const Icon(Icons.restore),
+            icon: const Icon(Icons.restore_rounded),
             label: const Text('Charger les règles par défaut'),
+            style: FilledButton.styleFrom(backgroundColor: KColors.appNameColor),
           ),
         ],
       ),
@@ -289,163 +304,157 @@ class _PlanningRulesListPageState extends State<PlanningRulesListPage> {
   }
 
   Widget _buildRuleCard(ShiftRule rule, {Key? key}) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final accentColor = rule.isActive ? KColors.appNameColor : Colors.grey;
+    final subtitleColor = isDark ? Colors.grey[400] : Colors.grey[600];
 
-    return Card(
+    return Container(
       key: key,
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: isDark
+            ? Colors.white.withValues(alpha: 0.04)
+            : accentColor.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: accentColor.withValues(alpha: isDark ? 0.3 : 0.2),
+          width: 1.5,
+        ),
+      ),
       child: Column(
         children: [
-          SwitchListTile(
-            value: rule.isActive,
-            onChanged: _canManageRules
-                ? (value) async {
-                    await _repository.toggleActive(rule.id, stationId: _currentUser!.station);
-                    _loadRules();
-                  }
-                : null,
-            activeColor: KColors.appNameColor,
-            title: Text(
-              rule.name,
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: rule.isActive ? null : Colors.grey,
-              ),
-            ),
-            subtitle: Column(
+          // Header row: icon + info + switch
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    Icon(Icons.access_time, size: 14, color: Colors.grey[600]),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        rule.getTimeRangeString(),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Row(
-                  children: [
-                    Icon(Icons.groups, size: 14, color: Colors.grey[600]),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        rule.rotationType == ShiftRotationType.none
-                            ? 'Non affectée'
-                            : '${rule.teamIds.join(", ")} - ${rule.rotationType.label}',
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Row(
-                  children: [
-                    Icon(Icons.today, size: 14, color: Colors.grey[600]),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        rule.applicableDays.toDisplayString(),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Row(
-                  children: [
-                    Icon(Icons.date_range, size: 14, color: Colors.grey[600]),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        rule.endDate != null
-                            ? 'Du ${rule.startDate.day.toString().padLeft(2, '0')}/${rule.startDate.month.toString().padLeft(2, '0')}/${(rule.startDate.year % 100).toString().padLeft(2, '0')}'
-                                  ' au ${rule.endDate!.day.toString().padLeft(2, '0')}/${rule.endDate!.month.toString().padLeft(2, '0')}/${(rule.endDate!.year % 100).toString().padLeft(2, '0')}'
-                            : 'Du ${rule.startDate.day.toString().padLeft(2, '0')}/${rule.startDate.month.toString().padLeft(2, '0')}/${(rule.startDate.year % 100).toString().padLeft(2, '0')}'
-                                  ' au ${rule.startDate.add(const Duration(days: 365)).day.toString().padLeft(2, '0')}/${rule.startDate.add(const Duration(days: 365)).month.toString().padLeft(2, '0')}/${(rule.startDate.add(const Duration(days: 365)).year % 100).toString().padLeft(2, '0')}',
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Row(
-                  children: [
-                    Icon(Icons.group, size: 14, color: Colors.grey[600]),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Max ${_stationConfig?.maxAgentsPerShift ?? 6} agents',
-                      style: TextStyle(
-                        color: Colors.grey[700],
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            secondary: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: rule.isActive
-                    ? colorScheme.primary.withOpacity(0.1)
-                    : Colors.grey.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(
-                Icons.event_repeat,
-                color: rule.isActive ? colorScheme.primary : Colors.grey,
-              ),
-            ),
-          ),
-          const Divider(height: 1),
-          ButtonBar(
-            children: [
-              TextButton.icon(
-                onPressed: _canManageRules
-                    ? () async {
-                        debugPrint(
-                          'PlanningRulesListPage: Opening edit page for rule ${rule.id} "${rule.name}"',
-                        );
-                        final result = await Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => EditShiftRulePage(rule: rule),
-                          ),
-                        );
-                        debugPrint(
-                          'PlanningRulesListPage: Edit page returned: $result',
-                        );
-                        if (result == true) {
-                          _loadRules();
-                        }
-                      }
-                    : null,
-                icon: const Icon(Icons.edit, size: 18),
-                label: const Text('Modifier'),
-              ),
-              TextButton.icon(
-                onPressed: _canManageRules
-                    ? () => _showDeleteDialog(rule)
-                    : null,
-                icon: Icon(
-                  Icons.delete,
-                  size: 18,
-                  color: _canManageRules ? Colors.red : Colors.grey,
-                ),
-                label: Text(
-                  'Supprimer',
-                  style: TextStyle(
-                    color: _canManageRules ? Colors.red : Colors.grey,
+                // Icon badge
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: accentColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    Icons.event_repeat_rounded,
+                    color: accentColor,
+                    size: 20,
                   ),
                 ),
-              ),
-            ],
+                const SizedBox(width: 12),
+                // Info column
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        rule.name,
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                          color: rule.isActive
+                              ? (isDark ? Colors.white : Colors.black87)
+                              : subtitleColor,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      _buildInfoRow(Icons.access_time_rounded, rule.getTimeRangeString(), subtitleColor),
+                      _buildInfoRow(
+                        Icons.groups_rounded,
+                        rule.rotationType == ShiftRotationType.none
+                            ? 'Non affectée'
+                            : '${rule.teamIds.join(", ")} · ${rule.rotationType.label}',
+                        subtitleColor,
+                      ),
+                      _buildInfoRow(Icons.today_rounded, rule.applicableDays.toDisplayString(), subtitleColor),
+                      _buildInfoRow(
+                        Icons.date_range_rounded,
+                        rule.endDate != null
+                            ? 'Du ${rule.startDate.day.toString().padLeft(2, '0')}/${rule.startDate.month.toString().padLeft(2, '0')}/${(rule.startDate.year % 100).toString().padLeft(2, '0')}'
+                                ' au ${rule.endDate!.day.toString().padLeft(2, '0')}/${rule.endDate!.month.toString().padLeft(2, '0')}/${(rule.endDate!.year % 100).toString().padLeft(2, '0')}'
+                            : 'Du ${rule.startDate.day.toString().padLeft(2, '0')}/${rule.startDate.month.toString().padLeft(2, '0')}/${(rule.startDate.year % 100).toString().padLeft(2, '0')}'
+                                ' au ${rule.startDate.add(const Duration(days: 365)).day.toString().padLeft(2, '0')}/${rule.startDate.add(const Duration(days: 365)).month.toString().padLeft(2, '0')}/${(rule.startDate.add(const Duration(days: 365)).year % 100).toString().padLeft(2, '0')}',
+                        subtitleColor,
+                      ),
+                      _buildInfoRow(
+                        Icons.group_rounded,
+                        'Max ${_stationConfig?.maxAgentsPerShift ?? 6} agents',
+                        subtitleColor,
+                      ),
+                    ],
+                  ),
+                ),
+                // Active toggle
+                if (_canManageRules)
+                  Switch(
+                    value: rule.isActive,
+                    onChanged: (value) async {
+                      await _repository.toggleActive(
+                        rule.id,
+                        stationId: _currentUser!.station,
+                      );
+                      _loadRules();
+                    },
+                    activeThumbColor: KColors.appNameColor,
+                    activeTrackColor: KColors.appNameColor.withValues(alpha: 0.4),
+                  ),
+              ],
+            ),
+          ),
+
+          // Actions row
+          if (_canManageRules) ...[
+            Divider(
+              height: 1,
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.08)
+                  : Colors.grey.withValues(alpha: 0.15),
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton.icon(
+                  onPressed: () async {
+                    final result = await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => EditShiftRulePage(rule: rule),
+                      ),
+                    );
+                    if (result == true) _loadRules();
+                  },
+                  icon: const Icon(Icons.edit_rounded, size: 16),
+                  label: const Text('Modifier'),
+                ),
+                TextButton.icon(
+                  onPressed: () => _showDeleteDialog(rule),
+                  icon: const Icon(Icons.delete_rounded, size: 16),
+                  label: const Text('Supprimer'),
+                  style: TextButton.styleFrom(foregroundColor: Colors.red),
+                ),
+                const SizedBox(width: 4),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(IconData icon, String text, Color? color) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Row(
+        children: [
+          Icon(icon, size: 13, color: color),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(fontSize: 12, color: color),
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
         ],
       ),
@@ -706,11 +715,10 @@ class _GeneratePlanningsDialogState extends State<_GeneratePlanningsDialog> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: KColors.appNameColor.withOpacity(0.1),
+                color: KColors.appNameColor.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(
-                  color: KColors.appNameColor.withOpacity(0.3),
-                  width: 1,
+                  color: KColors.appNameColor.withValues(alpha: 0.3),
                 ),
               ),
               child: Column(
@@ -741,9 +749,9 @@ class _GeneratePlanningsDialogState extends State<_GeneratePlanningsDialog> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.orange.withOpacity(0.1),
+                color: Colors.orange.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.orange, width: 1),
+                border: Border.all(color: Colors.orange.withValues(alpha: 0.5)),
               ),
               child: Row(
                 children: [

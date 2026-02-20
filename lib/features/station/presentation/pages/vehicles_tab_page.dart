@@ -214,7 +214,7 @@ class _VehiclesTabPageState extends State<VehiclesTabPage> {
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Divider(color: colorScheme.primary.withOpacity(0.3)),
+                  child: Divider(color: colorScheme.primary.withValues(alpha: 0.3)),
                 ),
                 const SizedBox(width: 8),
                 Icon(
@@ -240,15 +240,15 @@ class _VehiclesTabPageState extends State<VehiclesTabPage> {
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
-            KColors.appNameColor.withOpacity(0.15),
-            KColors.appNameColor.withOpacity(0.05),
+            KColors.appNameColor.withValues(alpha: 0.15),
+            KColors.appNameColor.withValues(alpha: 0.05),
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: KColors.appNameColor.withOpacity(0.3),
+          color: KColors.appNameColor.withValues(alpha: 0.3),
           width: 1.5,
         ),
       ),
@@ -301,7 +301,7 @@ class _VehiclesTabPageState extends State<VehiclesTabPage> {
                 icon: Icons.category,
                 label: 'Types',
                 value: typeCount.toString(),
-                color: KColors.appNameColor.withOpacity(0.7),
+                color: KColors.appNameColor.withValues(alpha: 0.7),
               ),
             ],
           ),
@@ -316,26 +316,25 @@ class _VehiclesTabPageState extends State<VehiclesTabPage> {
     required String value,
     required Color color,
   }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Expanded(
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.06)
+              : color.withValues(alpha: 0.06),
           borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 4,
-              offset: const Offset(0, 2),
-            ),
-          ],
+          border: Border.all(
+            color: color.withValues(alpha: isDark ? 0.25 : 0.2),
+          ),
         ),
         child: Row(
           children: [
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: color.withOpacity(0.15),
+                color: color.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Icon(icon, color: color, size: 20),
@@ -355,7 +354,10 @@ class _VehiclesTabPageState extends State<VehiclesTabPage> {
                   ),
                   Text(
                     label,
-                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isDark ? Colors.grey[400] : Colors.grey[600],
+                    ),
                   ),
                 ],
               ),
@@ -385,7 +387,7 @@ class _VehiclesTabPageState extends State<VehiclesTabPage> {
 
     // Couleurs selon la présence de véhicules
     final headerColor = hasVehicles
-        ? colorScheme.primaryContainer.withOpacity(0.4)
+        ? colorScheme.primaryContainer.withValues(alpha: 0.4)
         : Colors.grey[200]!;
     final iconColor = hasVehicles ? vehicleColor : Colors.grey[500]!;
     final textColor = hasVehicles ? colorScheme.primary : Colors.grey[600]!;
@@ -427,7 +429,7 @@ class _VehiclesTabPageState extends State<VehiclesTabPage> {
                   ),
                   decoration: BoxDecoration(
                     color: hasVehicles
-                        ? colorScheme.primary.withOpacity(0.15)
+                        ? colorScheme.primary.withValues(alpha: 0.15)
                         : Colors.grey[400]!,
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -458,30 +460,46 @@ class _VehiclesTabPageState extends State<VehiclesTabPage> {
 
           // Description
           if (description.isNotEmpty)
-            Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.grey[50],
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.grey[300]!),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.info_outline, size: 16, color: Colors.grey[600]),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      description,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey[700],
-                        fontStyle: FontStyle.italic,
-                      ),
+            Builder(
+              builder: (context) {
+                final isDark =
+                    Theme.of(context).brightness == Brightness.dark;
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? Colors.white.withValues(alpha: 0.04)
+                        : Colors.grey[50],
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: isDark
+                          ? Colors.white.withValues(alpha: 0.1)
+                          : Colors.grey[200]!,
                     ),
                   ),
-                ],
-              ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.info_outline_rounded,
+                        size: 15,
+                        color: isDark ? Colors.grey[400] : Colors.grey[500],
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          description,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isDark ? Colors.grey[400] : Colors.grey[600],
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
             ),
 
           // Requirements card
@@ -501,13 +519,18 @@ class _VehiclesTabPageState extends State<VehiclesTabPage> {
 
   Widget _buildRequirementsCard(String type, List<CrewMode> modes) {
     final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Card(
+    return Container(
       margin: const EdgeInsets.only(bottom: 0),
-      elevation: 0,
-      shape: RoundedRectangleBorder(
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white.withValues(alpha: 0.04) : Colors.transparent,
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.grey[200]!),
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.1)
+              : Colors.grey[200]!,
+        ),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -556,6 +579,7 @@ class _VehiclesTabPageState extends State<VehiclesTabPage> {
 
   Widget _buildModeChip(String vehicleType, CrewMode mode) {
     final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final positionsCount = mode.mandatoryPositions.length;
     final hasRestricted = mode.hasRestrictedVariant;
 
@@ -565,9 +589,14 @@ class _VehiclesTabPageState extends State<VehiclesTabPage> {
       child: Container(
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.grey[50],
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.grey[300]!, width: 1.5),
+          border: Border.all(
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.12)
+                : Colors.grey[200]!,
+            width: 1,
+          ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -580,17 +609,14 @@ class _VehiclesTabPageState extends State<VehiclesTabPage> {
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.bold,
-                    color: Colors.grey[700],
+                    color: isDark ? Colors.grey[300] : Colors.grey[700],
                   ),
                 ),
                 const SizedBox(width: 6),
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
-                    color: colorScheme.primary.withOpacity(0.15),
+                    color: colorScheme.primary.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Text(
@@ -605,12 +631,9 @@ class _VehiclesTabPageState extends State<VehiclesTabPage> {
                 if (hasRestricted) ...[
                   const SizedBox(width: 4),
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 2,
-                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
-                      color: Colors.orange.withOpacity(0.15),
+                      color: Colors.orange.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Text(
@@ -625,23 +648,19 @@ class _VehiclesTabPageState extends State<VehiclesTabPage> {
                 ],
                 if (_isLeader) ...[
                   const SizedBox(width: 4),
-                  Icon(Icons.edit, size: 12, color: Colors.grey[500]),
+                  Icon(Icons.edit_rounded, size: 12, color: Colors.grey[500]),
                 ],
               ],
             ),
             const SizedBox(height: 6),
-            // Affichage des postes du mode
             Wrap(
               spacing: 4,
               runSpacing: 4,
               children: mode.mandatoryPositions.map((position) {
                 return Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
-                    color: colorScheme.primary.withOpacity(0.15),
+                    color: colorScheme.primary.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
@@ -1000,14 +1019,14 @@ class _VehiclesTabPageState extends State<VehiclesTabPage> {
                                                   pos.isOptional = v;
                                                 });
                                               },
-                                              activeColor: Theme.of(
+                                              activeThumbColor: Theme.of(
                                                 context,
                                               ).colorScheme.primary,
                                               activeTrackColor:
                                                   Theme.of(context)
                                                       .colorScheme
                                                       .primary
-                                                      .withOpacity(0.35),
+                                                      .withValues(alpha: 0.35),
                                               inactiveThumbColor:
                                                   Colors.grey[600],
                                               inactiveTrackColor:
@@ -1072,7 +1091,7 @@ class _VehiclesTabPageState extends State<VehiclesTabPage> {
                                     ),
                                   ),
                                 );
-                              }).toList(),
+                              }),
                               const SizedBox(height: 16),
                               // Restricted variant section
                               Row(
@@ -1267,7 +1286,7 @@ class _VehiclesTabPageState extends State<VehiclesTabPage> {
                                       ),
                                     ),
                                   );
-                                }).toList(),
+                                }),
                               ],
                             ],
                           ),
@@ -1310,34 +1329,39 @@ class _VehiclesTabPageState extends State<VehiclesTabPage> {
   }
 
   Widget _buildVehicleCard(Truck truck, IconData icon) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final vehicleColor = KTrucks.vehicleColors[truck.type] ?? Colors.grey;
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      elevation: 0,
-      shape: RoundedRectangleBorder(
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: isDark
+            ? Colors.white.withValues(alpha: 0.04)
+            : vehicleColor.withValues(alpha: 0.04),
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.grey[200]!),
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.1)
+              : vehicleColor.withValues(alpha: 0.2),
+        ),
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
-        onTap: () {
-          // Could open detailed view
-        },
+        onTap: () {},
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           child: Row(
             children: [
               // Vehicle icon
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: colorScheme.primaryContainer.withOpacity(0.5),
-                  borderRadius: BorderRadius.circular(12),
+                  color: vehicleColor.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(icon, size: 28, color: colorScheme.primary),
+                child: Icon(icon, size: 24, color: vehicleColor),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 14),
               // Vehicle info
               Expanded(
                 child: Column(
@@ -1345,21 +1369,26 @@ class _VehiclesTabPageState extends State<VehiclesTabPage> {
                   children: [
                     Text(
                       truck.displayName,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontWeight: FontWeight.bold,
-                        fontSize: 18,
+                        fontSize: 16,
+                        color: isDark ? Colors.white : Colors.black87,
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 3),
                     Row(
                       children: [
-                        Icon(Icons.category, size: 14, color: Colors.grey[600]),
+                        Icon(
+                          Icons.category_rounded,
+                          size: 13,
+                          color: isDark ? Colors.grey[400] : Colors.grey[600],
+                        ),
                         const SizedBox(width: 4),
                         Text(
                           truck.type,
                           style: TextStyle(
-                            fontSize: 13,
-                            color: Colors.grey[600],
+                            fontSize: 12,
+                            color: isDark ? Colors.grey[400] : Colors.grey[600],
                           ),
                         ),
                       ],
@@ -1371,7 +1400,7 @@ class _VehiclesTabPageState extends State<VehiclesTabPage> {
               if (_isLeader)
                 IconButton(
                   onPressed: () => _showDeleteVehicleDialog(truck),
-                  icon: const Icon(Icons.delete_outline),
+                  icon: const Icon(Icons.delete_outline_rounded),
                   color: Colors.red[400],
                   tooltip: 'Supprimer',
                 ),
@@ -1536,7 +1565,7 @@ class _VehiclesTabPageState extends State<VehiclesTabPage> {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: color.withOpacity(0.15),
+                color: color.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(icon, color: color, size: 24),

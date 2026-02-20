@@ -458,19 +458,30 @@ class _ReplacementRequestsListPageState
   }
 
   Widget _buildHistoryTabWithNavigator() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Column(
       children: [
-        // Navigateur mensuel
+        // Navigateur mensuel stylisé
         Container(
-          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-          color: Theme.of(context).brightness == Brightness.dark
-              ? Colors.grey.shade900
-              : Colors.grey.shade100,
+          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+          decoration: BoxDecoration(
+            color: isDark
+                ? KColors.appNameColor.withValues(alpha: 0.12)
+                : KColors.appNameColor.withValues(alpha: 0.06),
+            border: Border(
+              bottom: BorderSide(
+                color: KColors.appNameColor.withValues(alpha: 0.2),
+                width: 1,
+              ),
+            ),
+          ),
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               IconButton(
-                icon: const Icon(Icons.chevron_left),
+                icon: Icon(
+                  Icons.chevron_left_rounded,
+                  color: KColors.appNameColor,
+                ),
                 onPressed: () {
                   setState(() {
                     _selectedDate = DateTime(
@@ -479,16 +490,37 @@ class _ReplacementRequestsListPageState
                     );
                   });
                 },
+                tooltip: 'Mois précédent',
               ),
-              Text(
-                _formatMonthYear(_selectedDate),
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
+              Expanded(
+                child: GestureDetector(
+                  onTap: _selectMonthYear,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.calendar_month_rounded,
+                        size: 16,
+                        color: KColors.appNameColor,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        _formatMonthYear(_selectedDate),
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: KColors.appNameColor,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
               IconButton(
-                icon: const Icon(Icons.chevron_right),
+                icon: Icon(
+                  Icons.chevron_right_rounded,
+                  color: KColors.appNameColor,
+                ),
                 onPressed: () {
                   setState(() {
                     _selectedDate = DateTime(
@@ -497,6 +529,7 @@ class _ReplacementRequestsListPageState
                     );
                   });
                 },
+                tooltip: 'Mois suivant',
               ),
             ],
           ),
@@ -1589,9 +1622,9 @@ class _ReplacementRequestsListPageState
   Future<String> _getRequesterName(String userId) async {
     try {
       final user = await _userRepository.getById(userId);
-      return user != null ? user.displayName : 'Inconnu';
+      return user != null ? user.displayName : 'Agent $userId';
     } catch (e) {
-      return 'Inconnu';
+      return 'Agent $userId';
     }
   }
 
@@ -2219,79 +2252,139 @@ class _ReplacementRequestsListPageState
 
       showDialog(
         context: context,
-        builder: (context) => AlertDialog(
-          title: Row(
-            children: [
-              Icon(Icons.people_outline, color: Colors.purple.shade700),
-              const SizedBox(width: 8),
-              const Expanded(child: Text('Agents notifiés')),
-              IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () => Navigator.of(context).pop(),
-              ),
-            ],
-          ),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: notifiedUsers.isEmpty
-                ? const Center(
-                    child: Text(
-                      'Aucun agent n\'a été notifié',
-                      style: TextStyle(color: Colors.grey),
-                    ),
-                  )
-                : ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: notifiedUsers.length,
-                    itemBuilder: (context, index) {
-                      final user = notifiedUsers[index];
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: Colors.purple.shade100,
-                            child: Text(
-                              user.initials,
-                              style: TextStyle(
-                                color: Colors.purple.shade700,
-                                fontWeight: FontWeight.bold,
+        builder: (context) {
+          final isDark = Theme.of(context).brightness == Brightness.dark;
+          return AlertDialog(
+            title: Row(
+              children: [
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: Colors.purple.withValues(alpha: isDark ? 0.2 : 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.people_outline_rounded,
+                    size: 18,
+                    color: Colors.purple.shade400,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                const Expanded(child: Text('Agents notifiés')),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded, size: 20),
+                  onPressed: () => Navigator.of(context).pop(),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: notifiedUsers.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      child: Center(
+                        child: Text(
+                          'Aucun agent n\'a été notifié',
+                          style: TextStyle(
+                            color: isDark ? Colors.grey[400] : Colors.grey[600],
+                          ),
+                        ),
+                      ),
+                    )
+                  : ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: notifiedUsers.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 6),
+                      itemBuilder: (context, index) {
+                        final user = notifiedUsers[index];
+                        return Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? Colors.white.withValues(alpha: 0.04)
+                                : Colors.purple.withValues(alpha: 0.04),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: Colors.purple.withValues(
+                                alpha: isDark ? 0.25 : 0.15,
                               ),
                             ),
                           ),
-                          title: Text(
-                            user.displayName,
-                            style: const TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                          subtitle: Row(
+                          child: Row(
                             children: [
-                              Icon(
-                                Icons.group,
-                                size: 14,
-                                color: Colors.grey.shade600,
+                              CircleAvatar(
+                                radius: 16,
+                                backgroundColor: Colors.purple.withValues(
+                                  alpha: isDark ? 0.25 : 0.15,
+                                ),
+                                child: Text(
+                                  user.initials,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.purple.shade400,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
                               ),
-                              const SizedBox(width: 4),
-                              Text(
-                                'Équipe ${user.team}',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey.shade700,
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      user.displayName,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                    Row(
+                                      children: [
+                                        Icon(
+                                          Icons.group_rounded,
+                                          size: 12,
+                                          color: isDark
+                                              ? Colors.grey[400]
+                                              : Colors.grey[600],
+                                        ),
+                                        const SizedBox(width: 3),
+                                        Text(
+                                          'Équipe ${user.team}',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: isDark
+                                                ? Colors.grey[400]
+                                                : Colors.grey[600],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
                                 ),
                               ),
                             ],
                           ),
-                          dense: true,
-                        ),
-                      );
-                    },
-                  ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Fermer'),
+                        );
+                      },
+                    ),
             ),
-          ],
-        ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                style: TextButton.styleFrom(
+                  foregroundColor: KColors.appNameColor,
+                ),
+                child: const Text('Fermer'),
+              ),
+            ],
+          );
+        },
       );
     } catch (e) {
       debugPrint('Error showing notified users: $e');
@@ -2337,62 +2430,90 @@ class _ReplacementRequestsListPageState
     // Afficher le dialog de confirmation
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(Icons.notifications_active, color: Colors.orange.shade700),
-            const SizedBox(width: 8),
-            const Expanded(child: Text('Relancer les notifications')),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Voulez-vous relancer une notification à tous les agents qui n\'ont pas encore répondu ?',
-              style: TextStyle(color: Colors.grey.shade700),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.orange.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.orange.shade200),
+      builder: (context) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        return AlertDialog(
+          title: Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: isDark ? 0.2 : 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  Icons.notifications_active_rounded,
+                  size: 18,
+                  color: Colors.orange.shade400,
+                ),
               ),
-              child: Row(
-                children: [
-                  Icon(Icons.people, color: Colors.orange.shade700, size: 20),
-                  const SizedBox(width: 8),
-                  Text(
-                    '${usersToNotify.length} agent${usersToNotify.length > 1 ? 's' : ''} ser${usersToNotify.length > 1 ? 'ont' : 'a'} notifié${usersToNotify.length > 1 ? 's' : ''}',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      color: Colors.orange.shade800,
+              const SizedBox(width: 10),
+              const Expanded(child: Text('Relancer les notifications')),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Voulez-vous relancer une notification à tous les agents qui n\'ont pas encore répondu ?',
+                style: TextStyle(
+                  color: isDark ? Colors.grey[400] : Colors.grey[700],
+                ),
+              ),
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: isDark ? 0.12 : 0.07),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: Colors.orange.withValues(
+                      alpha: isDark ? 0.35 : 0.25,
                     ),
                   ),
-                ],
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.people_rounded,
+                      color: Colors.orange.shade400,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${usersToNotify.length} agent${usersToNotify.length > 1 ? 's' : ''} ser${usersToNotify.length > 1 ? 'ont' : 'a'} notifié${usersToNotify.length > 1 ? 's' : ''}',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: isDark ? Colors.orange[300] : Colors.orange.shade800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Annuler'),
+            ),
+            FilledButton.icon(
+              onPressed: () => Navigator.of(context).pop(true),
+              icon: const Icon(Icons.send_rounded, size: 16),
+              label: const Text('Relancer'),
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.orange.shade600,
+                foregroundColor: Colors.white,
               ),
             ),
           ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Annuler'),
-          ),
-          ElevatedButton.icon(
-            onPressed: () => Navigator.of(context).pop(true),
-            icon: const Icon(Icons.send, size: 18),
-            label: const Text('Relancer'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.orange.shade600,
-              foregroundColor: Colors.white,
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
 
     if (confirmed != true) return;
@@ -2708,27 +2829,47 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final sortedWaves = widget.waveGroups.keys.toList()..sort();
 
     return AlertDialog(
       title: Row(
         children: [
-          Icon(Icons.waves, color: Colors.blue.shade700),
-          const SizedBox(width: 8),
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: Colors.blue.withValues(alpha: isDark ? 0.2 : 0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              Icons.waves_rounded,
+              size: 18,
+              color: Colors.blue.shade400,
+            ),
+          ),
+          const SizedBox(width: 10),
           const Expanded(child: Text('Détails des vagues')),
           IconButton(
-            icon: const Icon(Icons.close),
+            icon: const Icon(Icons.close_rounded, size: 20),
             onPressed: () => Navigator.of(context).pop(),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
           ),
         ],
       ),
-      contentPadding: const EdgeInsets.fromLTRB(0, 20, 0, 24),
+      contentPadding: const EdgeInsets.fromLTRB(0, 16, 0, 8),
       content: SizedBox(
         width: double.maxFinite,
         child: ListView.separated(
           shrinkWrap: true,
           itemCount: sortedWaves.length,
-          separatorBuilder: (context, index) => const Divider(height: 1),
+          separatorBuilder: (context, index) => Divider(
+            height: 1,
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.08)
+                : Colors.black.withValues(alpha: 0.06),
+          ),
           itemBuilder: (context, index) {
             final wave = sortedWaves[index];
             final users = widget.waveGroups[wave]!;
@@ -2751,14 +2892,17 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
                   },
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 24,
-                      vertical: 12,
+                      horizontal: 20,
+                      vertical: 10,
                     ),
                     child: Row(
                       children: [
                         Icon(
-                          isExpanded ? Icons.expand_less : Icons.expand_more,
+                          isExpanded
+                              ? Icons.expand_less_rounded
+                              : Icons.expand_more_rounded,
                           color: waveColor,
+                          size: 20,
                         ),
                         const SizedBox(width: 8),
                         Expanded(
@@ -2768,19 +2912,20 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
                               Text(
                                 _getWaveLabel(wave),
                                 style: TextStyle(
-                                  fontWeight: FontWeight.bold,
+                                  fontWeight: FontWeight.w600,
                                   color: waveColor,
-                                  fontSize: 15,
+                                  fontSize: 14,
                                 ),
                               ),
-                              // Ne pas afficher le timing pour la wave 0 (Agents non-notifiés)
                               if (wave != 0) ...[
-                                const SizedBox(height: 2),
+                                const SizedBox(height: 1),
                                 Text(
                                   timingInfo,
                                   style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey.shade600,
+                                    fontSize: 11,
+                                    color: isDark
+                                        ? Colors.grey[400]
+                                        : Colors.grey[600],
                                     fontStyle: FontStyle.italic,
                                   ),
                                 ),
@@ -2791,17 +2936,20 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 8,
-                            vertical: 4,
+                            vertical: 3,
                           ),
                           decoration: BoxDecoration(
-                            color: waveColor.withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(12),
+                            color: waveColor.withValues(alpha: isDark ? 0.2 : 0.12),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: waveColor.withValues(alpha: 0.3),
+                            ),
                           ),
                           child: Text(
-                            '${users.length} agent${users.length > 1 ? 's' : ''}',
+                            '${users.length}',
                             style: TextStyle(
                               fontSize: 12,
-                              fontWeight: FontWeight.w600,
+                              fontWeight: FontWeight.w700,
                               color: waveColor,
                             ),
                           ),
@@ -2812,13 +2960,9 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
                 ),
                 if (isExpanded)
                   wave == 0
-                      ? _buildNonNotifiedUsersSection(users)
-                      : Container(
-                          color: Colors.grey.shade50,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 24,
-                            vertical: 8,
-                          ),
+                      ? _buildNonNotifiedUsersSection(users, isDark)
+                      : Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
                           child: Column(
                             children: users.map((user) {
                               final isNotified = widget.notifiedUserIds
@@ -2826,104 +2970,67 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
                               final hasDeclined = _declinedUserIds.contains(
                                 user.id,
                               );
-
-                              // Vérifier si l'utilisateur a marqué comme "Vu"
                               final hasSeen = widget.request.seenByUserIds
                                   .contains(user.id);
-
-                              // Vérifier si l'utilisateur a été validé
-                              // Soit via Subshift/ReplacementAcceptance validée, soit en tant que replacerId de la demande acceptée
                               final isValidated =
                                   _validatedUserIds.contains(user.id) ||
                                   (widget.request.status ==
                                           ReplacementRequestStatus.accepted &&
                                       widget.request.replacerId == user.id);
-
-                              // Vérifier si l'utilisateur est en attente de validation
                               final isPendingValidation = widget
                                   .request
                                   .pendingValidationUserIds
                                   .contains(user.id);
 
-                              // Déterminer le statut
                               String statusLabel;
                               Color statusColor;
-                              Color statusBgColor;
                               IconData statusIcon;
 
                               if (hasDeclined) {
                                 statusLabel = 'Refusé';
-                                statusColor = Colors.red.shade700;
-                                statusBgColor = Colors.red.shade100;
-                                statusIcon = Icons.cancel;
+                                statusColor = Colors.red.shade400;
+                                statusIcon = Icons.cancel_rounded;
                               } else if (isValidated) {
                                 statusLabel = 'Validé';
-                                statusColor = Colors.green.shade700;
-                                statusBgColor = Colors.green.shade100;
-                                statusIcon = Icons.check_circle;
+                                statusColor = Colors.green.shade400;
+                                statusIcon = Icons.check_circle_rounded;
                               } else if (isPendingValidation) {
-                                statusLabel = 'En attente de validation';
-                                statusColor = Colors.green.shade700;
-                                statusBgColor = Colors.green.shade100;
-                                statusIcon = Icons.schedule;
+                                statusLabel = 'En attente valid.';
+                                statusColor = Colors.green.shade400;
+                                statusIcon = Icons.schedule_rounded;
                               } else if (hasSeen) {
                                 statusLabel = 'Vu';
-                                statusColor = Colors.grey.shade700;
-                                statusBgColor = Colors.grey.shade200;
-                                statusIcon = Icons.visibility;
+                                statusColor = isDark
+                                    ? Colors.grey[400]!
+                                    : Colors.grey.shade600;
+                                statusIcon = Icons.visibility_rounded;
                               } else if (isNotified) {
                                 statusLabel = 'En attente';
-                                statusColor = Colors.orange.shade700;
-                                statusBgColor = Colors.orange.shade100;
-                                statusIcon = Icons.schedule;
+                                statusColor = Colors.orange.shade400;
+                                statusIcon = Icons.schedule_rounded;
                               } else {
                                 statusLabel = 'Non notifié';
-                                statusColor = Colors.grey.shade600;
-                                statusBgColor = Colors.grey.shade100;
-                                statusIcon = Icons.person;
+                                statusColor = isDark
+                                    ? Colors.grey[500]!
+                                    : Colors.grey.shade500;
+                                statusIcon = Icons.person_outline_rounded;
                               }
 
                               return Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 4,
-                                ),
+                                padding: const EdgeInsets.symmetric(vertical: 3),
                                 child: Row(
                                   children: [
-                                    Icon(
-                                      statusIcon,
-                                      size: 16,
-                                      color: statusColor,
-                                    ),
+                                    Icon(statusIcon, size: 15, color: statusColor),
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: Text(
                                         user.displayName,
                                         style: TextStyle(
-                                          fontSize: 14,
+                                          fontSize: 13,
                                           color: hasDeclined
-                                              ? Colors.grey.shade600
-                                              : (isValidated
-                                                    ? Colors.green.shade900
-                                                    : (isPendingValidation
-                                                          ? Colors
-                                                                .green
-                                                                .shade900
-                                                          : (hasSeen
-                                                                ? Colors
-                                                                      .grey
-                                                                      .shade700
-                                                                : (isNotified
-                                                                      ? Colors
-                                                                            .black
-                                                                      : Colors
-                                                                            .grey
-                                                                            .shade700)))),
-                                          fontWeight:
-                                              isNotified ||
-                                                  hasDeclined ||
-                                                  hasSeen ||
-                                                  isPendingValidation ||
-                                                  isValidated
+                                              ? (isDark ? Colors.grey[500] : Colors.grey.shade500)
+                                              : null,
+                                          fontWeight: isNotified || isValidated || isPendingValidation
                                               ? FontWeight.w600
                                               : FontWeight.normal,
                                           decoration: hasDeclined
@@ -2938,13 +3045,15 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
                                         vertical: 2,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: statusBgColor,
-                                        borderRadius: BorderRadius.circular(8),
+                                        color: statusColor.withValues(
+                                          alpha: isDark ? 0.18 : 0.1,
+                                        ),
+                                        borderRadius: BorderRadius.circular(6),
                                       ),
                                       child: Text(
                                         statusLabel,
                                         style: TextStyle(
-                                          fontSize: 11,
+                                          fontSize: 10,
                                           color: statusColor,
                                           fontWeight: FontWeight.w600,
                                         ),
@@ -2965,7 +3074,7 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
   }
 
   /// Construit la section des agents non-notifiés avec sous-catégories
-  Widget _buildNonNotifiedUsersSection(List<User> users) {
+  Widget _buildNonNotifiedUsersSection(List<User> users, bool isDark) {
     final waveCalculationService = WaveCalculationService();
 
     // Grouper les utilisateurs par sous-catégorie
@@ -2991,9 +3100,8 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
       NonNotifiedCategory.underQualified,
     ];
 
-    return Container(
-      color: Colors.grey.shade50,
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: orderedCategories
@@ -3011,33 +3119,33 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
                     child: Text(
                       _getNonNotifiedCategoryLabel(category),
                       style: TextStyle(
-                        fontSize: 13,
+                        fontSize: 12,
                         fontWeight: FontWeight.w600,
-                        color: Colors.grey.shade700,
+                        color: isDark ? Colors.grey[400] : Colors.grey.shade600,
                       ),
                     ),
                   ),
                   ...categoryUsers.map((user) {
                     return Padding(
                       padding: const EdgeInsets.only(
-                        left: 16,
-                        top: 4,
-                        bottom: 4,
+                        left: 12,
+                        top: 3,
+                        bottom: 3,
                       ),
                       child: Row(
                         children: [
                           Icon(
-                            Icons.person,
-                            size: 16,
-                            color: Colors.grey.shade600,
+                            Icons.person_outline_rounded,
+                            size: 14,
+                            color: isDark ? Colors.grey[500] : Colors.grey.shade500,
                           ),
-                          const SizedBox(width: 8),
+                          const SizedBox(width: 6),
                           Expanded(
                             child: Text(
                               user.displayName,
                               style: TextStyle(
-                                fontSize: 14,
-                                color: Colors.grey.shade700,
+                                fontSize: 13,
+                                color: isDark ? Colors.grey[400] : Colors.grey.shade600,
                                 fontWeight: FontWeight.normal,
                               ),
                             ),
@@ -3048,14 +3156,16 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
                               vertical: 2,
                             ),
                             decoration: BoxDecoration(
-                              color: Colors.grey.shade100,
-                              borderRadius: BorderRadius.circular(8),
+                              color: isDark
+                                  ? Colors.white.withValues(alpha: 0.07)
+                                  : Colors.grey.shade100,
+                              borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
                               'Non notifié',
                               style: TextStyle(
-                                fontSize: 11,
-                                color: Colors.grey.shade600,
+                                fontSize: 10,
+                                color: isDark ? Colors.grey[400] : Colors.grey.shade500,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),

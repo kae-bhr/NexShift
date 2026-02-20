@@ -806,30 +806,28 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
   }
 
   Widget _buildInfoBanner() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primary = KColors.appNameColor;
     return Container(
-      padding: const EdgeInsets.all(KSpacing.s),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(KBorderRadius.m),
+        color: primary.withValues(alpha: isDark ? 0.12 : 0.07),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+          color: primary.withValues(alpha: isDark ? 0.28 : 0.18),
         ),
       ),
       child: Row(
         children: [
-          Icon(
-            Icons.info_outline,
-            color: Theme.of(context).colorScheme.primary,
-            size: 20,
-          ),
-          const SizedBox(width: KSpacing.xs),
+          Icon(Icons.info_outline_rounded, color: primary, size: 16),
+          const SizedBox(width: 10),
           Expanded(
             child: Text(
               'Cochez les compétences acquises par l\'agent',
               style: TextStyle(
                 fontSize: 12,
-                color: Theme.of(context).colorScheme.primary,
-                fontFamily: KTextStyle.descriptionTextStyle.fontFamily,
+                fontWeight: FontWeight.w500,
+                color: primary,
               ),
             ),
           ),
@@ -839,56 +837,72 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
   }
 
   Widget _buildCategorySection(String category) {
-    final icon =
-        KSkills.skillCategoryIcons[category] ?? Icons.workspace_premium;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final icon = KSkills.skillCategoryIcons[category] ?? Icons.workspace_premium;
     final levels = KSkills.skillLevels[category] ?? [];
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+    // Vérifier si la catégorie a au moins une compétence sélectionnée
+    final hasAcquired = levels.any((s) => s.isNotEmpty && _selectedSkills.contains(s));
+    final accentColor = hasAcquired
+        ? KColors.appNameColor
+        : (isDark ? Colors.grey.shade600 : Colors.grey.shade400);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: hasAcquired
+            ? KColors.appNameColor.withValues(alpha: isDark ? 0.08 : 0.05)
+            : (isDark ? Colors.white.withValues(alpha: 0.03) : Colors.grey.shade50),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: hasAcquired
+              ? KColors.appNameColor.withValues(alpha: isDark ? 0.28 : 0.18)
+              : (isDark ? Colors.white.withValues(alpha: 0.08) : Colors.grey.shade200),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // En-tête catégorie
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+            child: Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(8),
+                  width: 36,
+                  height: 36,
                   decoration: BoxDecoration(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.primary.withOpacity(0.15),
+                    color: accentColor.withValues(alpha: hasAcquired ? 0.14 : 0.08),
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(
-                    icon,
-                    color: Theme.of(context).colorScheme.primary,
-                    size: 24,
-                  ),
+                  child: Icon(icon, color: accentColor, size: 18),
                 ),
                 const SizedBox(width: 12),
                 Text(
                   category,
                   style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    fontFamily: KTextStyle.descriptionTextStyle.fontFamily,
-                    color: Theme.of(context).colorScheme.primary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: accentColor,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            const Divider(),
-            const SizedBox(height: 8),
-            ...levels.map((skill) {
-              if (skill.isEmpty) return const SizedBox.shrink();
-              return _buildSkillCheckbox(skill, category);
-            }),
-          ],
-        ),
+          ),
+          Divider(
+            height: 1,
+            color: hasAcquired
+                ? KColors.appNameColor.withValues(alpha: isDark ? 0.15 : 0.10)
+                : (isDark ? Colors.white.withValues(alpha: 0.06) : Colors.grey.shade200),
+            indent: 14,
+            endIndent: 14,
+          ),
+          ...levels.map((skill) {
+            if (skill.isEmpty) return const SizedBox.shrink();
+            return _buildSkillCheckbox(skill, category);
+          }),
+          const SizedBox(height: 4),
+        ],
       ),
     );
   }
@@ -899,61 +913,101 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
     final levelLabel = _getSkillLevelLabel(skill, category);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return ListTile(
+    // Couleur du niveau de compétence
+    final skillLevelColor = KSkills.skillColors[skill];
+    final skillColor = skillLevelColor != null
+        ? KSkills.getColorForSkillLevel(skillLevelColor, context)
+        : (isDark ? Colors.grey.shade400 : Colors.grey.shade500);
+
+    return InkWell(
       onTap: () => _toggleSkill(skill, category),
-      contentPadding: EdgeInsets.zero,
-      leading: Container(
-        width: 24,
-        height: 24,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: isChecked
-                ? Theme.of(context).colorScheme.primary
-                : (isDark ? Colors.white54 : Colors.black45),
-            width: 2,
-          ),
-          color: isChecked
-              ? Theme.of(context).colorScheme.primary
-              : Colors.transparent,
-        ),
-        child: isChecked
-            ? Icon(
-                Icons.check,
-                size: 16,
-                color: isDark ? Colors.black : Colors.white,
-              )
-            : null,
-      ),
-      title: Text(
-        skill,
-        style: KTypography.body(
-          fontWeight: isChecked
-              ? KTypography.fontWeightSemiBold
-              : KTypography.fontWeightRegular,
-        ),
-      ),
-      subtitle: (category == 'COD' && levelLabel.isNotEmpty)
-          ? Text(
-              levelLabel,
-              style: KTypography.caption(
-                color: Theme.of(context).colorScheme.tertiary,
-              ).copyWith(fontStyle: FontStyle.italic),
-            )
-          : null,
-      trailing: isChecked
-          ? IconButton(
-              icon: Icon(
-                isKeySkill ? Icons.star : Icons.star_border,
-                color: isKeySkill ? Colors.amber : Colors.grey,
-                size: 24,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(
+          children: [
+            // Barre colorée verticale (visible si acquis)
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              width: 3,
+              height: 32,
+              margin: const EdgeInsets.only(right: 12),
+              decoration: BoxDecoration(
+                color: isChecked
+                    ? skillColor.withValues(alpha: 0.8)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(2),
               ),
-              onPressed: () => _toggleKeySkill(skill),
-              tooltip: isKeySkill
-                  ? 'Retirer des compétences-clés'
-                  : 'Marquer comme compétence-clé',
-            )
-          : null,
+            ),
+            // Checkbox rond
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              width: 22,
+              height: 22,
+              margin: const EdgeInsets.only(right: 12),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: isChecked ? skillColor : Colors.transparent,
+                border: Border.all(
+                  color: isChecked
+                      ? skillColor
+                      : (isDark ? Colors.grey.shade600 : Colors.grey.shade400),
+                  width: 2,
+                ),
+              ),
+              child: isChecked
+                  ? Icon(Icons.check_rounded,
+                      size: 13,
+                      color: isDark ? Colors.black87 : Colors.white)
+                  : null,
+            ),
+            // Texte
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    skill,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: isChecked
+                          ? FontWeight.w600
+                          : FontWeight.w400,
+                      color: isChecked
+                          ? (isDark ? Colors.grey.shade200 : Colors.grey.shade800)
+                          : (isDark ? Colors.grey.shade500 : Colors.grey.shade500),
+                    ),
+                  ),
+                  if (levelLabel.isNotEmpty)
+                    Text(
+                      levelLabel,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontStyle: FontStyle.italic,
+                        color: isChecked
+                            ? skillColor
+                            : (isDark ? Colors.grey.shade600 : Colors.grey.shade400),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            // Étoile (compétence-clé) — visible uniquement si acquise
+            if (isChecked)
+              GestureDetector(
+                onTap: () => _toggleKeySkill(skill),
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 8),
+                  child: Icon(
+                    isKeySkill ? Icons.star_rounded : Icons.star_outline_rounded,
+                    color: isKeySkill ? Colors.amber.shade600 : (isDark ? Colors.grey.shade600 : Colors.grey.shade400),
+                    size: 20,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 

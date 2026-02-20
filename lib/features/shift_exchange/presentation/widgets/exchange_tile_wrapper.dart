@@ -6,6 +6,7 @@ import 'package:nexshift_app/core/data/models/planning_model.dart';
 import 'package:nexshift_app/core/repositories/planning_repository.dart';
 import 'package:nexshift_app/core/repositories/user_repository.dart';
 import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
+import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 import 'package:nexshift_app/core/utils/station_name_cache.dart';
 
 /// Widget wrapper pour afficher une demande d'échange
@@ -129,19 +130,37 @@ class _ExchangeTileWrapperState extends State<ExchangeTileWrapper> {
         widget.request.initiatorId,
         stationId: widget.request.station,
       );
-      _initiatorName = initiator?.displayName;
+      // Si trouvé → displayName (gère le fallback 'Agent $id' si pas de prénom/nom)
+      // Si non trouvé → nom stocké en base s'il est non vide, sinon 'Agent $id'
+      if (initiator != null) {
+        _initiatorName = initiator.displayName;
+      } else {
+        _initiatorName = widget.request.initiatorName.trim().isNotEmpty
+            ? widget.request.initiatorName
+            : 'Agent ${widget.request.initiatorId}';
+      }
 
       if (widget.selectedProposal != null) {
         final proposer = await _userRepository.getById(
           widget.selectedProposal!.proposerId,
           stationId: widget.request.station,
         );
-        _proposerName = proposer?.displayName;
+        if (proposer != null) {
+          _proposerName = proposer.displayName;
+        } else {
+          _proposerName = widget.selectedProposal!.proposerName.trim().isNotEmpty
+              ? widget.selectedProposal!.proposerName
+              : 'Agent ${widget.selectedProposal!.proposerId}';
+        }
       }
 
       // Résoudre le nom de la station
-      final sdisId = SDISContext().currentSDISId;
-      if (sdisId != null && widget.request.station.isNotEmpty) {
+      // Priorité : SDISContext → UserStorageHelper (fallback si contexte pas encore initialisé)
+      String? sdisId = SDISContext().currentSDISId;
+      if ((sdisId == null || sdisId.isEmpty) && widget.request.station.isNotEmpty) {
+        sdisId = await UserStorageHelper.loadSdisId();
+      }
+      if (sdisId != null && sdisId.isNotEmpty && widget.request.station.isNotEmpty) {
         _stationName = await StationNameCache().getStationName(sdisId, widget.request.station);
       } else {
         _stationName = widget.request.station;
