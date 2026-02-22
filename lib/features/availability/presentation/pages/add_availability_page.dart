@@ -220,7 +220,7 @@ class _AddAvailabilityPageState extends State<AddAvailabilityPage> {
         planningId: detectedPlanning?.id,
       );
 
-      await repo.addAvailability(availability);
+      await repo.addAvailability(availability, stationId: user.station);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

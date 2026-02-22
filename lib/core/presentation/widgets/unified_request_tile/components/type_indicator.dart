@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:nexshift_app/core/utils/constants.dart';
 import '../unified_tile_enums.dart';
 
 /// Indicateur central du type de demande
@@ -108,22 +109,13 @@ class TypeIndicator extends StatelessWidget {
         return Icons.person_pin;
       case UnifiedRequestType.exchange:
         return Icons.swap_horiz;
+      case UnifiedRequestType.agentQuery:
+        return Icons.manage_search_rounded;
     }
   }
 
-  /// Retourne la couleur correspondant au type de demande
-  Color _getTypeColor() {
-    switch (requestType) {
-      case UnifiedRequestType.automaticReplacement:
-        return Colors.blue.shade600;
-      case UnifiedRequestType.sosReplacement:
-        return Colors.red.shade600;
-      case UnifiedRequestType.manualReplacement:
-        return Colors.purple.shade600;
-      case UnifiedRequestType.exchange:
-        return Colors.green.shade600;
-    }
-  }
+  /// Retourne la couleur correspondant au type de demande (uniforme pour tous les types actifs)
+  Color _getTypeColor() => KColors.appNameColor;
 }
 
 /// Version simplifiée pour afficher juste l'icône du type sans état
@@ -159,19 +151,10 @@ class SimpleTypeIcon extends StatelessWidget {
         return Icons.person_pin;
       case UnifiedRequestType.exchange:
         return Icons.swap_horiz;
+      case UnifiedRequestType.agentQuery:
+        return Icons.manage_search_rounded;
     }
   }
 
-  Color _getColor() {
-    switch (requestType) {
-      case UnifiedRequestType.automaticReplacement:
-        return Colors.blue.shade600;
-      case UnifiedRequestType.sosReplacement:
-        return Colors.red.shade600;
-      case UnifiedRequestType.manualReplacement:
-        return Colors.purple.shade600;
-      case UnifiedRequestType.exchange:
-        return Colors.green.shade600;
-    }
-  }
+  Color _getColor() => KColors.appNameColor;
 }

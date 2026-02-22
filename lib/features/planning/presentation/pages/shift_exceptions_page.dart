@@ -8,6 +8,7 @@ import 'package:nexshift_app/core/repositories/shift_exception_repository.dart';
 import 'package:nexshift_app/core/repositories/team_repository.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:nexshift_app/core/config/environment_config.dart';
 
 class ShiftExceptionsPage extends StatefulWidget {
   const ShiftExceptionsPage({super.key});
@@ -523,7 +524,7 @@ class _ExceptionDialogState extends State<_ExceptionDialog> {
       if (user == null || !mounted) return;
 
       final stationDoc = await FirebaseFirestore.instance
-          .collection('stations')
+          .collection(EnvironmentConfig.stationsCollectionPath)
           .doc(user.station)
           .get();
 

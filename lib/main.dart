@@ -352,8 +352,6 @@ class _NexShiftState extends State<NexShift> {
                   builder: (context, subscriptionStatus, _) {
                 // Déterminer la page d'accueil en fonction de l'état
                 Widget homePage;
-
-                // Mode maintenance : bloquer sauf utilisateurs autorisés
                 final isAllowed = _maintenanceService.isUserAllowed(user?.id);
                 if (isMaintenance && !isAllowed) {
                   homePage = MaintenancePage(message: maintenanceMessage);
@@ -362,7 +360,6 @@ class _NexShiftState extends State<NexShift> {
                 } else if (isUserAuthentified == true &&
                     user != null &&
                     subscriptionStatus == SubscriptionStatus.expired) {
-                  // Abonnement expiré : bloquer l'accès
                   homePage = const SubscriptionExpiredPage();
                 } else if (isUserAuthentified == true && user != null) {
                   if (user.firstName.isEmpty || user.lastName.isEmpty) {

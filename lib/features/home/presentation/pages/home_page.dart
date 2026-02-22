@@ -30,6 +30,7 @@ import 'package:nexshift_app/core/repositories/planning_repository.dart';
 import 'package:nexshift_app/core/repositories/station_repository.dart';
 import 'package:nexshift_app/core/services/on_call_disposition_service.dart';
 import 'package:nexshift_app/features/app_shell/presentation/widgets/absence_menu_overlay.dart';
+import 'package:nexshift_app/core/presentation/widgets/contextual_menu_button.dart';
 import 'package:nexshift_app/core/services/replacement_notification_service.dart';
 import 'package:nexshift_app/core/data/models/shift_exchange_request_model.dart';
 import 'package:nexshift_app/core/repositories/shift_exchange_repository.dart';
@@ -39,6 +40,9 @@ import 'package:nexshift_app/features/replacement/presentation/widgets/filtered_
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:nexshift_app/core/presentation/widgets/request_actions_bottom_sheet.dart';
 import 'package:nexshift_app/core/presentation/widgets/unified_request_tile/unified_tile_enums.dart';
+import 'package:nexshift_app/core/data/models/agent_query_model.dart';
+import 'package:nexshift_app/core/repositories/agent_query_repository.dart';
+import 'package:nexshift_app/core/services/agent_query_service.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -50,6 +54,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   bool _isLoading = true;
   late User _user;
+  final _agentQueryService = AgentQueryService();
   String? _lastUserId; // to avoid reload loops on same user
   List<User> _allUsers = [];
   List<Planning> _allPlannings = [];
@@ -58,6 +63,7 @@ class _HomePageState extends State<HomePage> {
   List<ReplacementRequest> _pendingRequests = [];
   List<ShiftExchangeRequest> _pendingExchanges = [];
   List<ManualReplacementProposal> _pendingManualProposals = [];
+  List<AgentQuery> _pendingAgentQueries = [];
   List<OnCallLevel> _onCallLevels = [];
   Station? _station;
   final Map<String, bool> _expanded = {};
@@ -134,9 +140,7 @@ class _HomePageState extends State<HomePage> {
       // Filet de sécurité : s'assurer que le SDIS Context est initialisé
       // (récupération automatique depuis SharedPreferences, Firebase email ou claims)
       await SDISContext().ensureInitialized();
-      debugPrint(
-        '🏠 [HOME_PAGE] SDIS Context: ${SDISContext().currentSDISId}',
-      );
+      debugPrint('🏠 [HOME_PAGE] SDIS Context: ${SDISContext().currentSDISId}');
 
       final repo = LocalRepository();
       // Charger les plannings de la semaine courante (on filtrera ensuite côté client)
@@ -151,7 +155,9 @@ class _HomePageState extends State<HomePage> {
       final userRepo = UserRepository();
       final allUsers = await userRepo.getByStation(user.station);
       final shifts = await SubshiftRepository().getAll(stationId: user.station);
-      final availabilities = await repo.getAvailabilities();
+      final availabilities = await repo.getAvailabilities(
+        stationId: user.station,
+      );
 
       // Charger la couleur de l'équipe de l'utilisateur
       Color? teamColor;
@@ -211,6 +217,19 @@ class _HomePageState extends State<HomePage> {
         debugPrint('⚠️ [HOME_PAGE] Error loading pending manual proposals: $e');
       }
 
+      // Charger les recherches d'agents en attente
+      List<AgentQuery> pendingAgentQueries = [];
+      try {
+        final allQueries = await AgentQueryRepository()
+            .watchAll(stationId: user.station)
+            .first;
+        pendingAgentQueries = allQueries
+            .where((q) => q.status == AgentQueryStatus.pending)
+            .toList();
+      } catch (e) {
+        debugPrint('⚠️ [HOME_PAGE] Error loading pending agent queries: $e');
+      }
+
       // Charger la station séparément des niveaux d'astreinte
       Station? station;
       try {
@@ -236,6 +255,7 @@ class _HomePageState extends State<HomePage> {
         _pendingRequests = pendingRequests;
         _pendingExchanges = pendingExchanges;
         _pendingManualProposals = pendingManualProposals;
+        _pendingAgentQueries = pendingAgentQueries;
         _onCallLevels = onCallLevels;
         _station = station;
         _user = user;
@@ -271,7 +291,9 @@ class _HomePageState extends State<HomePage> {
       normalizedStart,
       weekEnd,
     );
-    final availabilities = await repo.getAvailabilities();
+    final availabilities = await repo.getAvailabilities(
+      stationId: _user.station,
+    );
     if (!mounted) return;
     setState(() {
       _allPlannings = plannings;
@@ -890,7 +912,10 @@ class _HomePageState extends State<HomePage> {
   }
 
   /// Supprime une entrée de planning.agents et restaure les horaires de l'agent remplacé si applicable
-  Future<void> _removeEntryFromPlanning(Planning planning, PlanningAgent entry) async {
+  Future<void> _removeEntryFromPlanning(
+    Planning planning,
+    PlanningAgent entry,
+  ) async {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -919,11 +944,13 @@ class _HomePageState extends State<HomePage> {
       final updatedAgents = List<PlanningAgent>.from(planning.agents);
 
       // Retirer l'entrée
-      updatedAgents.removeWhere((a) =>
-          a.agentId == entry.agentId &&
-          a.start.isAtSameMomentAs(entry.start) &&
-          a.end.isAtSameMomentAs(entry.end) &&
-          a.replacedAgentId == entry.replacedAgentId);
+      updatedAgents.removeWhere(
+        (a) =>
+            a.agentId == entry.agentId &&
+            a.start.isAtSameMomentAs(entry.start) &&
+            a.end.isAtSameMomentAs(entry.end) &&
+            a.replacedAgentId == entry.replacedAgentId,
+      );
 
       // Si c'était un remplaçant, restaurer les horaires de l'agent remplacé
       if (entry.replacedAgentId != null) {
@@ -937,26 +964,35 @@ class _HomePageState extends State<HomePage> {
 
         if (existingEntries.isEmpty) {
           // L'agent n'a plus aucune entrée — recréer sur la plage du remplacement supprimé
-          updatedAgents.add(PlanningAgent(
-            agentId: replacedId,
-            start: entry.start,
-            end: entry.end,
-            levelId: defaultLevelId,
-          ));
+          updatedAgents.add(
+            PlanningAgent(
+              agentId: replacedId,
+              start: entry.start,
+              end: entry.end,
+              levelId: defaultLevelId,
+            ),
+          );
         } else {
           // Fusionner : étendre l'entrée adjacente pour couvrir la plage libérée
           // Chercher une entrée qui finit exactement quand le remplacement commence
-          final before = existingEntries.where((a) => a.end.isAtSameMomentAs(entry.start)).toList();
-          final after = existingEntries.where((a) => a.start.isAtSameMomentAs(entry.end)).toList();
+          final before = existingEntries
+              .where((a) => a.end.isAtSameMomentAs(entry.start))
+              .toList();
+          final after = existingEntries
+              .where((a) => a.start.isAtSameMomentAs(entry.end))
+              .toList();
 
           if (before.isNotEmpty && after.isNotEmpty) {
             // Fusionner before + gap + after en une seule entrée
             final beforeEntry = before.first;
             final afterEntry = after.first;
-            updatedAgents.removeWhere((a) =>
-                a.agentId == replacedId &&
-                a.replacedAgentId == null &&
-                (a.start.isAtSameMomentAs(beforeEntry.start) || a.start.isAtSameMomentAs(afterEntry.start)));
+            updatedAgents.removeWhere(
+              (a) =>
+                  a.agentId == replacedId &&
+                  a.replacedAgentId == null &&
+                  (a.start.isAtSameMomentAs(beforeEntry.start) ||
+                      a.start.isAtSameMomentAs(afterEntry.start)),
+            );
             updatedAgents.add(beforeEntry.copyWith(end: afterEntry.end));
           } else if (before.isNotEmpty) {
             // Étendre before.end jusqu'à entry.end
@@ -968,22 +1004,28 @@ class _HomePageState extends State<HomePage> {
             updatedAgents[idx] = after.first.copyWith(start: entry.start);
           } else {
             // Pas d'entrée adjacente, créer une nouvelle
-            updatedAgents.add(PlanningAgent(
-              agentId: replacedId,
-              start: entry.start,
-              end: entry.end,
-              levelId: defaultLevelId,
-            ));
+            updatedAgents.add(
+              PlanningAgent(
+                agentId: replacedId,
+                start: entry.start,
+                end: entry.end,
+                levelId: defaultLevelId,
+              ),
+            );
           }
         }
 
         // Supprimer aussi le subshift en base (historique)
-        final matchingSubshift = _allSubshifts.where((s) =>
-            s.replacerId == entry.agentId &&
-            s.replacedId == replacedId &&
-            s.planningId == planning.id &&
-            s.start.isAtSameMomentAs(entry.start) &&
-            s.end.isAtSameMomentAs(entry.end)).toList();
+        final matchingSubshift = _allSubshifts
+            .where(
+              (s) =>
+                  s.replacerId == entry.agentId &&
+                  s.replacedId == replacedId &&
+                  s.planningId == planning.id &&
+                  s.start.isAtSameMomentAs(entry.start) &&
+                  s.end.isAtSameMomentAs(entry.end),
+            )
+            .toList();
         for (final sub in matchingSubshift) {
           await SubshiftRepository().delete(sub.id, stationId: _user.station);
           _allSubshifts.removeWhere((s) => s.id == sub.id);
@@ -991,7 +1033,10 @@ class _HomePageState extends State<HomePage> {
       }
 
       final updatedPlanning = planning.copyWith(agents: updatedAgents);
-      await PlanningRepository().save(updatedPlanning, stationId: _user.station);
+      await PlanningRepository().save(
+        updatedPlanning,
+        stationId: _user.station,
+      );
 
       if (!mounted) return;
       setState(() {
@@ -1002,9 +1047,9 @@ class _HomePageState extends State<HomePage> {
       });
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erreur: $e')));
       }
     }
   }
@@ -1014,11 +1059,13 @@ class _HomePageState extends State<HomePage> {
     try {
       final newChecked = !entry.checkedByChief;
       final updatedAgents = List<PlanningAgent>.from(planning.agents);
-      final idx = updatedAgents.indexWhere((a) =>
-          a.agentId == entry.agentId &&
-          a.start.isAtSameMomentAs(entry.start) &&
-          a.end.isAtSameMomentAs(entry.end) &&
-          a.replacedAgentId == entry.replacedAgentId);
+      final idx = updatedAgents.indexWhere(
+        (a) =>
+            a.agentId == entry.agentId &&
+            a.start.isAtSameMomentAs(entry.start) &&
+            a.end.isAtSameMomentAs(entry.end) &&
+            a.replacedAgentId == entry.replacedAgentId,
+      );
 
       if (idx == -1) return;
 
@@ -1029,7 +1076,10 @@ class _HomePageState extends State<HomePage> {
       );
 
       final updatedPlanning = planning.copyWith(agents: updatedAgents);
-      await PlanningRepository().save(updatedPlanning, stationId: _user.station);
+      await PlanningRepository().save(
+        updatedPlanning,
+        stationId: _user.station,
+      );
 
       if (!mounted) return;
       setState(() {
@@ -1040,9 +1090,9 @@ class _HomePageState extends State<HomePage> {
       });
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erreur: $e')));
       }
     }
   }
@@ -1050,7 +1100,10 @@ class _HomePageState extends State<HomePage> {
   // _removeAgentFromPlanning supprimé — remplacé par _removeEntryFromPlanning
 
   /// Affiche le dialogue d'édition d'une présence d'agent (horaires + niveau d'astreinte)
-  Future<void> _showEditPresenceDialog(Planning planning, PlanningAgent entry) async {
+  Future<void> _showEditPresenceDialog(
+    Planning planning,
+    PlanningAgent entry,
+  ) async {
     final agent = _allUsers.firstWhere(
       (u) => u.id == entry.agentId,
       orElse: () => noneUser,
@@ -1059,7 +1112,8 @@ class _HomePageState extends State<HomePage> {
     DateTime editStart = entry.start;
     DateTime editEnd = entry.end;
     // Normaliser le levelId : si vide ou absent des niveaux, prendre le premier niveau disponible
-    String? selectedLevelId = entry.levelId.isNotEmpty &&
+    String? selectedLevelId =
+        entry.levelId.isNotEmpty &&
             _onCallLevels.any((l) => l.id == entry.levelId)
         ? entry.levelId
         : (_onCallLevels.isNotEmpty ? _onCallLevels.first.id : null);
@@ -1079,7 +1133,8 @@ class _HomePageState extends State<HomePage> {
                 err = 'Le début ne peut pas précéder le début de l\'astreinte.';
               } else if (editEnd.isAfter(planning.endTime)) {
                 err = 'La fin ne peut pas dépasser la fin de l\'astreinte.';
-              } else if (editEnd.isBefore(editStart) || editEnd.isAtSameMomentAs(editStart)) {
+              } else if (editEnd.isBefore(editStart) ||
+                  editEnd.isAtSameMomentAs(editStart)) {
                 err = 'La fin doit être après le début.';
               }
               setDialogState(() => timeError = err);
@@ -1088,7 +1143,10 @@ class _HomePageState extends State<HomePage> {
             return AlertDialog(
               title: Text(
                 'Modifier la présence de ${agent.displayName}',
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -1100,7 +1158,9 @@ class _HomePageState extends State<HomePage> {
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
-                      color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                      color: isDark
+                          ? Colors.grey.shade400
+                          : Colors.grey.shade600,
                     ),
                   ),
                   const SizedBox(height: 4),
@@ -1114,15 +1174,21 @@ class _HomePageState extends State<HomePage> {
                         // Utiliser la date du planning.startTime comme base
                         final base = planning.startTime;
                         var newStart = DateTime(
-                          base.year, base.month, base.day,
-                          time.hour, time.minute,
+                          base.year,
+                          base.month,
+                          base.day,
+                          time.hour,
+                          time.minute,
                         );
                         // Si l'heure choisie est avant le début du planning jour,
                         // on prend le jour de fin (astreinte de nuit)
                         if (newStart.isBefore(planning.startTime)) {
                           newStart = DateTime(
-                            planning.endTime.year, planning.endTime.month, planning.endTime.day,
-                            time.hour, time.minute,
+                            planning.endTime.year,
+                            planning.endTime.month,
+                            planning.endTime.day,
+                            time.hour,
+                            time.minute,
                           );
                         }
                         setDialogState(() {
@@ -1133,7 +1199,10 @@ class _HomePageState extends State<HomePage> {
                     },
                     borderRadius: BorderRadius.circular(8),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
                       decoration: BoxDecoration(
                         color: isDark
                             ? Colors.white.withValues(alpha: 0.06)
@@ -1146,7 +1215,10 @@ class _HomePageState extends State<HomePage> {
                           const SizedBox(width: 8),
                           Text(
                             '${editStart.day.toString().padLeft(2, '0')}/${editStart.month.toString().padLeft(2, '0')} ${editStart.hour.toString().padLeft(2, '0')}:${editStart.minute.toString().padLeft(2, '0')}',
-                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
                         ],
                       ),
@@ -1159,7 +1231,9 @@ class _HomePageState extends State<HomePage> {
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
-                      color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                      color: isDark
+                          ? Colors.grey.shade400
+                          : Colors.grey.shade600,
                     ),
                   ),
                   const SizedBox(height: 4),
@@ -1173,15 +1247,21 @@ class _HomePageState extends State<HomePage> {
                         // Utiliser la date du planning.endTime comme base
                         final base = planning.endTime;
                         var newEnd = DateTime(
-                          base.year, base.month, base.day,
-                          time.hour, time.minute,
+                          base.year,
+                          base.month,
+                          base.day,
+                          time.hour,
+                          time.minute,
                         );
                         // Si l'heure choisie est après minuit mais le planning finit le lendemain,
                         // prendre le bon jour
                         if (newEnd.isBefore(planning.startTime)) {
                           newEnd = DateTime(
-                            planning.endTime.year, planning.endTime.month, planning.endTime.day,
-                            time.hour, time.minute,
+                            planning.endTime.year,
+                            planning.endTime.month,
+                            planning.endTime.day,
+                            time.hour,
+                            time.minute,
                           );
                         }
                         setDialogState(() {
@@ -1192,7 +1272,10 @@ class _HomePageState extends State<HomePage> {
                     },
                     borderRadius: BorderRadius.circular(8),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
                       decoration: BoxDecoration(
                         color: isDark
                             ? Colors.white.withValues(alpha: 0.06)
@@ -1205,7 +1288,10 @@ class _HomePageState extends State<HomePage> {
                           const SizedBox(width: 8),
                           Text(
                             '${editEnd.day.toString().padLeft(2, '0')}/${editEnd.month.toString().padLeft(2, '0')} ${editEnd.hour.toString().padLeft(2, '0')}:${editEnd.minute.toString().padLeft(2, '0')}',
-                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
                         ],
                       ),
@@ -1216,7 +1302,10 @@ class _HomePageState extends State<HomePage> {
                     const SizedBox(height: 8),
                     Text(
                       timeError!,
-                      style: TextStyle(fontSize: 12, color: Colors.red.shade400),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.red.shade400,
+                      ),
                     ),
                   ],
                   const SizedBox(height: 16),
@@ -1226,14 +1315,19 @@ class _HomePageState extends State<HomePage> {
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
-                      color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                      color: isDark
+                          ? Colors.grey.shade400
+                          : Colors.grey.shade600,
                     ),
                   ),
                   const SizedBox(height: 4),
                   DropdownButtonFormField<String>(
                     value: selectedLevelId,
                     decoration: InputDecoration(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),
@@ -1252,7 +1346,10 @@ class _HomePageState extends State<HomePage> {
                               ),
                             ),
                             const SizedBox(width: 8),
-                            Text(level.name, style: const TextStyle(fontSize: 14)),
+                            Text(
+                              level.name,
+                              style: const TextStyle(fontSize: 14),
+                            ),
                           ],
                         ),
                       );
@@ -1274,10 +1371,10 @@ class _HomePageState extends State<HomePage> {
                   onPressed: timeError != null
                       ? null
                       : () => Navigator.pop(ctx, {
-                            'start': editStart,
-                            'end': editEnd,
-                            'levelId': selectedLevelId,
-                          }),
+                          'start': editStart,
+                          'end': editEnd,
+                          'levelId': selectedLevelId,
+                        }),
                   child: const Text('Enregistrer'),
                 ),
               ],
@@ -1296,11 +1393,13 @@ class _HomePageState extends State<HomePage> {
 
       // Mettre à jour directement dans planning.agents
       final updatedAgents = List<PlanningAgent>.from(planning.agents);
-      final idx = updatedAgents.indexWhere((a) =>
-          a.agentId == entry.agentId &&
-          a.start.isAtSameMomentAs(entry.start) &&
-          a.end.isAtSameMomentAs(entry.end) &&
-          a.replacedAgentId == entry.replacedAgentId);
+      final idx = updatedAgents.indexWhere(
+        (a) =>
+            a.agentId == entry.agentId &&
+            a.start.isAtSameMomentAs(entry.start) &&
+            a.end.isAtSameMomentAs(entry.end) &&
+            a.replacedAgentId == entry.replacedAgentId,
+      );
 
       if (idx != -1) {
         updatedAgents[idx] = updatedAgents[idx].copyWith(
@@ -1311,7 +1410,10 @@ class _HomePageState extends State<HomePage> {
       }
 
       final updatedPlanning = planning.copyWith(agents: updatedAgents);
-      await PlanningRepository().save(updatedPlanning, stationId: _user.station);
+      await PlanningRepository().save(
+        updatedPlanning,
+        stationId: _user.station,
+      );
 
       if (!mounted) return;
       setState(() {
@@ -1322,9 +1424,9 @@ class _HomePageState extends State<HomePage> {
       });
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erreur: $e')));
       }
     }
   }
@@ -1362,7 +1464,9 @@ class _HomePageState extends State<HomePage> {
     }
     // Trier les équipes par nom
     final sortedTeamIds = groupedByTeam.keys.toList()
-      ..sort((a, b) => (teamMap[a]?.name ?? a).compareTo(teamMap[b]?.name ?? b));
+      ..sort(
+        (a, b) => (teamMap[a]?.name ?? a).compareTo(teamMap[b]?.name ?? b),
+      );
 
     // Construire la liste plate avec headers
     final List<dynamic> listItems = []; // String (header teamId) ou User
@@ -1545,7 +1649,10 @@ class _HomePageState extends State<HomePage> {
             return AlertDialog(
               title: Text(
                 'Ajouter ${selectedAgent.displayName}',
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -1554,8 +1661,11 @@ class _HomePageState extends State<HomePage> {
                   Text(
                     'Début',
                     style: TextStyle(
-                      fontSize: 12, fontWeight: FontWeight.w500,
-                      color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: isDark
+                          ? Colors.grey.shade400
+                          : Colors.grey.shade600,
                     ),
                   ),
                   const SizedBox(height: 4),
@@ -1567,9 +1677,21 @@ class _HomePageState extends State<HomePage> {
                       );
                       if (time != null) {
                         final base = planning.startTime;
-                        var newStart = DateTime(base.year, base.month, base.day, time.hour, time.minute);
+                        var newStart = DateTime(
+                          base.year,
+                          base.month,
+                          base.day,
+                          time.hour,
+                          time.minute,
+                        );
                         if (newStart.isBefore(planning.startTime)) {
-                          newStart = DateTime(planning.endTime.year, planning.endTime.month, planning.endTime.day, time.hour, time.minute);
+                          newStart = DateTime(
+                            planning.endTime.year,
+                            planning.endTime.month,
+                            planning.endTime.day,
+                            time.hour,
+                            time.minute,
+                          );
                         }
                         setDialogState(() {
                           addStart = newStart;
@@ -1579,9 +1701,14 @@ class _HomePageState extends State<HomePage> {
                     },
                     borderRadius: BorderRadius.circular(8),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
                       decoration: BoxDecoration(
-                        color: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.grey.shade100,
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 0.06)
+                            : Colors.grey.shade100,
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Row(
@@ -1590,7 +1717,10 @@ class _HomePageState extends State<HomePage> {
                           const SizedBox(width: 8),
                           Text(
                             '${addStart.day.toString().padLeft(2, '0')}/${addStart.month.toString().padLeft(2, '0')} ${addStart.hour.toString().padLeft(2, '0')}:${addStart.minute.toString().padLeft(2, '0')}',
-                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
                         ],
                       ),
@@ -1600,8 +1730,11 @@ class _HomePageState extends State<HomePage> {
                   Text(
                     'Fin',
                     style: TextStyle(
-                      fontSize: 12, fontWeight: FontWeight.w500,
-                      color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: isDark
+                          ? Colors.grey.shade400
+                          : Colors.grey.shade600,
                     ),
                   ),
                   const SizedBox(height: 4),
@@ -1613,9 +1746,21 @@ class _HomePageState extends State<HomePage> {
                       );
                       if (time != null) {
                         final base = planning.endTime;
-                        var newEnd = DateTime(base.year, base.month, base.day, time.hour, time.minute);
+                        var newEnd = DateTime(
+                          base.year,
+                          base.month,
+                          base.day,
+                          time.hour,
+                          time.minute,
+                        );
                         if (newEnd.isBefore(planning.startTime)) {
-                          newEnd = DateTime(planning.endTime.year, planning.endTime.month, planning.endTime.day, time.hour, time.minute);
+                          newEnd = DateTime(
+                            planning.endTime.year,
+                            planning.endTime.month,
+                            planning.endTime.day,
+                            time.hour,
+                            time.minute,
+                          );
                         }
                         setDialogState(() {
                           addEnd = newEnd;
@@ -1625,9 +1770,14 @@ class _HomePageState extends State<HomePage> {
                     },
                     borderRadius: BorderRadius.circular(8),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
                       decoration: BoxDecoration(
-                        color: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.grey.shade100,
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 0.06)
+                            : Colors.grey.shade100,
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Row(
@@ -1636,7 +1786,10 @@ class _HomePageState extends State<HomePage> {
                           const SizedBox(width: 8),
                           Text(
                             '${addEnd.day.toString().padLeft(2, '0')}/${addEnd.month.toString().padLeft(2, '0')} ${addEnd.hour.toString().padLeft(2, '0')}:${addEnd.minute.toString().padLeft(2, '0')}',
-                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
                         ],
                       ),
@@ -1646,7 +1799,10 @@ class _HomePageState extends State<HomePage> {
                     const SizedBox(height: 8),
                     Text(
                       addTimeError!,
-                      style: TextStyle(fontSize: 12, color: Colors.red.shade400),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.red.shade400,
+                      ),
                     ),
                   ],
                 ],
@@ -1659,7 +1815,10 @@ class _HomePageState extends State<HomePage> {
                 FilledButton(
                   onPressed: addTimeError != null
                       ? null
-                      : () => Navigator.pop(ctx, {'start': addStart, 'end': addEnd}),
+                      : () => Navigator.pop(ctx, {
+                          'start': addStart,
+                          'end': addEnd,
+                        }),
                   child: const Text('Ajouter'),
                 ),
               ],
@@ -1679,9 +1838,13 @@ class _HomePageState extends State<HomePage> {
         end: timeResult['end'] as DateTime,
         levelId: defaultLevelId,
       );
-      final updatedAgents = List<PlanningAgent>.from(planning.agents)..add(newAgent);
+      final updatedAgents = List<PlanningAgent>.from(planning.agents)
+        ..add(newAgent);
       final updatedPlanning = planning.copyWith(agents: updatedAgents);
-      await PlanningRepository().save(updatedPlanning, stationId: _user.station);
+      await PlanningRepository().save(
+        updatedPlanning,
+        stationId: _user.station,
+      );
 
       if (!mounted) return;
       setState(() {
@@ -1692,9 +1855,9 @@ class _HomePageState extends State<HomePage> {
       });
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erreur: $e')));
       }
     }
   }
@@ -1722,7 +1885,14 @@ class _HomePageState extends State<HomePage> {
         .where((p) => p.planningId == planning.id && p.status == 'pending')
         .length;
 
-    return planningRequests + planningExchanges + planningManualProposals;
+    final planningAgentQueries = _pendingAgentQueries
+        .where((q) => q.planningId == planning.id)
+        .length;
+
+    return planningRequests +
+        planningExchanges +
+        planningManualProposals +
+        planningAgentQueries;
   }
 
   /// Filtre et retourne les demandes en cours liées à un planning
@@ -1751,10 +1921,16 @@ class _HomePageState extends State<HomePage> {
         .where((p) => p.planningId == planning.id && p.status == 'pending')
         .toList();
 
+    // Filtrer les recherches d'agents pour ce planning
+    final planningAgentQueries = _pendingAgentQueries
+        .where((q) => q.planningId == planning.id)
+        .toList();
+
     // Si aucune demande, ne rien afficher
     if (planningRequests.isEmpty &&
         planningExchanges.isEmpty &&
-        planningManualProposals.isEmpty) {
+        planningManualProposals.isEmpty &&
+        planningAgentQueries.isEmpty) {
       return [];
     }
 
@@ -1919,6 +2095,40 @@ class _HomePageState extends State<HomePage> {
       }
     }
 
+    // Afficher les recherches d'agents (AgentQuery) — couleur teal
+    for (final query in planningAgentQueries) {
+      final canDelete = _canDeleteRequest(query.createdById, planning.team);
+
+      final item = _buildRequestItem(
+        icon: Icons.manage_search_rounded,
+        iconColor: Colors.teal,
+        requesterName: query.onCallLevelName,
+        targetName: null,
+        startTime: query.startTime,
+        endTime: query.endTime,
+        onLongPress: canDelete
+            ? () => _showAgentQueryActionsBottomSheet(query, planning.team)
+            : null,
+      );
+
+      widgets.add(
+        Dismissible(
+          key: ValueKey('query_${query.id}'),
+          direction: DismissDirection.endToStart,
+          background: Container(
+            alignment: Alignment.centerRight,
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            color: Colors.redAccent,
+            child: const Icon(Icons.delete, color: Colors.white),
+          ),
+          confirmDismiss: canDelete
+              ? (_) => _cancelAgentQueryFromPlanning(query)
+              : (_) async => false,
+          child: item,
+        ),
+      );
+    }
+
     return widgets;
   }
 
@@ -2023,6 +2233,73 @@ class _HomePageState extends State<HomePage> {
         backgroundColor: Colors.orange,
       ),
     );
+  }
+
+  /// Affiche le BottomSheet d'actions pour une recherche d'agent (AgentQuery)
+  void _showAgentQueryActionsBottomSheet(AgentQuery query, String team) {
+    final nonRespondedCount = query.notifiedUserIds
+        .where((id) => !query.declinedByUserIds.contains(id))
+        .length;
+
+    RequestActionsBottomSheet.show(
+      context: context,
+      requestType: UnifiedRequestType.agentQuery,
+      initiatorName: query.onCallLevelName,
+      team: team,
+      station: _station?.name ?? query.station,
+      startTime: query.startTime,
+      endTime: query.endTime,
+      usersToNotifyCount: nonRespondedCount,
+      onResendNotifications: nonRespondedCount > 0
+          ? () => _resendAgentQueryNotifications(query)
+          : null,
+      onDelete: () => _cancelAgentQueryFromPlanning(query),
+    );
+  }
+
+  /// Annule une recherche d'agent depuis la PlanningCard
+  Future<bool?> _cancelAgentQueryFromPlanning(AgentQuery query) async {
+    try {
+      await _agentQueryService.cancelQuery(query: query);
+      if (mounted) {
+        setState(() {
+          _pendingAgentQueries.removeWhere((q) => q.id == query.id);
+        });
+      }
+      return true;
+    } catch (e) {
+      debugPrint('Error cancelling agent query: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur : $e'), backgroundColor: Colors.red),
+        );
+      }
+      return false;
+    }
+  }
+
+  /// Relance les notifications pour une recherche d'agent
+  Future<void> _resendAgentQueryNotifications(AgentQuery query) async {
+    final targetIds = query.notifiedUserIds
+        .where((id) => !query.declinedByUserIds.contains(id) && id != query.matchedAgentId)
+        .toList();
+    if (targetIds.isEmpty) return;
+    try {
+      await _agentQueryService.resendNotifications(
+        query: query,
+        targetUserIds: targetIds,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Notifications renvoyées à ${targetIds.length} agent${targetIds.length > 1 ? 's' : ''}.'),
+            backgroundColor: Colors.orange.shade700,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error resending agent query notifications: $e');
+    }
   }
 
   /// Relance les notifications pour une proposition de remplacement manuel
@@ -2417,11 +2694,13 @@ class _HomePageState extends State<HomePage> {
                                       // Calculer le compteur d'agents depuis planning.agents
                                       int? agentCountMin;
                                       int? agentCountMax;
-                                      List<AgentCountIssue> agentCountIssues = [];
+                                      List<AgentCountIssue> agentCountIssues =
+                                          [];
                                       if (_onCallLevels.isNotEmpty) {
-                                        final countResult = OnCallDispositionService.computeAgentCount(
-                                          planning: planning,
-                                        );
+                                        final countResult =
+                                            OnCallDispositionService.computeAgentCount(
+                                              planning: planning,
+                                            );
                                         agentCountMin = countResult.min;
                                         agentCountMax = countResult.max;
                                         agentCountIssues = countResult.issues;
@@ -2430,11 +2709,17 @@ class _HomePageState extends State<HomePage> {
                                       // Le badge est vert si TOUS les agents sont checkés
                                       bool allChecked = false;
                                       if (_onCallLevels.isNotEmpty) {
-                                        allChecked = planning.agents.isNotEmpty &&
-                                            planning.agents.every((a) => a.checkedByChief);
+                                        allChecked =
+                                            planning.agents.isNotEmpty &&
+                                            planning.agents.every(
+                                              (a) => a.checkedByChief,
+                                            );
                                       } else {
-                                        allChecked = subList.isNotEmpty &&
-                                            subList.every((s) => s.checkedByChief);
+                                        allChecked =
+                                            subList.isNotEmpty &&
+                                            subList.every(
+                                              (s) => s.checkedByChief,
+                                            );
                                       }
 
                                       return PlanningCard(
@@ -2463,7 +2748,9 @@ class _HomePageState extends State<HomePage> {
                                         width: double.infinity,
                                         decoration: BoxDecoration(
                                           color: isDark
-                                              ? Colors.white.withValues(alpha: 0.04)
+                                              ? Colors.white.withValues(
+                                                  alpha: 0.04,
+                                                )
                                               : Colors.grey.shade50,
                                           borderRadius: const BorderRadius.only(
                                             bottomLeft: Radius.circular(16),
@@ -2471,7 +2758,9 @@ class _HomePageState extends State<HomePage> {
                                           ),
                                           border: Border.all(
                                             color: isDark
-                                                ? Colors.white.withValues(alpha: 0.06)
+                                                ? Colors.white.withValues(
+                                                    alpha: 0.06,
+                                                  )
                                                 : Colors.grey.shade200,
                                           ),
                                         ),
@@ -2493,54 +2782,78 @@ class _HomePageState extends State<HomePage> {
                                               )
                                             else if (!isAvailability &&
                                                 stationView &&
-                                                (!isOnGuard || isReplacedFully) &&
+                                                (!isOnGuard ||
+                                                    isReplacedFully) &&
                                                 (_user.admin ||
-                                                    _user.status == KConstants.statusLeader ||
-                                                    (_user.status == KConstants.statusChief &&
-                                                        _user.team.toLowerCase() == planning.team.toLowerCase())))
+                                                    _user.status ==
+                                                        KConstants
+                                                            .statusLeader ||
+                                                    (_user.status ==
+                                                            KConstants
+                                                                .statusChief &&
+                                                        _user.team
+                                                                .toLowerCase() ==
+                                                            planning.team
+                                                                .toLowerCase())))
                                               _AdminReplaceButton(
                                                 planning: planning,
                                                 user: _user,
                                               ),
                                             const SizedBox(height: 12),
                                             // Section présence par niveau d'astreinte
-                                            if (!isAvailability && _station != null && _onCallLevels.isNotEmpty)
+                                            if (!isAvailability &&
+                                                _station != null &&
+                                                _onCallLevels.isNotEmpty)
                                               OnCallPresenceSection(
                                                 planning: planning,
                                                 levels: _onCallLevels,
                                                 station: _station!,
                                                 allUsers: _allUsers,
                                                 currentUser: _user,
-                                                canManage: _user.admin ||
-                                                    _user.status == KConstants.statusLeader ||
-                                                    (_user.status == KConstants.statusChief &&
-                                                        _user.team.toLowerCase() == planning.team.toLowerCase()),
+                                                canManage:
+                                                    _user.admin ||
+                                                    _user.status ==
+                                                        KConstants
+                                                            .statusLeader ||
+                                                    (_user.status ==
+                                                            KConstants
+                                                                .statusChief &&
+                                                        _user.team
+                                                                .toLowerCase() ==
+                                                            planning.team
+                                                                .toLowerCase()),
                                                 onToggleCheck: (entry) async {
-                                                  await _toggleAgentCheck(planning, entry);
+                                                  await _toggleAgentCheck(
+                                                    planning,
+                                                    entry,
+                                                  );
                                                 },
                                                 onRemoveEntry: (entry) async {
-                                                  await _removeEntryFromPlanning(planning, entry);
+                                                  await _removeEntryFromPlanning(
+                                                    planning,
+                                                    entry,
+                                                  );
                                                 },
                                                 onEditEntry: (entry) async {
-                                                  await _showEditPresenceDialog(planning, entry);
+                                                  await _showEditPresenceDialog(
+                                                    planning,
+                                                    entry,
+                                                  );
                                                 },
-                                                onAddAgent: () {
-                                                  _showAddAgentDialog(planning);
-                                                },
+                                                onAddAgent: () =>
+                                                    _showAddAgentDialog(
+                                                      planning,
+                                                    ),
                                               )
                                             // Fallback si pas de niveaux configurés : afficher les remplacements classiques
-                                            else if (!isAvailability && _onCallLevels.isEmpty)
-                                              ...subList.mapIndexed((
-                                                index,
-                                                s,
-                                              ) {
+                                            else if (!isAvailability &&
+                                                _onCallLevels.isEmpty)
+                                              ...subList.mapIndexed((index, s) {
                                                 final isFirst = index == 0;
                                                 final isLast =
-                                                    index ==
-                                                    subList.length - 1;
+                                                    index == subList.length - 1;
                                                 final canDelete =
-                                                    _user.id ==
-                                                        s.replacedId ||
+                                                    _user.id == s.replacedId ||
                                                     _user.admin ||
                                                     _user.status ==
                                                         KConstants
@@ -2581,14 +2894,36 @@ class _HomePageState extends State<HomePage> {
                                                     onCheckTap: canSeeCheck
                                                         ? () async {
                                                             // Fallback : toggle check sur le subshift directement
-                                                            final subRepo = SubshiftRepository();
-                                                            final newChecked = !s.checkedByChief;
-                                                            await subRepo.toggleCheck(s.id, checked: newChecked, checkedBy: _user.id, stationId: _user.station);
-                                                            if (!mounted) return;
+                                                            final subRepo =
+                                                                SubshiftRepository();
+                                                            final newChecked = !s
+                                                                .checkedByChief;
+                                                            await subRepo
+                                                                .toggleCheck(
+                                                                  s.id,
+                                                                  checked:
+                                                                      newChecked,
+                                                                  checkedBy:
+                                                                      _user.id,
+                                                                  stationId: _user
+                                                                      .station,
+                                                                );
+                                                            if (!mounted)
+                                                              return;
                                                             setState(() {
-                                                              final idx = _allSubshifts.indexWhere((x) => x.id == s.id);
+                                                              final idx =
+                                                                  _allSubshifts
+                                                                      .indexWhere(
+                                                                        (x) =>
+                                                                            x.id ==
+                                                                            s.id,
+                                                                      );
                                                               if (idx != -1) {
-                                                                _allSubshifts[idx] = s.copyWith(checkedByChief: newChecked);
+                                                                _allSubshifts[idx] =
+                                                                    s.copyWith(
+                                                                      checkedByChief:
+                                                                          newChecked,
+                                                                    );
                                                               }
                                                             });
                                                           }
@@ -2599,31 +2934,45 @@ class _HomePageState extends State<HomePage> {
                                                 if (canDelete) {
                                                   return Dismissible(
                                                     key: ValueKey(s.id),
-                                                    direction:
-                                                        DismissDirection
-                                                            .endToStart,
+                                                    direction: DismissDirection
+                                                        .endToStart,
                                                     background: Container(
-                                                      alignment: Alignment
-                                                          .centerRight,
+                                                      alignment:
+                                                          Alignment.centerRight,
                                                       padding:
                                                           const EdgeInsets.symmetric(
                                                             horizontal: 20,
                                                           ),
                                                       decoration: BoxDecoration(
-                                                        color: Colors.red.shade400,
-                                                        borderRadius: BorderRadius.circular(8),
+                                                        color:
+                                                            Colors.red.shade400,
+                                                        borderRadius:
+                                                            BorderRadius.circular(
+                                                              8,
+                                                            ),
                                                       ),
                                                       child: const Icon(
-                                                        Icons.delete_outline_rounded,
+                                                        Icons
+                                                            .delete_outline_rounded,
                                                         color: Colors.white,
                                                       ),
                                                     ),
                                                     confirmDismiss: (_) async {
                                                       // Fallback : supprimer le subshift directement
-                                                      await SubshiftRepository().delete(s.id, stationId: _user.station);
+                                                      await SubshiftRepository()
+                                                          .delete(
+                                                            s.id,
+                                                            stationId:
+                                                                _user.station,
+                                                          );
                                                       if (mounted) {
                                                         setState(() {
-                                                          _allSubshifts.removeWhere((x) => x.id == s.id);
+                                                          _allSubshifts
+                                                              .removeWhere(
+                                                                (x) =>
+                                                                    x.id ==
+                                                                    s.id,
+                                                              );
                                                         });
                                                       }
                                                       return false;
@@ -2659,7 +3008,7 @@ class _HomePageState extends State<HomePage> {
 }
 
 /// Widget pour le bouton "Je souhaite m'absenter" avec menu déroulant
-class _AbsenceMenuButton extends StatefulWidget {
+class _AbsenceMenuButton extends StatelessWidget {
   final Planning planning;
   final User user;
   final Subshift? replacerSubshift;
@@ -2671,106 +3020,15 @@ class _AbsenceMenuButton extends StatefulWidget {
   });
 
   @override
-  State<_AbsenceMenuButton> createState() => _AbsenceMenuButtonState();
-}
-
-class _AbsenceMenuButtonState extends State<_AbsenceMenuButton>
-    with SingleTickerProviderStateMixin {
-  OverlayEntry? _overlayEntry;
-  late AnimationController _animationController;
-  late Animation<double> _animation;
-  final LayerLink _layerLink = LayerLink();
-
-  @override
-  void initState() {
-    super.initState();
-    _animationController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 200),
-    );
-    _animation = CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeOut,
-    );
-  }
-
-  @override
-  void dispose() {
-    _removeOverlay();
-    _animationController.dispose();
-    super.dispose();
-  }
-
-  void _removeOverlay() {
-    _animationController.reverse().then((_) {
-      _overlayEntry?.remove();
-      _overlayEntry = null;
-    });
-  }
-
-  void _toggleMenu() {
-    if (_overlayEntry != null) {
-      _removeOverlay();
-    } else {
-      _showMenu();
-    }
-  }
-
-  void _showMenu() {
-    final overlay = Overlay.of(context);
-    final renderBox = context.findRenderObject() as RenderBox;
-    final size = renderBox.size;
-
-    _overlayEntry = OverlayEntry(
-      builder: (context) => GestureDetector(
-        onTap: _removeOverlay,
-        behavior: HitTestBehavior.translucent,
-        child: Stack(
-          children: [
-            // Semi-transparent background
-            Positioned.fill(
-              child: Container(color: Colors.black.withValues(alpha: 0.3)),
-            ),
-            // Menu options
-            Positioned(
-              width: size.width,
-              child: CompositedTransformFollower(
-                link: _layerLink,
-                showWhenUnlinked: false,
-                offset: Offset(0, size.height + 8),
-                child: FadeTransition(
-                  opacity: _animation,
-                  child: ScaleTransition(
-                    scale: _animation,
-                    alignment: Alignment.topCenter,
-                    child: Material(
-                      elevation: 8,
-                      borderRadius: BorderRadius.circular(12),
-                      child: AbsenceMenuOverlay.buildMenuContent(
-                        context: context,
-                        planning: widget.planning,
-                        user: widget.user,
-                        parentSubshift: widget.replacerSubshift,
-                        onOptionSelected: _removeOverlay,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    overlay.insert(_overlayEntry!);
-    _animationController.forward();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return CompositedTransformTarget(
-      link: _layerLink,
+    return ContextualMenuButton(
+      menuContent: (onClose) => AbsenceMenuOverlay.buildMenuContent(
+        context: context,
+        planning: planning,
+        user: user,
+        parentSubshift: replacerSubshift,
+        onOptionSelected: onClose,
+      ),
       child: Container(
         width: double.infinity,
         height: 44,
@@ -2790,28 +3048,21 @@ class _AbsenceMenuButtonState extends State<_AbsenceMenuButton>
             ),
           ],
         ),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: _toggleMenu,
-            borderRadius: BorderRadius.circular(12),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.event_busy_rounded, color: Colors.white, size: 20),
-                const SizedBox(width: 10),
-                const Text(
-                  "Je souhaite m'absenter",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: -0.2,
-                  ),
-                ),
-              ],
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.event_busy_rounded, color: Colors.white, size: 20),
+            const SizedBox(width: 10),
+            const Text(
+              "Je souhaite m'absenter",
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.2,
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );
@@ -2824,10 +3075,7 @@ class _AdminReplaceButton extends StatefulWidget {
   final Planning planning;
   final User user;
 
-  const _AdminReplaceButton({
-    required this.planning,
-    required this.user,
-  });
+  const _AdminReplaceButton({required this.planning, required this.user});
 
   @override
   State<_AdminReplaceButton> createState() => _AdminReplaceButtonState();
@@ -2935,10 +3183,7 @@ class _AdminReplaceButtonState extends State<_AdminReplaceButton>
         height: 44,
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [
-              Colors.deepPurple,
-              Colors.deepPurple.shade400,
-            ],
+            colors: [Colors.deepPurple, Colors.deepPurple.shade400],
           ),
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
@@ -2957,7 +3202,11 @@ class _AdminReplaceButtonState extends State<_AdminReplaceButton>
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.admin_panel_settings_rounded, color: Colors.white, size: 20),
+                const Icon(
+                  Icons.admin_panel_settings_rounded,
+                  color: Colors.white,
+                  size: 20,
+                ),
                 const SizedBox(width: 10),
                 const Text(
                   "Faire remplacer un agent",

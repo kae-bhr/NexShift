@@ -45,6 +45,8 @@ interface StationUser {
   chiefAlertEnabled: boolean;
   anomalyAlertEnabled: boolean;
   positionId?: string;
+  agentAvailabilityStatus?: string;
+  suspensionStartDate?: string;
 }
 
 interface MembershipRequest {
@@ -199,6 +201,12 @@ export const getStationUsers = onCall(
         chiefAlertEnabled: userData.chiefAlertEnabled ?? false,
         anomalyAlertEnabled: userData.anomalyAlertEnabled ?? false,
         positionId: userData.positionId,
+        agentAvailabilityStatus: userData.agentAvailabilityStatus || "active",
+        suspensionStartDate: userData.suspensionStartDate
+          ? (typeof userData.suspensionStartDate === "string"
+              ? userData.suspensionStartDate
+              : (userData.suspensionStartDate as {toDate: () => Date}).toDate().toISOString())
+          : undefined,
       });
     }
 
@@ -704,6 +712,12 @@ export const getUsersByStation = onCall(
           chiefAlertEnabled: userData.chiefAlertEnabled ?? false,
           anomalyAlertEnabled: userData.anomalyAlertEnabled ?? false,
           positionId: userData.positionId,
+          agentAvailabilityStatus: userData.agentAvailabilityStatus || "active",
+          suspensionStartDate: userData.suspensionStartDate
+            ? (typeof userData.suspensionStartDate === "string"
+                ? userData.suspensionStartDate
+                : (userData.suspensionStartDate as {toDate: () => Date}).toDate().toISOString())
+            : undefined,
         });
       }
 

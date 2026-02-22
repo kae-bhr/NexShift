@@ -122,6 +122,86 @@ class IconTabBar extends StatelessWidget implements PreferredSizeWidget {
   Size get preferredSize => const Size.fromHeight(kToolbarHeight);
 }
 
+/// TabBar personnalisée pour les sous-onglets de recherche d'agent (AgentQuery)
+class AgentQueryIconTabBar extends StatelessWidget implements PreferredSizeWidget {
+  final TabController controller;
+  final List<AgentQuerySubTabConfig> tabs;
+  final Color selectedColor;
+  final Color unselectedColor;
+  final Map<AgentQuerySubTab, int>? badgeCounts;
+  final Map<AgentQuerySubTab, Color>? badgeColors;
+
+  const AgentQueryIconTabBar({
+    super.key,
+    required this.controller,
+    required this.tabs,
+    required this.selectedColor,
+    required this.unselectedColor,
+    this.badgeCounts,
+    this.badgeColors,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Theme.of(context).brightness == Brightness.dark
+          ? Colors.grey.shade900
+          : Colors.grey.shade100,
+      child: TabBar(
+        controller: controller,
+        labelColor: selectedColor,
+        unselectedLabelColor: unselectedColor,
+        indicatorColor: selectedColor,
+        tabs: tabs.map((config) {
+          final badgeCount = badgeCounts?[config.type] ?? 0;
+          final badgeColor = badgeColors?[config.type];
+
+          return Tab(
+            icon: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Icon(config.icon, size: 24),
+                if (badgeCount > 0 && badgeColor != null)
+                  Positioned(
+                    right: -8,
+                    top: -4,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: badgeColor,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      constraints: const BoxConstraints(
+                        minWidth: 18,
+                        minHeight: 18,
+                      ),
+                      child: Text(
+                        badgeCount.toString(),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            child: Text(config.label),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  @override
+  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
+}
+
 /// Widget pour afficher du texte avec animation de défilement
 class _MarqueeText extends StatefulWidget {
   final String text;

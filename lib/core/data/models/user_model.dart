@@ -1,3 +1,11 @@
+/// Statuts de disponibilité opérationnelle d'un agent.
+/// Distinct du champ [User.status] qui représente le rôle (agent/chief/leader).
+class AgentAvailabilityStatus {
+  static const String active = 'active';
+  static const String suspendedFromDuty = 'suspendedFromDuty';
+  static const String sickLeave = 'sickLeave';
+}
+
 class User {
   final String id; // Matricule
   final String? authUid; // Firebase Auth UID (nouveau)
@@ -11,6 +19,10 @@ class User {
   final List<String> skills;
   final String? positionId; // ID du poste occupé par l'agent
   final List<String> keySkills; // Compétences-clés critiques
+
+  // Disponibilité opérationnelle (suspension d'engagement / arrêt maladie)
+  final String agentAvailabilityStatus; // Voir AgentAvailabilityStatus
+  final DateTime? suspensionStartDate; // Date de début de suspension/arrêt
 
   // Alertes personnalisées
   final bool personalAlertEnabled; // Alerte avant astreinte personnelle
@@ -35,6 +47,8 @@ class User {
     required this.skills,
     this.positionId,
     this.keySkills = const [], // Par défaut : liste vide
+    this.agentAvailabilityStatus = AgentAvailabilityStatus.active,
+    this.suspensionStartDate,
     this.personalAlertEnabled = false,
     this.personalAlertBeforeShiftHours = 1,
     this.chiefAlertEnabled = false,
@@ -43,7 +57,8 @@ class User {
     this.anomalyAlertDaysBefore = 14,
   });
 
-  /// Permet de dupliquer l'objet avec des champs modifiés
+  /// Permet de dupliquer l'objet avec des champs modifiés.
+  /// Utiliser [clearSuspensionStartDate] = true pour remettre [suspensionStartDate] à null.
   User copyWith({
     String? id,
     String? authUid,
@@ -57,6 +72,9 @@ class User {
     List<String>? skills,
     String? positionId,
     List<String>? keySkills,
+    String? agentAvailabilityStatus,
+    DateTime? suspensionStartDate,
+    bool clearSuspensionStartDate = false,
     bool? personalAlertEnabled,
     int? personalAlertBeforeShiftHours,
     bool? chiefAlertEnabled,
@@ -77,6 +95,11 @@ class User {
       skills: skills ?? this.skills,
       positionId: positionId ?? this.positionId,
       keySkills: keySkills ?? this.keySkills,
+      agentAvailabilityStatus:
+          agentAvailabilityStatus ?? this.agentAvailabilityStatus,
+      suspensionStartDate: clearSuspensionStartDate
+          ? null
+          : (suspensionStartDate ?? this.suspensionStartDate),
       personalAlertEnabled: personalAlertEnabled ?? this.personalAlertEnabled,
       personalAlertBeforeShiftHours:
           personalAlertBeforeShiftHours ?? this.personalAlertBeforeShiftHours,
@@ -104,6 +127,9 @@ class User {
     'skills': skills,
     if (positionId != null) 'positionId': positionId,
     'keySkills': keySkills,
+    'agentAvailabilityStatus': agentAvailabilityStatus,
+    if (suspensionStartDate != null)
+      'suspensionStartDate': suspensionStartDate!.toIso8601String(),
     'personalAlertEnabled': personalAlertEnabled,
     'personalAlertBeforeShiftHours': personalAlertBeforeShiftHours,
     'chiefAlertEnabled': chiefAlertEnabled,
@@ -114,6 +140,7 @@ class User {
 
   /// Sérialisation pour Firestore : exclut les PII (firstName, lastName, email).
   /// Le chiffrement de ces champs est géré exclusivement par les Cloud Functions.
+  /// [agentAvailabilityStatus] et [suspensionStartDate] sont des données opérationnelles (non PII).
   Map<String, dynamic> toFirestoreJson() => {
     'id': id,
     if (authUid != null) 'authUid': authUid,
@@ -124,6 +151,9 @@ class User {
     'skills': skills,
     if (positionId != null) 'positionId': positionId,
     'keySkills': keySkills,
+    'agentAvailabilityStatus': agentAvailabilityStatus,
+    if (suspensionStartDate != null)
+      'suspensionStartDate': suspensionStartDate!.toIso8601String(),
     'personalAlertEnabled': personalAlertEnabled,
     'personalAlertBeforeShiftHours': personalAlertBeforeShiftHours,
     'chiefAlertEnabled': chiefAlertEnabled,
@@ -147,6 +177,11 @@ class User {
     keySkills: json['keySkills'] != null
         ? List<String>.from(json['keySkills'])
         : [],
+    agentAvailabilityStatus:
+        json['agentAvailabilityStatus'] as String? ?? AgentAvailabilityStatus.active,
+    suspensionStartDate: json['suspensionStartDate'] != null
+        ? DateTime.tryParse(json['suspensionStartDate'] as String)
+        : null,
     personalAlertEnabled: json['personalAlertEnabled'] as bool? ?? true,
     personalAlertBeforeShiftHours:
         json['personalAlertBeforeShiftHours'] as int? ?? 1,
@@ -191,6 +226,14 @@ class User {
 
   /// Vrai si l'utilisateur est pré-enregistré (pas encore de compte Firebase Auth).
   bool get isPreRegistered => !hasAuthAccount;
+
+  /// Vrai si l'agent est en suspension d'engagement ou en arrêt maladie.
+  bool get isSuspended =>
+      agentAvailabilityStatus != AgentAvailabilityStatus.active;
+
+  /// Vrai si l'agent peut participer aux remplacements (ni suspendu, ni en arrêt).
+  bool get isActiveForReplacement =>
+      agentAvailabilityStatus == AgentAvailabilityStatus.active;
 
   /// Retourne le nom de la station (à charger via StationNameCache)
   /// IMPORTANT: Ceci est l'ID - utilisez StationNameCache.getStationName() pour le nom

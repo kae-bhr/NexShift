@@ -51,45 +51,13 @@ class PlanningRepository {
   Future<List<Planning>> getByStation(String stationId) async {
     try {
       final collectionPath = _getCollectionPath(stationId);
-
-      // En mode dev (sous-collections), récupérer tous les plannings de la sous-collection
-      if (EnvironmentConfig.useStationSubcollections) {
-        // Mode test
-        if (_directFirestore != null) {
-          final snapshot = await _directFirestore
-              .collection(collectionPath)
-              .get();
-          return snapshot.docs.map((doc) {
-            final data = doc.data();
-            data['id'] = doc.id;
-            return Planning.fromJson(data);
-          }).toList();
-        }
-        // Mode production
-        final data = await _firestoreService.getAll(collectionPath);
-        return data.map((e) => Planning.fromJson(e)).toList();
-      }
-
-      // En mode prod (collections plates), filtrer par stationId
-      // Mode test
-      if (_directFirestore != null) {
-        final snapshot = await _directFirestore
-            .collection(_collectionName)
-            .where('station', isEqualTo: stationId)
-            .get();
-        return snapshot.docs.map((doc) {
-          final data = doc.data();
-          data['id'] = doc.id;
-          return Planning.fromJson(data);
-        }).toList();
-      }
-      // Mode production
-      final data = await _firestoreService.getWhere(
-        _collectionName,
-        'station',
-        stationId,
-      );
-      return data.map((e) => Planning.fromJson(e)).toList();
+      final firestore = _directFirestore ?? FirebaseFirestore.instance;
+      final snapshot = await firestore.collection(collectionPath).get();
+      return snapshot.docs.map((doc) {
+        final data = doc.data();
+        data['id'] = doc.id;
+        return Planning.fromJson(data);
+      }).toList();
     } catch (e) {
       debugPrint('Firestore error in getByStation: $e');
       rethrow;
@@ -124,35 +92,28 @@ class PlanningRepository {
     try {
       final collectionPath = _getCollectionPath(stationId);
 
-      // Mode dev avec subcollections: charger directement depuis le chemin SDIS
-      if (EnvironmentConfig.useStationSubcollections) {
-        if (_directFirestore != null) {
-          final snapshot = await _directFirestore
-              .collection(collectionPath)
-              .where('startTime', isLessThan: end)
-              .where('endTime', isGreaterThan: start)
-              .get();
+      if (_directFirestore != null) {
+        final snapshot = await _directFirestore
+            .collection(collectionPath)
+            .where('startTime', isLessThan: end)
+            .where('endTime', isGreaterThan: start)
+            .get();
 
-          return snapshot.docs.map((doc) {
-            final data = doc.data();
-            data['id'] = doc.id;
-            return Planning.fromJson(data);
-          }).toList();
-        }
-
-        final data = await _firestoreService.getInDateRange(
-          collectionPath,
-          'startTime',
-          'endTime',
-          start,
-          end,
-        );
-        return data.map((e) => Planning.fromJson(e)).toList();
+        return snapshot.docs.map((doc) {
+          final data = doc.data();
+          data['id'] = doc.id;
+          return Planning.fromJson(data);
+        }).toList();
       }
 
-      // Mode prod: récupérer tous et filtrer par station
-      final allPlannings = await getAllInRange(start, end);
-      return allPlannings.where((p) => p.station == stationId).toList();
+      final data = await _firestoreService.getInDateRange(
+        collectionPath,
+        'startTime',
+        'endTime',
+        start,
+        end,
+      );
+      return data.map((e) => Planning.fromJson(e)).toList();
     } catch (e) {
       debugPrint('Firestore error in getByStationInRange: $e');
       rethrow;
@@ -169,15 +130,13 @@ class PlanningRepository {
     try {
       List<Planning> plannings;
 
-      // En mode subcollections, charger depuis la station spécifique
-      if (EnvironmentConfig.useStationSubcollections && stationId != null) {
+      if (stationId != null) {
         if (start != null && end != null) {
           plannings = await getByStationInRange(stationId, start, end);
         } else {
           plannings = await getByStation(stationId);
         }
       } else {
-        // Mode legacy : charger tous les plannings
         if (start != null && end != null) {
           plannings = await getAllInRange(start, end);
         } else {
@@ -215,36 +174,24 @@ class PlanningRepository {
   }
 
   /// Récupère un planning par ID
-  /// En mode subcollections, nécessite le stationId pour construire le bon chemin
+  /// Nécessite le stationId pour construire le bon chemin
   Future<Planning?> getById(String id, {String? stationId}) async {
     try {
       final collectionPath = _getCollectionPath(stationId);
-
-      // Mode test OU mode subcollections : utiliser FirebaseFirestore directement
-      if (_directFirestore != null ||
-          EnvironmentConfig.useStationSubcollections) {
-        final firestore = _directFirestore ?? FirebaseFirestore.instance;
-        final doc = await firestore.collection(collectionPath).doc(id).get();
-        if (!doc.exists) {
-          debugPrint(
-            '❌ [PlanningRepository] getById($id) - Document not found at path: $collectionPath',
-          );
-          return null;
-        }
-        final data = doc.data()!;
-        data['id'] = doc.id;
+      final firestore = _directFirestore ?? FirebaseFirestore.instance;
+      final doc = await firestore.collection(collectionPath).doc(id).get();
+      if (!doc.exists) {
         debugPrint(
-          '✅ [PlanningRepository] getById($id) - Found at path: $collectionPath',
+          '❌ [PlanningRepository] getById($id) - Document not found at path: $collectionPath',
         );
-        return Planning.fromJson(data);
+        return null;
       }
-
-      // Mode production sans subcollections
-      final data = await _firestoreService.getById(_collectionName, id);
-      if (data != null) {
-        return Planning.fromJson(data);
-      }
-      return null;
+      final data = doc.data()!;
+      data['id'] = doc.id;
+      debugPrint(
+        '✅ [PlanningRepository] getById($id) - Found at path: $collectionPath',
+      );
+      return Planning.fromJson(data);
     } catch (e) {
       debugPrint('Firestore error in getById: $e');
       rethrow;
@@ -255,22 +202,11 @@ class PlanningRepository {
   Future<void> save(Planning planning, {String? stationId}) async {
     try {
       final collectionPath = _getCollectionPath(stationId);
-
-      // Mode test OU mode subcollections : utiliser FirebaseFirestore directement
-      if (_directFirestore != null || EnvironmentConfig.useStationSubcollections) {
-        final firestore = _directFirestore ?? FirebaseFirestore.instance;
-        await firestore
-            .collection(collectionPath)
-            .doc(planning.id)
-            .set(planning.toJson());
-        return;
-      }
-      // Mode production sans subcollections
-      await _firestoreService.upsert(
-        collectionPath,
-        planning.id,
-        planning.toJson(),
-      );
+      final firestore = _directFirestore ?? FirebaseFirestore.instance;
+      await firestore
+          .collection(collectionPath)
+          .doc(planning.id)
+          .set(planning.toJson());
     } catch (e) {
       debugPrint('Firestore error during save: $e');
       rethrow;
@@ -279,10 +215,6 @@ class PlanningRepository {
 
   /// Sauvegarde tous les plannings (remplace la liste complète)
   Future<void> saveAll(List<Planning> plannings, {String? stationId}) async {
-    if (EnvironmentConfig.useStationSubcollections && stationId == null) {
-      throw Exception('stationId required in dev mode for saveAll');
-    }
-
     final collectionPath = _getCollectionPath(stationId);
 
     try {
@@ -362,12 +294,6 @@ class PlanningRepository {
     DateTime endDate, {
     String? stationId,
   }) async {
-    if (EnvironmentConfig.useStationSubcollections && stationId == null) {
-      throw Exception(
-        'stationId required in dev mode for deletePlanningsInRange',
-      );
-    }
-
     final collectionPath = _getCollectionPath(stationId);
 
     try {

@@ -45,7 +45,7 @@ class UserRepository {
     try {
       // Mode test : utiliser directement FirebaseFirestore
       if (_directFirestore != null) {
-        final snapshot = await _directFirestore!.collection(_collectionName).get();
+        final snapshot = await _directFirestore.collection(_collectionName).get();
         return snapshot.docs.map((doc) {
           final data = doc.data();
           data['id'] = doc.id;
@@ -89,42 +89,16 @@ class UserRepository {
 
       // Mode test : utiliser directement FirebaseFirestore
       if (_directFirestore != null) {
-        // En mode dev avec sous-collections
-        if (EnvironmentConfig.useStationSubcollections) {
-          final snapshot = await _directFirestore!.collection(collectionPath).get();
-          return snapshot.docs.map((doc) {
-            final data = doc.data();
-            data['id'] = doc.id;
-            return User.fromJson(data);
-          }).toList();
-        } else {
-          // Mode prod avec collections plates
-          final snapshot = await _directFirestore!
-              .collection(_collectionName)
-              .where('station', isEqualTo: stationId)
-              .get();
-          return snapshot.docs.map((doc) {
-            final data = doc.data();
-            data['id'] = doc.id;
-            return User.fromJson(data);
-          }).toList();
-        }
+        final snapshot = await _directFirestore.collection(collectionPath).get();
+        return snapshot.docs.map((doc) {
+          final data = doc.data();
+          data['id'] = doc.id;
+          return User.fromJson(data);
+        }).toList();
       }
 
-      // Mode production : utiliser FirestoreService (fallback)
-      // En mode dev (sous-collections), on récupère tous les users de la sous-collection
-      // En mode prod (collections plates), on filtre par station
-      if (EnvironmentConfig.useStationSubcollections) {
-        final data = await _firestoreService.getAll(collectionPath);
-        return data.map((e) => User.fromJson(e)).toList();
-      } else {
-        final data = await _firestoreService.getWhere(
-          collectionPath,
-          'station',
-          stationId,
-        );
-        return data.map((e) => User.fromJson(e)).toList();
-      }
+      final data = await _firestoreService.getAll(collectionPath);
+      return data.map((e) => User.fromJson(e)).toList();
     }
   }
 
@@ -138,8 +112,8 @@ class UserRepository {
         return _decryptedUserCache[id];
       }
 
-      // En mode dev SANS stationId: chercher dans toutes les stations
-      if (EnvironmentConfig.useStationSubcollections && stationId == null) {
+      // Sans stationId: chercher dans toutes les stations
+      if (stationId == null) {
         return await _getUserByIdAcrossStations(id);
       }
 
@@ -147,7 +121,7 @@ class UserRepository {
 
       // Mode test : utiliser directement FirebaseFirestore
       if (_directFirestore != null) {
-        final doc = await _directFirestore!.collection(collectionPath).doc(id).get();
+        final doc = await _directFirestore.collection(collectionPath).doc(id).get();
         if (!doc.exists) return null;
         final data = doc.data()!;
         data['id'] = doc.id;

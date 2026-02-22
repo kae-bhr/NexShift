@@ -72,8 +72,13 @@ class TileActionBar extends StatelessWidget {
     }
   }
 
-  /// Actions pour "Mes demandes" : bouton supprimer
+  /// Actions pour "Mes demandes" : Accepter/Refuser si disponibles, sinon bouton supprimer
   Widget _buildMyRequestsActions() {
+    // Si des callbacks Accepter/Refuser sont fournis, afficher la même barre qu'en pending
+    if (onAccept != null || onRefuse != null) {
+      return _buildPendingActions();
+    }
+
     if (onDelete == null) return const SizedBox.shrink();
 
     return Align(

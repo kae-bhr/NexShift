@@ -16,7 +16,6 @@ import 'package:nexshift_app/core/data/models/planning_model.dart';
 import 'package:nexshift_app/core/data/models/planning_agent_model.dart';
 import 'package:nexshift_app/core/services/on_call_disposition_service.dart';
 import 'package:nexshift_app/core/config/environment_config.dart';
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/core/services/wave_calculation_service.dart';
 import 'package:nexshift_app/core/services/skill_criticality_service.dart';
 // ReplacementMode est importé depuis station_model.dart
@@ -207,7 +206,6 @@ class ReplacementNotificationService {
   // Exposer firestore pour permettre l'accès depuis le dialog
   final FirebaseFirestore firestore;
   final UserRepository _userRepository;
-  final AvailabilityRepository _availabilityRepository;
   final SubshiftRepository _subshiftRepository;
   final ReplacementAcceptanceRepository _acceptanceRepository;
   final StationRepository _stationRepository;
@@ -217,7 +215,6 @@ class ReplacementNotificationService {
   ReplacementNotificationService({
     FirebaseFirestore? firestore,
     UserRepository? userRepository,
-    AvailabilityRepository? availabilityRepository,
     SubshiftRepository? subshiftRepository,
     ReplacementAcceptanceRepository? acceptanceRepository,
     StationRepository? stationRepository,
@@ -226,10 +223,6 @@ class ReplacementNotificationService {
             (firestore != null
               ? UserRepository.forTest(firestore)
               : UserRepository()),
-        _availabilityRepository = availabilityRepository ??
-            (firestore != null
-              ? AvailabilityRepository.forTest(firestore)
-              : AvailabilityRepository()),
         _subshiftRepository = subshiftRepository ??
             (firestore != null
               ? SubshiftRepository.forTest(firestore)
@@ -240,73 +233,29 @@ class ReplacementNotificationService {
               : ReplacementAcceptanceRepository()),
         _stationRepository = stationRepository ?? StationRepository();
 
-  /// Retourne le chemin de collection pour les demandes de remplacement
-  /// En dev avec SDIS: /sdis/{sdisId}/stations/{stationId}/replacements/automatic/replacementRequests
-  /// En prod ou sans stationId: /replacementRequests
   String _getReplacementRequestsPath(String stationId) {
-    if (EnvironmentConfig.useStationSubcollections && stationId.isNotEmpty) {
-      final sdisId = SDISContext().currentSDISId;
-      if (sdisId != null && sdisId.isNotEmpty) {
-        return 'sdis/$sdisId/stations/$stationId/replacements/automatic/replacementRequests';
-      }
-      return 'stations/$stationId/replacements/automatic/replacementRequests';
-    }
-    return 'replacementRequests';
+    return EnvironmentConfig.getCollectionPath(
+        'replacements/automatic/replacementRequests', stationId);
   }
 
-  /// Retourne le chemin de collection pour les triggers de notification
-  /// En dev avec SDIS: /sdis/{sdisId}/stations/{stationId}/replacements/automatic/notificationTriggers
-  /// En prod: /notificationTriggers
   String _getNotificationTriggersPath(String stationId) {
-    if (EnvironmentConfig.useStationSubcollections && stationId.isNotEmpty) {
-      final sdisId = SDISContext().currentSDISId;
-      if (sdisId != null && sdisId.isNotEmpty) {
-        return 'sdis/$sdisId/stations/$stationId/replacements/automatic/notificationTriggers';
-      }
-      return 'stations/$stationId/replacements/automatic/notificationTriggers';
-    }
-    return 'notificationTriggers';
+    return EnvironmentConfig.getCollectionPath(
+        'replacements/automatic/notificationTriggers', stationId);
   }
 
-  /// Retourne le chemin de collection pour les triggers de skip de vague
-  /// En dev avec SDIS: /sdis/{sdisId}/stations/{stationId}/replacements/automatic/waveSkipTriggers
   String _getWaveSkipTriggersPath(String stationId) {
-    if (EnvironmentConfig.useStationSubcollections && stationId.isNotEmpty) {
-      final sdisId = SDISContext().currentSDISId;
-      if (sdisId != null && sdisId.isNotEmpty) {
-        return 'sdis/$sdisId/stations/$stationId/replacements/automatic/waveSkipTriggers';
-      }
-      return 'stations/$stationId/replacements/automatic/waveSkipTriggers';
-    }
-    return 'waveSkipTriggers';
+    return EnvironmentConfig.getCollectionPath(
+        'replacements/automatic/waveSkipTriggers', stationId);
   }
 
-  /// Retourne le chemin de collection pour les acceptations de remplacement
-  /// En dev avec SDIS: /sdis/{sdisId}/stations/{stationId}/replacements/automatic/replacementAcceptances
-  /// En prod ou sans stationId: /replacementAcceptances
   String _getReplacementAcceptancesPath(String stationId) {
-    if (EnvironmentConfig.useStationSubcollections && stationId.isNotEmpty) {
-      final sdisId = SDISContext().currentSDISId;
-      if (sdisId != null && sdisId.isNotEmpty) {
-        return 'sdis/$sdisId/stations/$stationId/replacements/automatic/replacementAcceptances';
-      }
-      return 'stations/$stationId/replacements/automatic/replacementAcceptances';
-    }
-    return 'replacementAcceptances';
+    return EnvironmentConfig.getCollectionPath(
+        'replacements/automatic/replacementAcceptances', stationId);
   }
 
-  /// Retourne le chemin de collection pour les subshifts
-  /// En dev avec SDIS: /sdis/{sdisId}/stations/{stationId}/replacements/subshifts
-  /// En prod ou sans stationId: /subshifts
   String _getSubshiftsPath(String stationId) {
-    if (EnvironmentConfig.useStationSubcollections && stationId.isNotEmpty) {
-      final sdisId = SDISContext().currentSDISId;
-      if (sdisId != null && sdisId.isNotEmpty) {
-        return 'sdis/$sdisId/stations/$stationId/replacements/subshifts';
-      }
-      return 'stations/$stationId/replacements/subshifts';
-    }
-    return 'subshifts';
+    return EnvironmentConfig.getCollectionPath(
+        'replacements/all/subshifts', stationId);
   }
 
   /// Crée une demande de remplacement et envoie les notifications
@@ -512,6 +461,7 @@ class ReplacementNotificationService {
       final wave1Users = allUsers
           .where(
             (u) =>
+                u.isActiveForReplacement &&
                 u.station == request.station &&
                 u.team == (planningTeam ?? request.team) &&
                 u.id != request.requesterId &&
@@ -1476,7 +1426,7 @@ class ReplacementNotificationService {
             end: actualEndTime,
             planningId: request.planningId,
           );
-          await _availabilityRepository.upsert(availability);
+          await AvailabilityRepository(stationId: stationId).upsert(availability);
           debugPrint('✅ Availability created: ${availability.id}');
         }
 
@@ -1586,11 +1536,8 @@ class ReplacementNotificationService {
         );
 
         // Charger tous les refus pour cette demande
-        final declinesPath = EnvironmentConfig.useStationSubcollections && stationId.isNotEmpty
-            ? (SDISContext().currentSDISId != null && SDISContext().currentSDISId!.isNotEmpty
-                ? 'sdis/${SDISContext().currentSDISId}/stations/$stationId/replacements/automatic/replacementRequestDeclines'
-                : 'stations/$stationId/replacements/automatic/replacementRequestDeclines')
-            : 'replacementRequestDeclines';
+        final declinesPath = EnvironmentConfig.getCollectionPath(
+            'replacements/automatic/replacementRequestDeclines', stationId);
 
         final declinesSnapshot = await firestore
             .collection(declinesPath)
@@ -1844,11 +1791,8 @@ class ReplacementNotificationService {
         );
 
         // Charger tous les refus pour cette demande
-        final declinesPath = EnvironmentConfig.useStationSubcollections && stationId.isNotEmpty
-            ? (SDISContext().currentSDISId != null && SDISContext().currentSDISId!.isNotEmpty
-                ? 'sdis/${SDISContext().currentSDISId}/stations/$stationId/replacements/automatic/replacementRequestDeclines'
-                : 'stations/$stationId/replacements/automatic/replacementRequestDeclines')
-            : 'replacementRequestDeclines';
+        final declinesPath = EnvironmentConfig.getCollectionPath(
+            'replacements/automatic/replacementRequestDeclines', stationId);
 
         final declinesSnapshot = await firestore
             .collection(declinesPath)
@@ -2653,7 +2597,7 @@ class ReplacementNotificationService {
   /// En production, c'est géré par les Cloud Functions
   /// Si une vague est vide, continue automatiquement aux vagues suivantes jusqu'à la vague 5
   Future<void> simulateNextWave(String requestId, String stationId) async {
-    if (!EnvironmentConfig.isDev) {
+    if (!kDebugMode) {
       debugPrint('⚠️ simulateNextWave should only be called in DEV mode');
       return;
     }

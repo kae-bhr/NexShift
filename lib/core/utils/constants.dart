@@ -47,7 +47,8 @@ class KSkills {
   static const String vpsCA = 'Chef d\'agrès VPS';
   static const String cod0 = 'COD 0';
   static const String cod1 = 'COD 1';
-  static const String cod2 = 'COD 2';
+  static const String cod2VL = 'COD 2 VL';
+  static const String cod2PL = 'COD 2 PL';
 
   static const List<String> listSkills = [
     suap,
@@ -61,7 +62,8 @@ class KSkills {
     vpsCA,
     cod0,
     cod1,
-    cod2,
+    cod2VL,
+    cod2PL,
     suapA,
     ppbeA,
     incA,
@@ -88,7 +90,8 @@ class KSkills {
     // COD
     cod0: SkillLevelColor.equipier,
     cod1: SkillLevelColor.teamLeader,
-    cod2: SkillLevelColor.chiefOfficer,
+    cod2VL: SkillLevelColor.chiefOfficer,
+    cod2PL: SkillLevelColor.chiefOfficer,
   };
 
   /// Obtenir la couleur Flutter correspondant au niveau de compétence
@@ -150,14 +153,13 @@ class KSkills {
   };
 
   /// Skill levels hierarchy: category -> [level0 (lowest), level1, level2, level3 (highest)]
-  /// Index in array represents skill level: 0=apprenant/none, 1=equipier, 2=chef d'équipe (INC only), 3=chef d'agrès
-  /// Note: SUAP/PPBE use indices [0,1,3], VPS uses [1,3], INC uses [0,1,2,3], COD uses [1,2,3]
+  /// Index in array represents skill level: 0=apprenant/none, 1=equipier, 2=chef d'équipe, 3=chef d'agrès
   static const Map<String, List<String>> skillLevels = {
     'SUAP': [suapA, suap, '', suapCA], // indices 0, 1, 3
     'PPBE': [ppbeA, ppbe, '', ppbeCA], // indices 0, 1, 3
     'INC': [incA, inc, incCE, incCA], // indices 0, 1, 2, 3
-    'VPS': ['', vps, '', vpsCA], // indices 1, 3 (no apprentice)
-    'COD': ['', cod0, cod1, cod2], // indices 0, 1, 2
+    'VPS': ['', vps, '', vpsCA], // indices 1, 3
+    'COD': ['', cod0, cod1, cod2VL, cod2PL], // indices 1, 2, 3, 3
   };
 
   /// Display order for skill categories

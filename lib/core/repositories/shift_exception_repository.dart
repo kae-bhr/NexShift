@@ -14,8 +14,8 @@ class ShiftExceptionRepository {
 
   /// Récupère toutes les exceptions d'une station
   Future<List<ShiftException>> getAll({String? stationId}) async {
-    if (EnvironmentConfig.useStationSubcollections && stationId == null) {
-      throw Exception('stationId required in dev mode for getAll');
+    if (stationId == null) {
+      throw Exception('stationId required forgetAll');
     }
 
     try {
@@ -30,8 +30,8 @@ class ShiftExceptionRepository {
 
   /// Récupère les exceptions pour une année spécifique
   Future<List<ShiftException>> getByYear(int year, {String? stationId}) async {
-    if (EnvironmentConfig.useStationSubcollections && stationId == null) {
-      throw Exception('stationId required in dev mode for getByYear');
+    if (stationId == null) {
+      throw Exception('stationId required forgetByYear');
     }
 
     final all = await getAll(stationId: stationId);
@@ -46,8 +46,8 @@ class ShiftExceptionRepository {
 
   /// Récupère une exception par ID
   Future<ShiftException?> getById(String id, {String? stationId}) async {
-    if (EnvironmentConfig.useStationSubcollections && stationId == null) {
-      throw Exception('stationId required in dev mode for getById');
+    if (stationId == null) {
+      throw Exception('stationId required forgetById');
     }
 
     try {
@@ -65,8 +65,8 @@ class ShiftExceptionRepository {
 
   /// Récupère les exceptions qui chevauchent une date/heure donnée
   Future<List<ShiftException>> getByDateTime(DateTime dateTime, {String? stationId}) async {
-    if (EnvironmentConfig.useStationSubcollections && stationId == null) {
-      throw Exception('stationId required in dev mode for getByDateTime');
+    if (stationId == null) {
+      throw Exception('stationId required forgetByDateTime');
     }
 
     final all = await getAll(stationId: stationId);
@@ -78,8 +78,8 @@ class ShiftExceptionRepository {
 
   /// Ajoute ou met à jour une exception
   Future<void> upsert(ShiftException exception, {String? stationId}) async {
-    if (EnvironmentConfig.useStationSubcollections && stationId == null) {
-      throw Exception('stationId required in dev mode for upsert');
+    if (stationId == null) {
+      throw Exception('stationId required forupsert');
     }
 
     try {
@@ -93,8 +93,8 @@ class ShiftExceptionRepository {
 
   /// Supprime une exception
   Future<void> delete(String id, {String? stationId}) async {
-    if (EnvironmentConfig.useStationSubcollections && stationId == null) {
-      throw Exception('stationId required in dev mode for delete');
+    if (stationId == null) {
+      throw Exception('stationId required fordelete');
     }
 
     try {
@@ -108,8 +108,8 @@ class ShiftExceptionRepository {
 
   /// Supprime toutes les exceptions d'une année
   Future<void> deleteByYear(int year, {String? stationId}) async {
-    if (EnvironmentConfig.useStationSubcollections && stationId == null) {
-      throw Exception('stationId required in dev mode for deleteByYear');
+    if (stationId == null) {
+      throw Exception('stationId required fordeleteByYear');
     }
 
     try {
@@ -133,8 +133,8 @@ class ShiftExceptionRepository {
 
   /// Supprime toutes les exceptions
   Future<void> clear({String? stationId}) async {
-    if (EnvironmentConfig.useStationSubcollections && stationId == null) {
-      throw Exception('stationId required in dev mode for clear');
+    if (stationId == null) {
+      throw Exception('stationId required forclear');
     }
 
     try {

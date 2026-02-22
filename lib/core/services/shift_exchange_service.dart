@@ -56,6 +56,12 @@ class ShiftExchangeService {
         throw Exception('Initiateur non trouvé: $initiatorId');
       }
 
+      // Vérifier que l'initiateur n'est pas suspendu ou en arrêt maladie
+      if (!initiator.isActiveForReplacement) {
+        throw Exception(
+            'Vous ne pouvez pas créer de demande d\'échange en raison de votre statut actuel.');
+      }
+
       // Récupérer le planning
       final planning = await _planningRepository.getById(
         planningId,
@@ -120,18 +126,15 @@ class ShiftExchangeService {
     required String stationId,
   }) async {
     try {
-      final sdisId = SDISContext().currentSDISId;
-
       bool overlaps(DateTime aStart, DateTime aEnd, DateTime bStart, DateTime bEnd) {
         return aStart.isBefore(bEnd) && bStart.isBefore(aEnd);
       }
 
       // 1. Vérifier les demandes automatiques
-      final automaticPath = EnvironmentConfig.useStationSubcollections && stationId.isNotEmpty
-          ? (sdisId != null && sdisId.isNotEmpty
-              ? 'sdis/$sdisId/stations/$stationId/replacements/automatic/replacementRequests'
-              : 'stations/$stationId/replacements/automatic/replacementRequests')
-          : 'replacementRequests';
+      final automaticPath = EnvironmentConfig.getCollectionPath(
+        'replacements/automatic/replacementRequests',
+        stationId,
+      );
 
       final automaticSnapshot = await FirebaseFirestore.instance
           .collection(automaticPath)
@@ -150,11 +153,10 @@ class ShiftExchangeService {
       }
 
       // 2. Vérifier les demandes manuelles
-      final manualPath = EnvironmentConfig.useStationSubcollections && stationId.isNotEmpty
-          ? (sdisId != null && sdisId.isNotEmpty
-              ? 'sdis/$sdisId/stations/$stationId/replacements/manual/proposals'
-              : 'stations/$stationId/replacements/manual/proposals')
-          : 'manualReplacementProposals';
+      final manualPath = EnvironmentConfig.getCollectionPath(
+        'replacements/manual/proposals',
+        stationId,
+      );
 
       final manualSnapshot = await FirebaseFirestore.instance
           .collection(manualPath)
@@ -173,11 +175,10 @@ class ShiftExchangeService {
       }
 
       // 3. Vérifier les demandes d'échange existantes
-      final exchangePath = EnvironmentConfig.useStationSubcollections && stationId.isNotEmpty
-          ? (sdisId != null && sdisId.isNotEmpty
-              ? 'sdis/$sdisId/stations/$stationId/shiftExchangeRequests'
-              : 'stations/$stationId/shiftExchangeRequests')
-          : 'shiftExchangeRequests';
+      final exchangePath = EnvironmentConfig.getCollectionPath(
+        'shiftExchangeRequests',
+        stationId,
+      );
 
       final exchangeSnapshot = await FirebaseFirestore.instance
           .collection(exchangePath)
@@ -317,6 +318,12 @@ class ShiftExchangeService {
       );
       if (proposer == null) {
         throw Exception('Proposeur non trouvé: $proposerId');
+      }
+
+      // Vérifier que le proposeur n'est pas suspendu ou en arrêt maladie
+      if (!proposer.isActiveForReplacement) {
+        throw Exception(
+            'Vous ne pouvez pas soumettre de proposition en raison de votre statut actuel.');
       }
 
       // Vérifier que le proposeur possède toutes les compétences requises

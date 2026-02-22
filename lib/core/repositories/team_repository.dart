@@ -30,17 +30,8 @@ class TeamRepository {
 
       // En mode dev (sous-collections), on récupère toutes les équipes de la sous-collection
       // En mode prod (collections plates), on filtre par stationId
-      if (EnvironmentConfig.useStationSubcollections) {
-        final data = await _firestore.getAll(collectionPath);
-        return data.map((e) => Team.fromJson(e)).toList();
-      } else {
-        final data = await _firestore.getWhere(
-          collectionPath,
-          'stationId',
-          stationId,
-        );
-        return data.map((e) => Team.fromJson(e)).toList();
-      }
+      final data = await _firestore.getAll(collectionPath);
+      return data.map((e) => Team.fromJson(e)).toList();
     } catch (e) {
       debugPrint('Firestore error in getByStation: $e');
       rethrow;
@@ -52,8 +43,8 @@ class TeamRepository {
   Future<Team?> getById(String id, {String? stationId}) async {
     try {
       // En mode dev, on doit avoir le stationId pour construire le chemin
-      if (EnvironmentConfig.useStationSubcollections && stationId == null) {
-        throw Exception('stationId required in dev mode for getById');
+      if (stationId == null) {
+        throw Exception('stationId required forgetById');
       }
 
       final collectionPath = _getCollectionPath(stationId);
@@ -99,8 +90,8 @@ class TeamRepository {
   Future<void> delete(String id, {String? stationId}) async {
     try {
       // En mode dev, on doit avoir le stationId pour construire le chemin
-      if (EnvironmentConfig.useStationSubcollections && stationId == null) {
-        throw Exception('stationId required in dev mode for delete');
+      if (stationId == null) {
+        throw Exception('stationId required fordelete');
       }
 
       final collectionPath = _getCollectionPath(stationId);

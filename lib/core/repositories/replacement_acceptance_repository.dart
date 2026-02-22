@@ -3,7 +3,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:nexshift_app/core/data/models/replacement_acceptance_model.dart';
 import 'package:nexshift_app/core/services/firestore_service.dart';
 import 'package:nexshift_app/core/config/environment_config.dart';
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 
 class ReplacementAcceptanceRepository {
   // Chemin: /sdis/{sdisId}/stations/{stationId}/replacements/automatic/replacementAcceptances
@@ -23,15 +22,8 @@ class ReplacementAcceptanceRepository {
   /// Retourne le chemin de collection selon l'environnement
   /// /sdis/{sdisId}/stations/{stationId}/replacements/automatic/replacementAcceptances
   String _getCollectionPath(String stationId) {
-    if (EnvironmentConfig.useStationSubcollections && stationId.isNotEmpty) {
-      final sdisId = SDISContext().currentSDISId;
-      if (sdisId != null && sdisId.isNotEmpty) {
-        return 'sdis/$sdisId/stations/$stationId/replacements/automatic/replacementAcceptances';
-      }
-      // Fallback legacy sans SDIS
-      return 'stations/$stationId/replacements/automatic/replacementAcceptances';
-    }
-    return 'replacementAcceptances'; // Fallback pour ancien système
+    return EnvironmentConfig.getCollectionPath(
+        'replacements/automatic/replacementAcceptances', stationId);
   }
 
   /// Récupère toutes les acceptations
@@ -223,11 +215,8 @@ class ReplacementAcceptanceRepository {
       await upsert(updated, stationId: stationId);
 
       // Retirer l'utilisateur de pendingValidationUserIds dans la demande de remplacement
-      final requestsPath = EnvironmentConfig.useStationSubcollections && stationId.isNotEmpty
-          ? (SDISContext().currentSDISId != null && SDISContext().currentSDISId!.isNotEmpty
-              ? 'sdis/${SDISContext().currentSDISId}/stations/$stationId/replacements'
-              : 'stations/$stationId/replacements')
-          : 'replacementRequests';
+      final requestsPath = EnvironmentConfig.getCollectionPath(
+          'replacements/automatic/replacementRequests', stationId);
 
       await _firestoreService.firestore.collection(requestsPath).doc(acceptance.requestId).update({
         'pendingValidationUserIds': FieldValue.arrayRemove([acceptance.userId]),

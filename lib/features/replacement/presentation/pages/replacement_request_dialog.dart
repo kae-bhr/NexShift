@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:nexshift_app/core/services/replacement_notification_service.dart';
-import 'package:nexshift_app/core/repositories/user_repository.dart';
 import 'package:nexshift_app/core/repositories/subshift_repositories.dart';
 import 'package:nexshift_app/core/repositories/planning_repository.dart';
+import 'package:nexshift_app/core/repositories/user_repository.dart';
 import 'package:nexshift_app/core/config/environment_config.dart';
 import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/core/utils/station_name_cache.dart';
+import 'package:nexshift_app/core/presentation/widgets/availability_picker_section.dart';
 
 /// Dialog affichant une demande de remplacement
 /// Permet à l'utilisateur de répondre (disponible / indisponible)
@@ -29,17 +30,17 @@ class ReplacementRequestDialog extends StatefulWidget {
 
 class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
   final _notificationService = ReplacementNotificationService();
-  final _userRepository = UserRepository();
   final _subshiftRepository = SubshiftRepository();
   final _planningRepository = PlanningRepository();
+  final _userRepository = UserRepository();
   bool _isLoading = true;
   bool _isResponding = false;
   ReplacementRequest? _request;
-  String? _requesterName;
   String? _error;
   bool _canAccept = true;
   String? _cannotAcceptReason;
   String _stationName = '';
+  String _requesterName = '';
 
   // Time range selection for partial replacement
   DateTime? _selectedStartTime;
@@ -47,25 +48,13 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
 
   // Helper methods pour les chemins de collections
   String _getReplacementRequestsPath() {
-    if (EnvironmentConfig.useStationSubcollections && widget.stationId.isNotEmpty) {
-      final sdisId = SDISContext().currentSDISId;
-      if (sdisId != null && sdisId.isNotEmpty) {
-        return 'sdis/$sdisId/stations/${widget.stationId}/replacements/automatic/replacementRequests';
-      }
-      return 'stations/${widget.stationId}/replacements/automatic/replacementRequests';
-    }
-    return 'replacementRequests';
+    return EnvironmentConfig.getCollectionPath(
+        'replacements/automatic/replacementRequests', widget.stationId);
   }
 
   String _getReplacementRequestDeclinesPath() {
-    if (EnvironmentConfig.useStationSubcollections && widget.stationId.isNotEmpty) {
-      final sdisId = SDISContext().currentSDISId;
-      if (sdisId != null && sdisId.isNotEmpty) {
-        return 'sdis/$sdisId/stations/${widget.stationId}/replacements/automatic/replacementRequestDeclines';
-      }
-      return 'stations/${widget.stationId}/replacements/automatic/replacementRequestDeclines';
-    }
-    return 'replacementRequestDeclines';
+    return EnvironmentConfig.getCollectionPath(
+        'replacements/automatic/replacementRequestDeclines', widget.stationId);
   }
 
   @override
@@ -101,15 +90,21 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
         return;
       }
 
-      // Charger le nom du demandeur
-      final requester = await _userRepository.getById(request.requesterId);
-      final requesterName = requester != null
-          ? requester.displayName
-          : 'Inconnu';
 
       // Vérifier si l'utilisateur peut accepter le remplacement
       bool canAccept = true;
       String? cannotAcceptReason;
+
+      // 0. Vérifier que l'agent n'est pas suspendu ou en arrêt maladie
+      final currentUser = await _userRepository.getById(
+        widget.currentUserId,
+        stationId: widget.stationId,
+      );
+      if (currentUser != null && !currentUser.isActiveForReplacement) {
+        canAccept = false;
+        cannotAcceptReason =
+            'Vous ne pouvez pas accepter de remplacement en raison de votre statut actuel.';
+      }
 
       // 1. Vérifier que la date de début n'est pas dans le passé
       if (request.startTime.isBefore(DateTime.now())) {
@@ -139,11 +134,8 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
       }
       // 4. Vérifier que l'utilisateur n'a pas déjà une acceptation en attente
       if (canAccept) {
-        final acceptancesPath = EnvironmentConfig.useStationSubcollections && widget.stationId.isNotEmpty
-            ? (SDISContext().currentSDISId != null && SDISContext().currentSDISId!.isNotEmpty
-                ? 'sdis/${SDISContext().currentSDISId}/stations/${widget.stationId}/manualReplacementAcceptances'
-                : 'stations/${widget.stationId}/manualReplacementAcceptances')
-            : 'manualReplacementAcceptances';
+        final acceptancesPath = EnvironmentConfig.getCollectionPath(
+            'replacements/automatic/replacementAcceptances', widget.stationId);
 
         final acceptanceSnapshot = await _notificationService.firestore
             .collection(acceptancesPath)
@@ -217,10 +209,21 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
         }
       }
 
+      // Résoudre le nom du demandeur
+      String requesterName = '';
+      if (request.requesterId.isNotEmpty) {
+        try {
+          final requester = await _userRepository.getById(request.requesterId);
+          requesterName = requester?.displayName ?? '';
+        } catch (_) {
+          // Fallback : laisser vide
+        }
+      }
+
       setState(() {
         _request = request;
-        _requesterName = requesterName;
         _stationName = stationName;
+        _requesterName = requesterName;
         _canAccept = canAccept;
         _cannotAcceptReason = cannotAcceptReason;
         _isLoading = false;
@@ -496,96 +499,6 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
     return "${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
   }
 
-  Future<void> _selectStartTime() async {
-    if (_request == null) return;
-
-    final date = await showDatePicker(
-      context: context,
-      initialDate: _selectedStartTime ?? _request!.startTime,
-      firstDate: _request!.startTime,
-      lastDate: _request!.endTime,
-    );
-    if (date == null || !mounted) return;
-
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(
-        _selectedStartTime ?? _request!.startTime,
-      ),
-    );
-    if (time == null || !mounted) return;
-
-    final newStart = DateTime(
-      date.year,
-      date.month,
-      date.day,
-      time.hour,
-      time.minute,
-    );
-
-    // Vérifier que la nouvelle heure de début est valide
-    if (newStart.isBefore(_request!.startTime) ||
-        newStart.isAfter(_request!.endTime)) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Heure de début invalide')));
-      return;
-    }
-
-    setState(() {
-      _selectedStartTime = newStart;
-      // Ajuster l'heure de fin si nécessaire
-      if (_selectedEndTime != null && newStart.isAfter(_selectedEndTime!)) {
-        _selectedEndTime = _request!.endTime;
-      }
-    });
-  }
-
-  Future<void> _selectEndTime() async {
-    if (_request == null) return;
-
-    final date = await showDatePicker(
-      context: context,
-      initialDate: _selectedEndTime ?? _request!.endTime,
-      firstDate: _selectedStartTime ?? _request!.startTime,
-      lastDate: _request!.endTime,
-    );
-    if (date == null || !mounted) return;
-
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(
-        _selectedEndTime ?? _request!.endTime,
-      ),
-    );
-    if (time == null || !mounted) return;
-
-    final newEnd = DateTime(
-      date.year,
-      date.month,
-      date.day,
-      time.hour,
-      time.minute,
-    );
-
-    // Vérifier que la nouvelle heure de fin est valide
-    if (newEnd.isAfter(_request!.endTime) ||
-        newEnd.isBefore(_request!.startTime)) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Heure de fin invalide')));
-      return;
-    }
-
-    setState(() {
-      _selectedEndTime = newEnd;
-      // Ajuster l'heure de début si nécessaire
-      if (_selectedStartTime != null && newEnd.isBefore(_selectedStartTime!)) {
-        _selectedStartTime = _request!.startTime;
-      }
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     final isAvailabilityRequest =
@@ -687,38 +600,7 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
       return const Text('Aucune information disponible');
     }
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Demandeur
-        Row(
-          children: [
-            const Icon(Icons.person, size: 20, color: Colors.blue),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                _requesterName ?? 'Inconnu',
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        Text(
-          isAvailabilityRequest
-              ? 'recherche un agent disponible'
-              : 'recherche un remplaçant',
-          style: const TextStyle(color: Colors.grey),
-        ),
-        const SizedBox(height: 16),
-        // Le reste du contenu (périodes, etc.) suit ici
-        _buildContentDetails(context, isAvailabilityRequest),
-      ],
-    );
+    return _buildContentDetails(context, isAvailabilityRequest);
   }
 
   Widget _buildContentDetails(
@@ -729,6 +611,30 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // Nom du demandeur
+        if (_requesterName.isNotEmpty) ...[
+          Row(
+            children: [
+              const Icon(Icons.person_outline, size: 16, color: Colors.grey),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(
+                        text: _requesterName,
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const TextSpan(text: ' recherche un remplaçant'),
+                    ],
+                  ),
+                  style: const TextStyle(fontSize: 14),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+        ],
         // Période
                 Container(
                   padding: const EdgeInsets.all(12),
@@ -777,120 +683,13 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
 
                 // Sélection de la plage horaire (uniquement pour les remplacements)
                 if (!isAvailabilityRequest) ...[
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.green.shade50,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.green.shade200),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            const Icon(
-                              Icons.schedule,
-                              size: 16,
-                              color: Colors.green,
-                            ),
-                            const SizedBox(width: 8),
-                            const Text(
-                              'Votre disponibilité :',
-                              style: TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        // Bouton pour modifier l'heure de début
-                        InkWell(
-                          onTap: _selectStartTime,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              vertical: 8,
-                              horizontal: 12,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(color: Colors.green.shade300),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Row(
-                                  children: [
-                                    const Text('Du: '),
-                                    Text(
-                                      _formatDateTime(
-                                        _selectedStartTime ??
-                                            _request!.startTime,
-                                      ),
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                Icon(
-                                  Icons.edit,
-                                  size: 16,
-                                  color: Colors.green.shade700,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        // Bouton pour modifier l'heure de fin
-                        InkWell(
-                          onTap: _selectEndTime,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              vertical: 8,
-                              horizontal: 12,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(color: Colors.green.shade300),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Row(
-                                  children: [
-                                    const Text('Au: '),
-                                    Text(
-                                      _formatDateTime(
-                                        _selectedEndTime ?? _request!.endTime,
-                                      ),
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                Icon(
-                                  Icons.edit,
-                                  size: 16,
-                                  color: Colors.green.shade700,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        const Text(
-                          'Tapez pour modifier les horaires',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey,
-                            fontStyle: FontStyle.italic,
-                          ),
-                        ),
-                      ],
-                    ),
+                  AvailabilityPickerSection(
+                    rangeStart: _request!.startTime,
+                    rangeEnd: _request!.endTime,
+                    initialStart: _selectedStartTime ?? _request!.startTime,
+                    initialEnd: _selectedEndTime ?? _request!.endTime,
+                    onStartChanged: (dt) => setState(() => _selectedStartTime = dt),
+                    onEndChanged: (dt) => setState(() => _selectedEndTime = dt),
                   ),
                   const SizedBox(height: 16),
                 ],

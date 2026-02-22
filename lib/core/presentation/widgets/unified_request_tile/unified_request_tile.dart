@@ -240,6 +240,12 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
                                     leftChiefsCount > rightChiefsCount
                                         ? leftChiefsCount - rightChiefsCount
                                         : 0,
+                                // Pour les AgentQuery, la colonne droite affiche les skills
+                                // sans répéter les dates (déjà dans la colonne gauche)
+                                showDates: widget.data.requestType !=
+                                    UnifiedRequestType.agentQuery,
+                                showStation: widget.data.requestType !=
+                                    UnifiedRequestType.agentQuery,
                               )
                             : _buildEmptyColumnWithDelete(),
                       ),
@@ -551,6 +557,14 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
     // Badge propositions pour échanges
     if (widget.data.proposalCount != null &&
         widget.viewMode == TileViewMode.myRequests) {
+      return true;
+    }
+
+    // Badge agents notifiés pour les recherches (agentQuery) en mode "Mes demandes" et "Historique"
+    if (widget.data.requestType == UnifiedRequestType.agentQuery &&
+        widget.data.notifiedUserIds.isNotEmpty &&
+        (widget.viewMode == TileViewMode.myRequests ||
+            widget.viewMode == TileViewMode.history)) {
       return true;
     }
 

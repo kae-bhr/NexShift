@@ -9,8 +9,8 @@ import 'package:nexshift_app/core/data/models/planning_model.dart';
 import 'package:nexshift_app/core/data/models/subshift_model.dart';
 import 'package:nexshift_app/features/replacement/services/replacement_search_service.dart';
 import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
+import 'package:nexshift_app/core/presentation/widgets/planning_form_widgets.dart';
 import 'package:nexshift_app/core/config/environment_config.dart';
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 
 class ReplacementPage extends StatefulWidget {
   final Planning planning;
@@ -38,8 +38,10 @@ class _ReplacementPageState extends State<ReplacementPage> {
   final repo = SubshiftRepository();
   List<User> allUsers = [];
   List<Subshift> existingSubshifts = [];
-  List<Map<String, DateTime>> activeRequestPeriods = []; // Périodes avec demandes actives
+  List<Map<String, DateTime>> activeRequestPeriods =
+      []; // Périodes avec demandes actives
   String? replacedId;
+
   /// When replacing a replacer (parentSubshift != null), this holds the original
   /// replaced agent's ID for data operations (validation, saving).
   /// For display, replacedId shows the actual person seeking absence (the replacer).
@@ -78,29 +80,14 @@ class _ReplacementPageState extends State<ReplacementPage> {
           (widget.currentUser!.status == KConstants.statusChief &&
               widget.currentUser!.team == widget.planning.team));
 
-  /// Retourne le chemin de collection pour les triggers de notification
-  /// En dev avec SDIS: /sdis/{sdisId}/stations/{stationId}/replacements/automatic/notificationTriggers
-  /// En prod: /notificationTriggers
   String _getNotificationTriggersPath(String stationId) {
-    if (EnvironmentConfig.useStationSubcollections && stationId.isNotEmpty) {
-      final sdisId = SDISContext().currentSDISId;
-      if (sdisId != null && sdisId.isNotEmpty) {
-        return 'sdis/$sdisId/stations/$stationId/replacements/automatic/notificationTriggers';
-      }
-      return 'stations/$stationId/replacements/automatic/notificationTriggers';
-    }
-    return 'notificationTriggers';
+    return EnvironmentConfig.getCollectionPath(
+        'replacements/automatic/notificationTriggers', stationId);
   }
 
   String _getManualReplacementProposalsPath(String stationId) {
-    if (EnvironmentConfig.useStationSubcollections && stationId.isNotEmpty) {
-      final sdisId = SDISContext().currentSDISId;
-      if (sdisId != null && sdisId.isNotEmpty) {
-        return 'sdis/$sdisId/stations/$stationId/replacements/manual/proposals';
-      }
-      return 'stations/$stationId/replacements/manual/proposals';
-    }
-    return 'manualReplacementProposals';
+    return EnvironmentConfig.getCollectionPath(
+        'replacements/manual/proposals', stationId);
   }
 
   @override
@@ -130,7 +117,10 @@ class _ReplacementPageState extends State<ReplacementPage> {
   Future<void> _loadUsers() async {
     // Charger les utilisateurs de la station du planning
     final users = await UserRepository().getByStation(widget.planning.station);
-    final subshifts = await repo.getByPlanningId(widget.planning.id, stationId: widget.planning.station);
+    final subshifts = await repo.getByPlanningId(
+      widget.planning.id,
+      stationId: widget.planning.station,
+    );
     await _loadActiveRequests();
     setState(() {
       allUsers = users;
@@ -145,15 +135,11 @@ class _ReplacementPageState extends State<ReplacementPage> {
       if (widget.currentUser == null) return;
 
       final stationId = widget.currentUser!.station;
-      final sdisId = SDISContext().currentSDISId;
       final periods = <Map<String, DateTime>>[];
 
       // 1. Charger les demandes automatiques
-      final automaticPath = EnvironmentConfig.useStationSubcollections && stationId.isNotEmpty
-          ? (sdisId != null && sdisId.isNotEmpty
-              ? 'sdis/$sdisId/stations/$stationId/replacements/automatic/replacementRequests'
-              : 'stations/$stationId/replacements/automatic/replacementRequests')
-          : 'replacementRequests';
+      final automaticPath = EnvironmentConfig.getCollectionPath(
+          'replacements/automatic/replacementRequests', stationId);
 
       final automaticSnapshot = await FirebaseFirestore.instance
           .collection(automaticPath)
@@ -194,11 +180,8 @@ class _ReplacementPageState extends State<ReplacementPage> {
       }
 
       // 3. Charger les demandes d'échange
-      final exchangePath = EnvironmentConfig.useStationSubcollections && stationId.isNotEmpty
-          ? (sdisId != null && sdisId.isNotEmpty
-              ? 'sdis/$sdisId/stations/$stationId/shiftExchangeRequests'
-              : 'stations/$stationId/shiftExchangeRequests')
-          : 'shiftExchangeRequests';
+      final exchangePath = EnvironmentConfig.getCollectionPath(
+          'shiftExchangeRequests', stationId);
 
       final exchangeSnapshot = await FirebaseFirestore.instance
           .collection(exchangePath)
@@ -238,7 +221,11 @@ class _ReplacementPageState extends State<ReplacementPage> {
     } else if (endDateTime!.isAfter(widget.planning.endTime)) {
       err = "La date de fin ne peut pas dépasser celle de l'astreinte.";
     } else if (dataReplacedId != null &&
-        _isOutsideEffectivePresence(dataReplacedId!, startDateTime!, endDateTime!)) {
+        _isOutsideEffectivePresence(
+          dataReplacedId!,
+          startDateTime!,
+          endDateTime!,
+        )) {
       err = "L'agent n'est pas d'astreinte sur cette plage horaire.";
     } else if (dataReplacedId != null &&
         replacerId != null &&
@@ -248,8 +235,10 @@ class _ReplacementPageState extends State<ReplacementPage> {
         replacerId != null &&
         _isInPlanningDuringPeriod(replacerId!, startDateTime!, endDateTime!)) {
       err = "Le remplaçant est déjà d'astreinte sur cette plage horaire.";
-    } else if (dataReplacedId != null && _isFullyCoveredByActiveRequests(dataReplacedId!)) {
-      err = "Cette période est déjà totalement couverte par des demandes de remplacement en cours.";
+    } else if (dataReplacedId != null &&
+        _isFullyCoveredByActiveRequests(dataReplacedId!)) {
+      err =
+          "Cette période est déjà totalement couverte par des demandes de remplacement en cours.";
     } else if (_hasConflict(
       dataReplacedId,
       replacerId,
@@ -289,7 +278,11 @@ class _ReplacementPageState extends State<ReplacementPage> {
   /// La présence est définie par planning.agents (source unique de vérité).
   /// Inclut les entrées de base (replacedAgentId == null) ET les entrées
   /// de remplacement (où l'agent est remplaçant, replacedAgentId != null).
-  bool _isOutsideEffectivePresence(String agentId, DateTime start, DateTime end) {
+  bool _isOutsideEffectivePresence(
+    String agentId,
+    DateTime start,
+    DateTime end,
+  ) {
     final agentEntries = widget.planning.agents
         .where((a) => a.agentId == agentId)
         .toList();
@@ -308,7 +301,8 @@ class _ReplacementPageState extends State<ReplacementPage> {
   /// d'astreinte sur la plage demandée (mode manuel).
   bool _isInPlanningDuringPeriod(String agentId, DateTime start, DateTime end) {
     return widget.planning.agents.any(
-      (a) => a.agentId == agentId && a.start.isBefore(end) && a.end.isAfter(start),
+      (a) =>
+          a.agentId == agentId && a.start.isBefore(end) && a.end.isAfter(start),
     );
   }
 
@@ -390,9 +384,13 @@ class _ReplacementPageState extends State<ReplacementPage> {
 
     // collect subshifts that target this agent and intersect ses plages
     final List<Map<String, DateTime>> coveredPeriods = existingSubshifts
-        .where((s) =>
-            s.replacedId == replacedId &&
-            agentEntries.any((a) => s.start.isBefore(a.end) && s.end.isAfter(a.start)))
+        .where(
+          (s) =>
+              s.replacedId == replacedId &&
+              agentEntries.any(
+                (a) => s.start.isBefore(a.end) && s.end.isAfter(a.start),
+              ),
+        )
         .map((s) => {'start': s.start, 'end': s.end})
         .toList();
 
@@ -406,14 +404,19 @@ class _ReplacementPageState extends State<ReplacementPage> {
       final pEnd = presence['end']!;
 
       // Filtrer et normaliser les périodes couvertes à cette plage de présence
-      final relevantCovered = coveredPeriods
-          .where((c) => c['start']!.isBefore(pEnd) && c['end']!.isAfter(pStart))
-          .map((c) => {
-                'start': c['start']!.isBefore(pStart) ? pStart : c['start']!,
-                'end': c['end']!.isAfter(pEnd) ? pEnd : c['end']!,
-              })
-          .toList()
-        ..sort((a, b) => a['start']!.compareTo(b['start']!));
+      final relevantCovered =
+          coveredPeriods
+              .where(
+                (c) => c['start']!.isBefore(pEnd) && c['end']!.isAfter(pStart),
+              )
+              .map(
+                (c) => {
+                  'start': c['start']!.isBefore(pStart) ? pStart : c['start']!,
+                  'end': c['end']!.isAfter(pEnd) ? pEnd : c['end']!,
+                },
+              )
+              .toList()
+            ..sort((a, b) => a['start']!.compareTo(b['start']!));
 
       // Merge overlapping
       final List<Map<String, DateTime>> merged = [];
@@ -609,7 +612,9 @@ class _ReplacementPageState extends State<ReplacementPage> {
       }
 
       // Create a proposal document in Firestore with correct path
-      final proposalsPath = _getManualReplacementProposalsPath(widget.planning.station);
+      final proposalsPath = _getManualReplacementProposalsPath(
+        widget.planning.station,
+      );
       print('[DEBUG Manual] Creating proposal at path: $proposalsPath');
 
       final proposalRef = FirebaseFirestore.instance
@@ -637,29 +642,31 @@ class _ReplacementPageState extends State<ReplacementPage> {
       print('[DEBUG Manual] Proposal created with ID: ${proposalRef.id}');
 
       // Send notification to the replacer via notificationTriggers
-      final notificationTriggersPath = _getNotificationTriggersPath(widget.planning.station);
-      await FirebaseFirestore.instance.collection(notificationTriggersPath).add({
-        'type': 'manual_replacement_proposal',
-        'proposalId': proposalRef.id,
-        'proposerId': proposerUser.id,
-        'proposerName': '${proposerUser.firstName} ${proposerUser.lastName}',
-        'replacedId': dataReplacedId,
-        'replacedName': '${replacedUser.firstName} ${replacedUser.lastName}',
-        'replacerId': replacerId,
-        'planningId': widget.planning.id,
-        'startTime': Timestamp.fromDate(startDateTime!),
-        'endTime': Timestamp.fromDate(endDateTime!),
-        'targetUserIds': [replacerId],
-        'createdAt': FieldValue.serverTimestamp(),
-        'processed': false,
-      });
+      final notificationTriggersPath = _getNotificationTriggersPath(
+        widget.planning.station,
+      );
+      await FirebaseFirestore.instance.collection(notificationTriggersPath).add(
+        {
+          'type': 'manual_replacement_proposal',
+          'proposalId': proposalRef.id,
+          'proposerId': proposerUser.id,
+          'proposerName': '${proposerUser.firstName} ${proposerUser.lastName}',
+          'replacedId': dataReplacedId,
+          'replacedName': '${replacedUser.firstName} ${replacedUser.lastName}',
+          'replacerId': replacerId,
+          'planningId': widget.planning.id,
+          'startTime': Timestamp.fromDate(startDateTime!),
+          'endTime': Timestamp.fromDate(endDateTime!),
+          'targetUserIds': [replacerId],
+          'createdAt': FieldValue.serverTimestamp(),
+          'processed': false,
+        },
+      );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              "Proposition envoyée à ${replacerUser.displayName}",
-            ),
+            content: Text("Proposition envoyée à ${replacerUser.displayName}"),
           ),
         );
         Navigator.pop(context);
@@ -688,9 +695,9 @@ class _ReplacementPageState extends State<ReplacementPage> {
 
     // Vérifier que replacedId est défini
     if (dataReplacedId == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("Sélectionnez un agent à remplacer")));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Sélectionnez un agent à remplacer")),
+      );
       return;
     }
 
@@ -701,15 +708,16 @@ class _ReplacementPageState extends State<ReplacementPage> {
     );
 
     if (replacedUser.id.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("Agent à remplacer non trouvé")));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Agent à remplacer non trouvé")),
+      );
       return;
     }
 
     await ReplacementSearchService.searchForReplacer(
       context,
-      requesterId: dataReplacedId!, // Utiliser l'ID de l'agent dans le modèle de données
+      requesterId:
+          dataReplacedId!, // Utiliser l'ID de l'agent dans le modèle de données
       planningId: widget.planning.id,
       startDateTime: startDateTime,
       endDateTime: endDateTime,
@@ -729,8 +737,8 @@ class _ReplacementPageState extends State<ReplacementPage> {
       widget.planning,
     );
 
-    final validReplacedId = replacedId != null &&
-            replacedCandidates.any((u) => u.id == replacedId)
+    final validReplacedId =
+        replacedId != null && replacedCandidates.any((u) => u.id == replacedId)
         ? replacedId
         : null;
 
@@ -740,7 +748,8 @@ class _ReplacementPageState extends State<ReplacementPage> {
           widget.planning,
         );
 
-    final validReplacerId = replacerId != null &&
+    final validReplacerId =
+        replacerId != null &&
             availableReplacers.any((item) => item.value == replacerId)
         ? replacerId
         : null;
@@ -751,6 +760,33 @@ class _ReplacementPageState extends State<ReplacementPage> {
             ? "Remplacement manuel"
             : "Recherche de remplaçant",
         bottomColor: KColors.appNameColor,
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: FilledButton.icon(
+            onPressed: isValid
+                ? (widget.isManualMode ? _save : _searchForReplacer)
+                : null,
+            icon: Icon(
+              widget.isManualMode ? Icons.check_rounded : Icons.search_rounded,
+              size: 20,
+            ),
+            label: Text(
+              widget.isManualMode
+                  ? "Proposer le remplacement"
+                  : "Rechercher un remplaçant",
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            style: FilledButton.styleFrom(
+              backgroundColor: KColors.appNameColor,
+              minimumSize: const Size(double.infinity, 50),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        ),
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
@@ -766,10 +802,12 @@ class _ReplacementPageState extends State<ReplacementPage> {
               value: validReplacedId,
               hint: 'Sélectionnez un agent',
               items: replacedCandidates
-                  .map((u) => DropdownMenuItem(
-                        value: u.id,
-                        child: Text(u.displayName),
-                      ))
+                  .map(
+                    (u) => DropdownMenuItem(
+                      value: u.id,
+                      child: Text(u.displayName),
+                    ),
+                  )
                   .toList(),
               onChanged: (v) async {
                 setState(() {
@@ -799,9 +837,7 @@ class _ReplacementPageState extends State<ReplacementPage> {
               hint: 'Sélectionnez un remplaçant',
               items: availableReplacers,
               onChanged: (v) {
-                if (v == null ||
-                    v == '__team_header__' ||
-                    v == '__divider__') {
+                if (v == null || v == '__team_header__' || v == '__divider__') {
                   return;
                 }
                 setState(() => replacerId = v);
@@ -818,7 +854,7 @@ class _ReplacementPageState extends State<ReplacementPage> {
             label: "Astreinte",
           ),
           const SizedBox(height: 8),
-          _PlanningDetailCard(planning: widget.planning),
+          SharedPlanningDetailCard(planning: widget.planning),
 
           const SizedBox(height: 20),
 
@@ -828,7 +864,7 @@ class _ReplacementPageState extends State<ReplacementPage> {
             label: "Période de remplacement",
           ),
           const SizedBox(height: 8),
-          _ReplacementPeriodCard(
+          SharedReplacementPeriodCard(
             startDateTime: startDateTime,
             endDateTime: endDateTime,
             errorMessage: error,
@@ -859,74 +895,58 @@ class _ReplacementPageState extends State<ReplacementPage> {
             ),
           ],
 
-          const SizedBox(height: 24),
-
-          // ── Bouton principal ────────────────────────────────────────────
-          FilledButton.icon(
-            onPressed: isValid
-                ? (widget.isManualMode ? _save : _searchForReplacer)
-                : null,
-            icon: Icon(
-              widget.isManualMode ? Icons.check_rounded : Icons.search_rounded,
-              size: 20,
-            ),
-            label: Text(
-              widget.isManualMode ? "Valider le remplacement" : "Rechercher un remplaçant",
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-            style: FilledButton.styleFrom(
-              backgroundColor: KColors.appNameColor,
-              minimumSize: const Size(double.infinity, 50),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-          ),
+          const SizedBox(height: 8),
 
           // ── Sections mode manuel ────────────────────────────────────────
           if (widget.isManualMode) ...[
             // Indisponibilités du remplaçant
             if (replacerId != null) ...[
               const SizedBox(height: 20),
-              Builder(builder: (context) {
-                final user = allUsers.firstWhere(
-                  (u) => u.id == replacerId,
-                  orElse: User.empty,
-                );
-                final busy = _unavailablePeriodsFor(replacerId!);
-                return _UnavailabilityCard(
-                  agentName: user.displayName,
-                  busyPeriods: busy,
-                );
-              }),
+              Builder(
+                builder: (context) {
+                  final user = allUsers.firstWhere(
+                    (u) => u.id == replacerId,
+                    orElse: User.empty,
+                  );
+                  final busy = _unavailablePeriodsFor(replacerId!);
+                  return _UnavailabilityCard(
+                    agentName: user.displayName,
+                    busyPeriods: busy,
+                  );
+                },
+              ),
             ],
 
             // Impact sur les compétences
             if (canSelectReplaced && dataReplacedId != null) ...[
               const SizedBox(height: 16),
-              Builder(builder: (context) {
-                final replacedUser = allUsers.firstWhere(
-                  (u) => u.id == dataReplacedId,
-                  orElse: User.empty,
-                );
-                final replacerUser = replacerId != null
-                    ? allUsers.firstWhere(
-                        (u) => u.id == replacerId,
-                        orElse: User.empty,
-                      )
-                    : User.empty();
-                final replacedSkills = Set<String>.from(replacedUser.skills);
-                final replacerSkills = Set<String>.from(replacerUser.skills);
-                final gained =
-                    replacerSkills.difference(replacedSkills).toList()..sort();
-                final lost =
-                    replacedSkills.difference(replacerSkills).toList()..sort();
-                return _SkillsImpactCard(
-                  gained: gained,
-                  lost: lost,
-                  noReplacerSelected: replacerId == null,
-                );
-              }),
+              Builder(
+                builder: (context) {
+                  final replacedUser = allUsers.firstWhere(
+                    (u) => u.id == dataReplacedId,
+                    orElse: User.empty,
+                  );
+                  final replacerUser = replacerId != null
+                      ? allUsers.firstWhere(
+                          (u) => u.id == replacerId,
+                          orElse: User.empty,
+                        )
+                      : User.empty();
+                  final replacedSkills = Set<String>.from(replacedUser.skills);
+                  final replacerSkills = Set<String>.from(replacerUser.skills);
+                  final gained =
+                      replacerSkills.difference(replacedSkills).toList()
+                        ..sort();
+                  final lost =
+                      replacedSkills.difference(replacerSkills).toList()
+                        ..sort();
+                  return _SkillsImpactCard(
+                    gained: gained,
+                    lost: lost,
+                    noReplacerSelected: replacerId == null,
+                  );
+                },
+              ),
             ],
           ],
 
@@ -950,9 +970,11 @@ class _ReplacementSectionHeader extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Row(
       children: [
-        Icon(icon,
-            size: 15,
-            color: isDark ? Colors.grey.shade400 : Colors.grey.shade600),
+        Icon(
+          icon,
+          size: 15,
+          color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+        ),
         const SizedBox(width: 6),
         Text(
           label,
@@ -1036,9 +1058,11 @@ class _ReplacementReadOnlyField extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(icon,
-              size: 18,
-              color: isDark ? Colors.grey.shade500 : Colors.grey.shade500),
+          Icon(
+            icon,
+            size: 18,
+            color: isDark ? Colors.grey.shade500 : Colors.grey.shade500,
+          ),
           const SizedBox(width: 10),
           Text(
             value,
@@ -1074,15 +1098,15 @@ class _SOSCard extends StatelessWidget {
           color: isSOS
               ? sosColor.withValues(alpha: isDark ? 0.18 : 0.08)
               : (isDark
-                  ? Colors.white.withValues(alpha: 0.04)
-                  : Colors.grey.shade50),
+                    ? Colors.white.withValues(alpha: 0.04)
+                    : Colors.grey.shade50),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: isSOS
                 ? sosColor.withValues(alpha: 0.5)
                 : (isDark
-                    ? Colors.white.withValues(alpha: 0.12)
-                    : Colors.grey.shade300),
+                      ? Colors.white.withValues(alpha: 0.12)
+                      : Colors.grey.shade300),
             width: isSOS ? 1.5 : 1,
           ),
         ),
@@ -1104,7 +1128,11 @@ class _SOSCard extends StatelessWidget {
                 ),
               ),
               child: isSOS
-                  ? const Icon(Icons.check_rounded, size: 14, color: Colors.white)
+                  ? const Icon(
+                      Icons.check_rounded,
+                      size: 14,
+                      color: Colors.white,
+                    )
                   : null,
             ),
             const SizedBox(width: 12),
@@ -1120,8 +1148,8 @@ class _SOSCard extends StatelessWidget {
                         color: isSOS
                             ? sosColor
                             : (isDark
-                                ? Colors.grey.shade400
-                                : Colors.grey.shade600),
+                                  ? Colors.grey.shade400
+                                  : Colors.grey.shade600),
                       ),
                       const SizedBox(width: 4),
                       Text(
@@ -1132,8 +1160,8 @@ class _SOSCard extends StatelessWidget {
                           color: isSOS
                               ? sosColor
                               : (isDark
-                                  ? Colors.grey.shade300
-                                  : Colors.grey.shade700),
+                                    ? Colors.grey.shade300
+                                    : Colors.grey.shade700),
                         ),
                       ),
                       const SizedBox(width: 6),
@@ -1144,8 +1172,10 @@ class _SOSCard extends StatelessWidget {
                             builder: (context) => AlertDialog(
                               title: Row(
                                 children: [
-                                  Icon(Icons.bolt_rounded,
-                                      color: Colors.red.shade600),
+                                  Icon(
+                                    Icons.bolt_rounded,
+                                    color: Colors.red.shade600,
+                                  ),
                                   const SizedBox(width: 8),
                                   const Text('Mode SOS'),
                                 ],
@@ -1180,7 +1210,9 @@ class _SOSCard extends StatelessWidget {
                     'Envoyer toutes les vagues simultanément',
                     style: TextStyle(
                       fontSize: 12,
-                      color: isDark ? Colors.grey.shade500 : Colors.grey.shade500,
+                      color: isDark
+                          ? Colors.grey.shade500
+                          : Colors.grey.shade500,
                     ),
                   ),
                 ],
@@ -1214,15 +1246,15 @@ class _UnavailabilityCard extends StatelessWidget {
         color: isFree
             ? Colors.green.withValues(alpha: isDark ? 0.12 : 0.06)
             : (isDark
-                ? Colors.white.withValues(alpha: 0.04)
-                : Colors.grey.shade50),
+                  ? Colors.white.withValues(alpha: 0.04)
+                  : Colors.grey.shade50),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: isFree
               ? Colors.green.withValues(alpha: 0.35)
               : (isDark
-                  ? Colors.white.withValues(alpha: 0.10)
-                  : Colors.grey.shade200),
+                    ? Colors.white.withValues(alpha: 0.10)
+                    : Colors.grey.shade200),
         ),
       ),
       child: Column(
@@ -1251,8 +1283,8 @@ class _UnavailabilityCard extends StatelessWidget {
                     color: isFree
                         ? Colors.green.shade600
                         : (isDark
-                            ? Colors.grey.shade300
-                            : Colors.grey.shade700),
+                              ? Colors.grey.shade300
+                              : Colors.grey.shade700),
                   ),
                 ),
               ),
@@ -1380,11 +1412,11 @@ class _SkillsImpactCard extends StatelessWidget {
               const SizedBox(height: 10),
               Row(
                 children: [
-                  Icon(Icons.info_outline_rounded,
-                      size: 14,
-                      color: isDark
-                          ? Colors.grey.shade500
-                          : Colors.grey.shade500),
+                  Icon(
+                    Icons.info_outline_rounded,
+                    size: 14,
+                    color: isDark ? Colors.grey.shade500 : Colors.grey.shade500,
+                  ),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
@@ -1443,420 +1475,6 @@ class _SkillChip extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// Card affichant les infos de l'astreinte en lecture seule (équipe, début, fin).
-class _PlanningDetailCard extends StatelessWidget {
-  final Planning planning;
-
-  const _PlanningDetailCard({required this.planning});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final primary = KColors.appNameColor;
-    final fmt = DateFormat('dd/MM/yyyy HH:mm');
-
-    final duration = planning.endTime.difference(planning.startTime);
-    final hours = duration.inHours;
-    final minutes = duration.inMinutes % 60;
-    final durationLabel =
-        minutes > 0 ? '${hours}h${minutes.toString().padLeft(2, '0')}' : '${hours}h';
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            primary.withValues(alpha: isDark ? 0.12 : 0.07),
-            primary.withValues(alpha: isDark ? 0.05 : 0.02),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: primary.withValues(alpha: isDark ? 0.28 : 0.18)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Équipe + durée
-          Row(
-            children: [
-              Icon(Icons.groups_rounded, size: 16, color: primary),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Équipe ${planning.team}',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: primary,
-                  ),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-                decoration: BoxDecoration(
-                  color: primary.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  durationLabel,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: primary,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          // Début
-          Row(
-            children: [
-              Icon(Icons.play_circle_outline_rounded,
-                  size: 14,
-                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade500),
-              const SizedBox(width: 7),
-              Text(
-                'Début : ',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade500,
-                ),
-              ),
-              Text(
-                fmt.format(planning.startTime),
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: isDark ? Colors.grey.shade200 : Colors.grey.shade800,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 5),
-          // Fin
-          Row(
-            children: [
-              Icon(Icons.stop_circle_outlined,
-                  size: 14,
-                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade500),
-              const SizedBox(width: 7),
-              Text(
-                'Fin : ',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade500,
-                ),
-              ),
-              Text(
-                fmt.format(planning.endTime),
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: isDark ? Colors.grey.shade200 : Colors.grey.shade800,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Card de sélection de la période de remplacement avec pickers inline.
-/// Change de couleur selon l'état : neutre → vert (valide) → rouge (erreur).
-class _ReplacementPeriodCard extends StatelessWidget {
-  final DateTime? startDateTime;
-  final DateTime? endDateTime;
-  final String? errorMessage;
-  final List<Map<String, DateTime>> uncoveredPeriods;
-  final Future<bool> Function() onPickStart;
-  final Future<bool> Function() onPickEnd;
-
-  const _ReplacementPeriodCard({
-    required this.startDateTime,
-    required this.endDateTime,
-    required this.errorMessage,
-    required this.uncoveredPeriods,
-    required this.onPickStart,
-    required this.onPickEnd,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final fmt = DateFormat('dd/MM/yyyy HH:mm');
-
-    final hasError = errorMessage != null && errorMessage!.isNotEmpty;
-    final isValid = !hasError && startDateTime != null && endDateTime != null;
-
-    // Couleurs adaptatives selon l'état
-    final Color containerColor;
-    final Color borderColor;
-    final Color accentColor;
-
-    if (hasError) {
-      containerColor = isDark
-          ? Colors.red.withValues(alpha: 0.12)
-          : Colors.red.shade50;
-      borderColor = isDark
-          ? Colors.red.withValues(alpha: 0.40)
-          : Colors.red.shade300;
-      accentColor = isDark ? Colors.red.shade300 : Colors.red.shade700;
-    } else if (isValid) {
-      containerColor = isDark
-          ? Colors.green.withValues(alpha: 0.10)
-          : Colors.green.shade50;
-      borderColor = isDark
-          ? Colors.green.withValues(alpha: 0.35)
-          : Colors.green.shade300;
-      accentColor = isDark ? Colors.green.shade300 : Colors.green.shade700;
-    } else {
-      containerColor = isDark
-          ? Colors.white.withValues(alpha: 0.04)
-          : Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3);
-      borderColor = isDark
-          ? Colors.white.withValues(alpha: 0.12)
-          : Theme.of(context).colorScheme.primary.withValues(alpha: 0.3);
-      accentColor = Theme.of(context).colorScheme.primary;
-    }
-
-    final subtleColor = isDark ? Colors.grey.shade400 : Colors.grey.shade600;
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: containerColor,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: borderColor),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Picker début
-          _InlineDatePicker(
-            label: 'Début',
-            dateTime: startDateTime,
-            placeholder: 'Sélectionner...',
-            fmt: fmt,
-            accentColor: accentColor,
-            subtleColor: subtleColor,
-            onTap: onPickStart,
-          ),
-          const SizedBox(height: 8),
-          Divider(
-            height: 1,
-            color: isDark
-                ? Colors.white.withValues(alpha: 0.08)
-                : Colors.grey.withValues(alpha: 0.15),
-          ),
-          const SizedBox(height: 8),
-          // Picker fin
-          _InlineDatePicker(
-            label: 'Fin',
-            dateTime: endDateTime,
-            placeholder: 'Sélectionner...',
-            fmt: fmt,
-            accentColor: accentColor,
-            subtleColor: subtleColor,
-            onTap: onPickEnd,
-          ),
-
-          // Message d'erreur
-          if (hasError) ...[
-            const SizedBox(height: 10),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(Icons.error_outline_rounded,
-                    size: 14,
-                    color: isDark ? Colors.red.shade300 : Colors.red.shade700),
-                const SizedBox(width: 7),
-                Expanded(
-                  child: Text(
-                    errorMessage!,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: isDark ? Colors.red.shade300 : Colors.red.shade700,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-
-          // Périodes non couvertes
-          if (uncoveredPeriods.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              decoration: BoxDecoration(
-                color: isDark
-                    ? Colors.orange.withValues(alpha: 0.12)
-                    : Colors.orange.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: isDark
-                      ? Colors.orange.withValues(alpha: 0.30)
-                      : Colors.orange.shade200,
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Périodes à couvrir :',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: isDark
-                          ? Colors.orange.shade300
-                          : Colors.orange.shade800,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  ...uncoveredPeriods.map((g) {
-                    final s = g['start']!;
-                    final e = g['end']!;
-                    return Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 3,
-                            height: 14,
-                            margin: const EdgeInsets.only(right: 8),
-                            decoration: BoxDecoration(
-                              color: Colors.orange.shade400,
-                              borderRadius: BorderRadius.circular(2),
-                            ),
-                          ),
-                          Expanded(
-                            child: Text(
-                              '${fmt.format(s)} → ${fmt.format(e)}',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: isDark
-                                    ? Colors.orange.shade300
-                                    : Colors.orange.shade800,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }),
-                ],
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-/// Ligne de sélection de date/heure inline (style "Modifier la présence").
-class _InlineDatePicker extends StatelessWidget {
-  final String label;
-  final DateTime? dateTime;
-  final String placeholder;
-  final DateFormat fmt;
-  final Color accentColor;
-  final Color subtleColor;
-  final Future<bool> Function() onTap;
-
-  const _InlineDatePicker({
-    required this.label,
-    required this.dateTime,
-    required this.placeholder,
-    required this.fmt,
-    required this.accentColor,
-    required this.subtleColor,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final isSet = dateTime != null;
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(
-          children: [
-            // Label
-            SizedBox(
-              width: 44,
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  color: subtleColor,
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            // Picker button
-            Expanded(
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                decoration: BoxDecoration(
-                  color: isDark
-                      ? Colors.white.withValues(alpha: 0.06)
-                      : Colors.white.withValues(alpha: 0.7),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: isSet
-                        ? accentColor.withValues(alpha: 0.4)
-                        : (isDark
-                            ? Colors.white.withValues(alpha: 0.10)
-                            : Colors.grey.withValues(alpha: 0.25)),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.schedule_rounded,
-                      size: 15,
-                      color: isSet ? accentColor : subtleColor,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        isSet ? fmt.format(dateTime!) : placeholder,
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight:
-                              isSet ? FontWeight.w600 : FontWeight.w400,
-                          color: isSet ? accentColor : subtleColor,
-                        ),
-                      ),
-                    ),
-                    Icon(
-                      Icons.edit_rounded,
-                      size: 13,
-                      color: subtleColor.withValues(alpha: 0.6),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }

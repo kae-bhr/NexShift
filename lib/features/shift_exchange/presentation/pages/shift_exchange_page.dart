@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:nexshift_app/core/data/models/planning_model.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/repositories/user_repository.dart';
 import 'package:nexshift_app/core/services/shift_exchange_service.dart';
 import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
+import 'package:nexshift_app/core/presentation/widgets/planning_form_widgets.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
 
 /// Page de création d'une demande d'échange d'astreinte
@@ -48,7 +48,9 @@ class _ShiftExchangePageState extends State<ShiftExchangePage> {
 
   Future<void> _loadAgentsInPlanning() async {
     try {
-      final users = await UserRepository().getByStation(widget.planning.station);
+      final users = await UserRepository().getByStation(
+        widget.planning.station,
+      );
       final baseAgentIds = widget.planning.agents
           .where((a) => a.replacedAgentId == null)
           .map((a) => a.agentId)
@@ -70,9 +72,6 @@ class _ShiftExchangePageState extends State<ShiftExchangePage> {
   }
 
   bool get _isValid => _initiatorId != null && _initiatorId!.isNotEmpty;
-
-  String _formatDateTime(DateTime dt) =>
-      DateFormat('dd/MM/yyyy HH:mm').format(dt);
 
   Future<void> _proposeExchange() async {
     if (_isSubmitting || !_isValid) return;
@@ -132,50 +131,10 @@ class _ShiftExchangePageState extends State<ShiftExchangePage> {
         title: "Échange d'astreinte",
         bottomColor: KColors.appNameColor,
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          // ── Sélection de l'agent ────────────────────────────────────────
-          _SectionHeader(
-            icon: Icons.person_search_rounded,
-            label: 'Agent demandeur',
-          ),
-          const SizedBox(height: 8),
-          if (_canSelectInitiator)
-            _StyledDropdown<String>(
-              value: _initiatorId,
-              hint: 'Sélectionnez un agent',
-              items: _agentsInPlanning
-                  .map((u) => DropdownMenuItem(
-                        value: u.id,
-                        child: Text(u.displayName),
-                      ))
-                  .toList(),
-              onChanged: (v) => setState(() => _initiatorId = v),
-            )
-          else
-            _ReadOnlyField(
-              label: 'Agent à échanger',
-              value: widget.currentUser.displayName,
-            ),
-
-          const SizedBox(height: 20),
-
-          // ── Détails de l'astreinte ──────────────────────────────────────
-          _SectionHeader(
-            icon: Icons.event_rounded,
-            label: "Astreinte à échanger",
-          ),
-          const SizedBox(height: 8),
-          _PlanningInfoCard(
-            planning: widget.planning,
-            formatDateTime: _formatDateTime,
-          ),
-
-          const SizedBox(height: 24),
-
-          // ── Bouton principal ────────────────────────────────────────────
-          FilledButton.icon(
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: FilledButton.icon(
             onPressed: (_isSubmitting || !_isValid) ? null : _proposeExchange,
             icon: _isSubmitting
                 ? const SizedBox(
@@ -199,8 +158,48 @@ class _ShiftExchangePageState extends State<ShiftExchangePage> {
               ),
             ),
           ),
+        ),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          // ── Sélection de l'agent ────────────────────────────────────────
+          _SectionHeader(
+            icon: Icons.person_search_rounded,
+            label: 'Agent demandeur',
+          ),
+          const SizedBox(height: 8),
+          if (_canSelectInitiator)
+            _StyledDropdown<String>(
+              value: _initiatorId,
+              hint: 'Sélectionnez un agent',
+              items: _agentsInPlanning
+                  .map(
+                    (u) => DropdownMenuItem(
+                      value: u.id,
+                      child: Text(u.displayName),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (v) => setState(() => _initiatorId = v),
+            )
+          else
+            _ReadOnlyField(
+              label: 'Agent à échanger',
+              value: widget.currentUser.displayName,
+            ),
 
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
+
+          // ── Détails de l'astreinte ──────────────────────────────────────
+          _SectionHeader(
+            icon: Icons.event_rounded,
+            label: "Astreinte à échanger",
+          ),
+          const SizedBox(height: 8),
+          SharedPlanningDetailCard(planning: widget.planning),
+
+          const SizedBox(height: 16),
 
           // ── Comment ça marche ───────────────────────────────────────────
           _SectionHeader(
@@ -243,8 +242,7 @@ class _ShiftExchangePageState extends State<ShiftExchangePage> {
                 const SizedBox(height: 12),
                 _InfoStep(
                   number: '4',
-                  text:
-                      "Les chefs des deux équipes devront valider l'échange",
+                  text: "Les chefs des deux équipes devront valider l'échange",
                 ),
               ],
             ),
@@ -373,174 +371,6 @@ class _ReadOnlyField extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _PlanningInfoCard extends StatelessWidget {
-  final Planning planning;
-  final String Function(DateTime) formatDateTime;
-
-  const _PlanningInfoCard({
-    required this.planning,
-    required this.formatDateTime,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final primary = KColors.appNameColor;
-
-    final duration = planning.endTime.difference(planning.startTime);
-    final hours = duration.inHours;
-    final minutes = duration.inMinutes % 60;
-    final durationLabel =
-        minutes > 0 ? '${hours}h${minutes.toString().padLeft(2, '0')}' : '${hours}h';
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            primary.withValues(alpha: isDark ? 0.12 : 0.08),
-            primary.withValues(alpha: isDark ? 0.06 : 0.03),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: primary.withValues(alpha: isDark ? 0.3 : 0.2),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Équipe + durée
-          Row(
-            children: [
-              Icon(Icons.groups_rounded, size: 18, color: primary),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Équipe ${planning.team}',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: primary,
-                  ),
-                ),
-              ),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: primary.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  durationLabel,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: primary,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _DateRow(
-            icon: Icons.play_circle_outline_rounded,
-            label: 'Début',
-            value: formatDateTime(planning.startTime),
-          ),
-          const SizedBox(height: 6),
-          _DateRow(
-            icon: Icons.stop_circle_outlined,
-            label: 'Fin',
-            value: formatDateTime(planning.endTime),
-          ),
-          const SizedBox(height: 12),
-          // Info badge
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: isDark
-                  ? Colors.white.withValues(alpha: 0.06)
-                  : Colors.white.withValues(alpha: 0.7),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: primary.withValues(alpha: 0.15),
-              ),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.info_outline_rounded,
-                  size: 14,
-                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    "Toute la durée de l'astreinte sera proposée à l'échange",
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: isDark
-                          ? Colors.grey.shade400
-                          : Colors.grey.shade600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DateRow extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-
-  const _DateRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Row(
-      children: [
-        Icon(
-          icon,
-          size: 16,
-          color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
-        ),
-        const SizedBox(width: 8),
-        Text(
-          '$label : ',
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
-            color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
-          ),
-        ),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: isDark ? Colors.grey.shade200 : Colors.grey.shade800,
-          ),
-        ),
-      ],
     );
   }
 }

@@ -11,6 +11,7 @@ import 'package:nexshift_app/features/planning/presentation/pages/calendar_previ
 import 'package:nexshift_app/features/planning/presentation/pages/shift_exceptions_page.dart';
 import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
+import 'package:nexshift_app/core/config/environment_config.dart';
 
 class PlanningRulesListPage extends StatefulWidget {
   const PlanningRulesListPage({super.key});
@@ -72,7 +73,7 @@ class _PlanningRulesListPageState extends State<PlanningRulesListPage> {
 
     try {
       final stationDoc = await FirebaseFirestore.instance
-          .collection('stations')
+          .collection(EnvironmentConfig.stationsCollectionPath)
           .doc(_currentUser!.station)
           .get();
 

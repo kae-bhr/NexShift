@@ -8,7 +8,14 @@ enum ReplacementSubTab {
   history,      // Historique
 }
 
-/// Configuration d'un sous-onglet
+/// Enum pour les sous-onglets de recherche d'agent (AgentQuery)
+enum AgentQuerySubTab {
+  pending,     // Recherches en attente (notifié)
+  myRequests,  // Mes demandes (créées par moi)
+  history,     // Historique (matchées, annulées)
+}
+
+/// Configuration d'un sous-onglet de remplacement
 class SubTabConfig {
   final ReplacementSubTab type;
   final IconData icon;
@@ -21,7 +28,20 @@ class SubTabConfig {
   });
 }
 
-/// Liste des sous-onglets disponibles
+/// Configuration d'un sous-onglet de recherche d'agent
+class AgentQuerySubTabConfig {
+  final AgentQuerySubTab type;
+  final IconData icon;
+  final String label;
+
+  const AgentQuerySubTabConfig({
+    required this.type,
+    required this.icon,
+    required this.label,
+  });
+}
+
+/// Liste des sous-onglets disponibles (remplacements)
 const List<SubTabConfig> replacementSubTabs = [
   SubTabConfig(
     type: ReplacementSubTab.pending,
@@ -30,7 +50,7 @@ const List<SubTabConfig> replacementSubTabs = [
   ),
   SubTabConfig(
     type: ReplacementSubTab.myRequests,
-    icon: Icons.person,
+    icon: Icons.person_search_rounded,
     label: 'Mes demandes',
   ),
   SubTabConfig(
@@ -40,6 +60,25 @@ const List<SubTabConfig> replacementSubTabs = [
   ),
   SubTabConfig(
     type: ReplacementSubTab.history,
+    icon: Icons.history,
+    label: 'Historique',
+  ),
+];
+
+/// Liste des sous-onglets de recherche d'agent
+const List<AgentQuerySubTabConfig> agentQuerySubTabs = [
+  AgentQuerySubTabConfig(
+    type: AgentQuerySubTab.pending,
+    icon: Icons.hourglass_empty,
+    label: 'En attente',
+  ),
+  AgentQuerySubTabConfig(
+    type: AgentQuerySubTab.myRequests,
+    icon: Icons.person_search_rounded,
+    label: 'Mes demandes',
+  ),
+  AgentQuerySubTabConfig(
+    type: AgentQuerySubTab.history,
     icon: Icons.history,
     label: 'Historique',
   ),

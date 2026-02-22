@@ -2,21 +2,12 @@ import 'package:flutter/foundation.dart';
 import 'package:nexshift_app/core/data/models/station_model.dart';
 import 'package:nexshift_app/core/services/firestore_service.dart';
 import 'package:nexshift_app/core/config/environment_config.dart';
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 
 class StationRepository {
-  static const _collectionName = 'stations';
   final FirestoreService _firestore = FirestoreService();
 
-  /// Génère le chemin de collection en fonction de l'environnement
   String _getCollectionPath() {
-    if (EnvironmentConfig.useStationSubcollections) {
-      final sdisId = SDISContext().currentSDISId;
-      if (sdisId != null && sdisId.isNotEmpty) {
-        return 'sdis/$sdisId/$_collectionName';
-      }
-    }
-    return _collectionName;
+    return EnvironmentConfig.stationsCollectionPath;
   }
 
   /// Récupère toutes les stations depuis Firestore

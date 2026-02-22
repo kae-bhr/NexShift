@@ -414,8 +414,9 @@ class _PlanningCardState extends State<PlanningCard> {
       try {
         // Extract availability ID from planning ID
         final availabilityId = planningId.replaceFirst('availability_', '');
+        final currentUser = await UserStorageHelper.loadUser();
         final repo = LocalRepository();
-        await repo.deleteAvailability(availabilityId);
+        await repo.deleteAvailability(availabilityId, stationId: currentUser?.station);
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -550,7 +551,7 @@ class _PlanningCardState extends State<PlanningCard> {
     if (user == null) return [];
     final repo = LocalRepository();
     final rawSubshifts = await repo.getSubshifts(stationId: user.station);
-    final availabilities = await repo.getAvailabilities();
+    final availabilities = await repo.getAvailabilities(stationId: user.station);
     // Résoudre les cascades de remplacements
     final subshifts = resolveReplacementCascades(rawSubshifts);
     final planning = widget.planning;

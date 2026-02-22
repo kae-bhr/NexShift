@@ -10,7 +10,6 @@ import 'package:nexshift_app/features/settings/presentation/pages/admin_page.dar
 import 'package:nexshift_app/features/station/presentation/pages/station_shell_page.dart';
 import 'package:nexshift_app/features/skills/presentation/pages/skills_page.dart';
 import 'package:nexshift_app/features/app_shell/presentation/widgets/navbar_widget.dart';
-import 'package:nexshift_app/features/app_shell/presentation/widgets/station_switcher_button.dart';
 import 'package:nexshift_app/features/teams/presentation/pages/team_page.dart';
 import 'package:nexshift_app/features/availability/presentation/pages/add_availability_page.dart';
 import 'package:nexshift_app/features/replacement/presentation/pages/replacement_requests_list_page.dart';
@@ -360,9 +359,10 @@ class _WidgetTreeState extends State<WidgetTree> {
                           (user.admin ||
                               user.status == KConstants.statusLeader))
                         FutureBuilder<int>(
-                          future: CloudFunctionsService().getPendingMembershipRequestsCount(
-                            stationId: user.station,
-                          ),
+                          future: CloudFunctionsService()
+                              .getPendingMembershipRequestsCount(
+                                stationId: user.station,
+                              ),
                           builder: (context, snapshot) {
                             final pendingCount = snapshot.data ?? 0;
                             return TextButton(
@@ -381,19 +381,26 @@ class _WidgetTreeState extends State<WidgetTree> {
                                   label: Text('$pendingCount'),
                                   child: Icon(
                                     Icons.admin_panel_settings,
-                                    color: Theme.of(context).colorScheme.primary,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
                                   ),
                                 ),
                                 title: Text(
                                   "Administration",
                                   style: TextStyle(
-                                    color: Theme.of(context).colorScheme.tertiary,
-                                    fontSize:
-                                        KTextStyle.descriptionTextStyle.fontSize,
-                                    fontFamily:
-                                        KTextStyle.descriptionTextStyle.fontFamily,
-                                    fontWeight:
-                                        KTextStyle.descriptionTextStyle.fontWeight,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.tertiary,
+                                    fontSize: KTextStyle
+                                        .descriptionTextStyle
+                                        .fontSize,
+                                    fontFamily: KTextStyle
+                                        .descriptionTextStyle
+                                        .fontFamily,
+                                    fontWeight: KTextStyle
+                                        .descriptionTextStyle
+                                        .fontWeight,
                                   ),
                                 ),
                               ),
@@ -412,139 +419,80 @@ class _WidgetTreeState extends State<WidgetTree> {
                           );
                         },
                         child: ValueListenableBuilder<bool>(
-                          valueListenable:
-                              BadgeCountService().hasReplacementPending,
+                          valueListenable: BadgeCountService().hasReplacementPending,
                           builder: (context, hasReplacementPending, _) {
                             return ValueListenableBuilder<bool>(
-                              valueListenable:
-                                  BadgeCountService().hasExchangePending,
+                              valueListenable: BadgeCountService().hasExchangePending,
                               builder: (context, hasExchangePending, _) {
                                 return ValueListenableBuilder<bool>(
-                                  valueListenable: BadgeCountService()
-                                      .hasExchangeNeedingSelection,
-                                  builder: (context, hasExchangeNeedingSelection, _) {
+                                  valueListenable: BadgeCountService().hasAgentQueryPending,
+                                  builder: (context, hasAgentQueryPending, _) {
                                     return ValueListenableBuilder<bool>(
-                                      valueListenable: BadgeCountService()
-                                          .hasReplacementValidation,
-                                      builder: (context, hasReplacementValidation, _) {
+                                      valueListenable: BadgeCountService().hasExchangeNeedingSelection,
+                                      builder: (context, hasExchangeNeedingSelection, _) {
                                         return ValueListenableBuilder<bool>(
-                                          valueListenable: BadgeCountService()
-                                              .hasExchangeValidation,
-                                          builder: (context, hasExchangeValidation, _) {
-                                            final hasValidation =
-                                                hasReplacementValidation ||
-                                                hasExchangeValidation;
+                                          valueListenable: BadgeCountService().hasReplacementValidation,
+                                          builder: (context, hasReplacementValidation, _) {
+                                            return ValueListenableBuilder<bool>(
+                                              valueListenable: BadgeCountService().hasExchangeValidation,
+                                              builder: (context, hasExchangeValidation, _) {
+                                                // Pastille 1 : appNameColor si n'importe quelle demande pending ou sélection à faire
+                                                final hasPending =
+                                                    hasReplacementPending ||
+                                                    hasExchangePending ||
+                                                    hasAgentQueryPending ||
+                                                    hasExchangeNeedingSelection;
+                                                // Pastille 2 : blue si validation en attente
+                                                final hasValidation =
+                                                    hasReplacementValidation ||
+                                                    hasExchangeValidation;
 
-                                            return ListTile(
-                                              minTileHeight: 0.0,
-                                              leading: Icon(
-                                                Icons.swap_horiz,
-                                                color: Theme.of(
-                                                  context,
-                                                ).colorScheme.primary,
-                                              ),
-                                              title: Text(
-                                                "Remplacements",
-                                                style: TextStyle(
-                                                  color: Theme.of(
-                                                    context,
-                                                  ).colorScheme.tertiary,
-                                                  fontSize: KTextStyle
-                                                      .descriptionTextStyle
-                                                      .fontSize,
-                                                  fontFamily: KTextStyle
-                                                      .descriptionTextStyle
-                                                      .fontFamily,
-                                                  fontWeight: KTextStyle
-                                                      .descriptionTextStyle
-                                                      .fontWeight,
-                                                ),
-                                              ),
-                                              trailing:
-                                                  (!hasReplacementPending &&
-                                                      !hasExchangePending &&
-                                                      !hasExchangeNeedingSelection &&
-                                                      !hasValidation)
-                                                  ? const SizedBox.shrink()
-                                                  : Row(
-                                                      mainAxisSize:
-                                                          MainAxisSize.min,
-                                                      children: [
-                                                        // Pastille ronde AppNameColor pour demandes de remplacement
-                                                        if (hasReplacementPending)
-                                                          Container(
-                                                            width: 12,
-                                                            height: 12,
-                                                            decoration: BoxDecoration(
-                                                              color:
-                                                                  Theme.of(
-                                                                        context,
-                                                                      )
-                                                                      .colorScheme
-                                                                      .primary,
-                                                              shape: BoxShape
-                                                                  .circle,
-                                                            ),
-                                                          ),
-                                                        if (hasReplacementPending &&
-                                                            (hasExchangePending ||
-                                                                hasExchangeNeedingSelection ||
-                                                                hasValidation))
-                                                          const SizedBox(
-                                                            width: 6,
-                                                          ),
-                                                        // Pastille ronde verte pour demandes d'échange
-                                                        if (hasExchangePending)
-                                                          Container(
-                                                            width: 12,
-                                                            height: 12,
-                                                            decoration:
-                                                                const BoxDecoration(
-                                                                  color: Colors
-                                                                      .green,
-                                                                  shape: BoxShape
-                                                                      .circle,
-                                                                ),
-                                                          ),
-                                                        if (hasExchangePending &&
-                                                            (hasExchangeNeedingSelection ||
-                                                                hasValidation))
-                                                          const SizedBox(
-                                                            width: 6,
-                                                          ),
-                                                        // Pastille ronde violette pour échanges avec propositions nécessitant sélection
-                                                        if (hasExchangeNeedingSelection)
-                                                          Container(
-                                                            width: 12,
-                                                            height: 12,
-                                                            decoration:
-                                                                const BoxDecoration(
-                                                                  color: Colors
-                                                                      .purple,
-                                                                  shape: BoxShape
-                                                                      .circle,
-                                                                ),
-                                                          ),
-                                                        if (hasExchangeNeedingSelection &&
-                                                            hasValidation)
-                                                          const SizedBox(
-                                                            width: 6,
-                                                          ),
-                                                        // Pastille ronde bleue pour validations en attente
-                                                        if (hasValidation)
-                                                          Container(
-                                                            width: 12,
-                                                            height: 12,
-                                                            decoration:
-                                                                const BoxDecoration(
-                                                                  color: Colors
-                                                                      .blue,
-                                                                  shape: BoxShape
-                                                                      .circle,
-                                                                ),
-                                                          ),
-                                                      ],
+                                                return ListTile(
+                                                  minTileHeight: 0.0,
+                                                  leading: Icon(
+                                                    Icons.swap_horiz,
+                                                    color: Theme.of(context).colorScheme.primary,
+                                                  ),
+                                                  title: Text(
+                                                    "Demandes",
+                                                    style: TextStyle(
+                                                      color: Theme.of(context).colorScheme.tertiary,
+                                                      fontSize: KTextStyle.descriptionTextStyle.fontSize,
+                                                      fontFamily: KTextStyle.descriptionTextStyle.fontFamily,
+                                                      fontWeight: KTextStyle.descriptionTextStyle.fontWeight,
                                                     ),
+                                                  ),
+                                                  trailing: (!hasPending && !hasValidation)
+                                                      ? const SizedBox.shrink()
+                                                      : Row(
+                                                          mainAxisSize: MainAxisSize.min,
+                                                          children: [
+                                                            // Pastille appNameColor : demandes en attente
+                                                            if (hasPending)
+                                                              Container(
+                                                                width: 12,
+                                                                height: 12,
+                                                                decoration: BoxDecoration(
+                                                                  color: KColors.appNameColor,
+                                                                  shape: BoxShape.circle,
+                                                                ),
+                                                              ),
+                                                            if (hasPending && hasValidation)
+                                                              const SizedBox(width: 6),
+                                                            // Pastille blue : validations en attente
+                                                            if (hasValidation)
+                                                              Container(
+                                                                width: 12,
+                                                                height: 12,
+                                                                decoration: const BoxDecoration(
+                                                                  color: Colors.blue,
+                                                                  shape: BoxShape.circle,
+                                                                ),
+                                                              ),
+                                                          ],
+                                                        ),
+                                                );
+                                              },
                                             );
                                           },
                                         );

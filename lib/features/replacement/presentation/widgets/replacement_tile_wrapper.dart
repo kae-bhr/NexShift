@@ -3,7 +3,7 @@ import 'package:nexshift_app/core/presentation/widgets/unified_request_tile/unif
 import 'package:nexshift_app/core/services/replacement_notification_service.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/repositories/user_repository.dart';
-import 'package:nexshift_app/core/config/environment_config.dart';
+import 'package:flutter/foundation.dart';
 import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/core/utils/station_name_cache.dart';
 import 'package:nexshift_app/features/replacement/presentation/widgets/filtered_requests_view.dart';
@@ -186,7 +186,7 @@ class _ReplacementTileWrapperState extends State<ReplacementTileWrapper> {
     }
 
     // Afficher le bouton DEV uniquement en mode DEV et pour les demandes pending de type replacement
-    final showDevButton = EnvironmentConfig.isDev &&
+    final showDevButton = kDebugMode &&
         widget.request.status == ReplacementRequestStatus.pending &&
         widget.request.requestType == RequestType.replacement;
 

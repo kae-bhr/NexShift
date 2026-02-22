@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:nexshift_app/core/config/environment_config.dart';
 import 'package:nexshift_app/core/data/datasources/notifiers.dart';
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/core/data/models/replacement_acceptance_model.dart';
 import 'package:nexshift_app/core/data/models/station_model.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
@@ -9,7 +8,6 @@ import 'package:nexshift_app/core/repositories/replacement_acceptance_repository
 import 'package:nexshift_app/core/repositories/station_repository.dart';
 import 'package:nexshift_app/core/repositories/user_repository.dart';
 import 'package:nexshift_app/core/services/replacement_notification_service.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:intl/intl.dart';
 
 /// Onglet affichant les acceptations de remplacement en attente de validation
@@ -258,14 +256,8 @@ class _AcceptanceCardState extends State<_AcceptanceCard> {
       }
 
       // Construire le chemin vers la demande de remplacement
-      final requestsPath =
-          EnvironmentConfig.useStationSubcollections &&
-              currentUser.station.isNotEmpty
-          ? (SDISContext().currentSDISId != null &&
-                    SDISContext().currentSDISId!.isNotEmpty
-                ? 'sdis/${SDISContext().currentSDISId}/stations/${currentUser.station}/replacements/automatic/replacementRequests'
-                : 'stations/${currentUser.station}/replacements/automatic/replacementRequests')
-          : 'replacementRequests';
+      final requestsPath = EnvironmentConfig.getCollectionPath(
+          'replacements/automatic/replacementRequests', currentUser.station);
 
       debugPrint(
         '🔍 [ACCEPTANCE_CARD] Looking for request at: $requestsPath/${widget.acceptance.requestId}',

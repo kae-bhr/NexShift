@@ -7,14 +7,12 @@ import 'package:nexshift_app/core/data/models/position_model.dart';
 import 'package:nexshift_app/core/repositories/user_repository.dart';
 import 'package:nexshift_app/core/repositories/position_repository.dart';
 import 'package:nexshift_app/core/repositories/user_stations_repository.dart';
-import 'package:nexshift_app/core/services/debug_logger.dart';
-import 'package:nexshift_app/core/services/firebase_auth_service.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/core/utils/station_name_cache.dart';
 import 'package:nexshift_app/core/services/cloud_functions_service.dart';
-import 'package:nexshift_app/core/config/environment_config.dart';
+import 'package:nexshift_app/core/services/agent_suspension_service.dart';
 import 'package:nexshift_app/features/skills/presentation/pages/skills_page.dart';
 import 'package:nexshift_app/features/settings/presentation/pages/similar_agents_page.dart';
 
@@ -84,7 +82,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
         ordered = [KSkills.incCA, KSkills.incCE, KSkills.inc, KSkills.incA];
         break;
       case 'COD':
-        ordered = [KSkills.cod2, KSkills.cod1, KSkills.cod0];
+        ordered = [KSkills.cod2PL, KSkills.cod2VL, KSkills.cod1, KSkills.cod0];
         break;
       default:
         ordered = [];
@@ -209,12 +207,26 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
   Widget _buildAgentsTab() {
     final usersWithoutTeam =
         widget.allUsers.where((u) {
-          return !widget.allTeams.any((t) => t.id == u.team);
+          return !widget.allTeams.any((t) => t.id == u.team) && !u.isSuspended;
         }).toList()..sort((a, b) {
           final lastNameCompare = a.lastName.compareTo(b.lastName);
           if (lastNameCompare != 0) return lastNameCompare;
           return a.firstName.compareTo(b.firstName);
         });
+
+    // Agents en suspension d'engagement (retirés de leur équipe, section dédiée)
+    final suspendedFromDutyUsers =
+        widget.allUsers
+            .where(
+              (u) =>
+                  u.agentAvailabilityStatus ==
+                  AgentAvailabilityStatus.suspendedFromDuty,
+            )
+            .toList()
+          ..sort((a, b) {
+            final c = a.lastName.compareTo(b.lastName);
+            return c != 0 ? c : a.firstName.compareTo(b.firstName);
+          });
 
     // Trier les équipes par ordre
     final sortedTeams = List<Team>.from(widget.allTeams)
@@ -255,7 +267,10 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                     ),
                     style: TextButton.styleFrom(
                       foregroundColor: KColors.appNameColor,
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),
                   ),
@@ -275,8 +290,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
 
             final isExpanded = _expandedTeams[team.id] ?? true;
 
-            final isDark =
-                    Theme.of(context).brightness == Brightness.dark;
+            final isDark = Theme.of(context).brightness == Brightness.dark;
             final surfaceColor = isDark
                 ? Colors.white.withValues(alpha: 0.05)
                 : Colors.white;
@@ -305,7 +319,9 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                       child: Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: team.color.withValues(alpha: isDark ? 0.15 : 0.08),
+                          color: team.color.withValues(
+                            alpha: isDark ? 0.15 : 0.08,
+                          ),
                           borderRadius: const BorderRadius.vertical(
                             top: Radius.circular(10),
                           ),
@@ -348,7 +364,9 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                                     '${teamUsers.length} agent${teamUsers.length > 1 ? 's' : ''}',
                                     style: TextStyle(
                                       fontSize: 12,
-                                      color: isDark ? Colors.grey[400] : Colors.grey[600],
+                                      color: isDark
+                                          ? Colors.grey[400]
+                                          : Colors.grey[600],
                                     ),
                                   ),
                                 ],
@@ -366,7 +384,10 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                     ),
 
                     // Divider
-                    Divider(height: 1, color: team.color.withValues(alpha: 0.3)),
+                    Divider(
+                      height: 1,
+                      color: team.color.withValues(alpha: 0.3),
+                    ),
 
                     // Agents list (collapsible) with DragTarget for leaders
                     if (isExpanded)
@@ -444,8 +465,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                           },
                         )
                       else
-                        ...teamUsers
-                            .map((user) => _buildAgentCard(user, team)),
+                        ...teamUsers.map((user) => _buildAgentCard(user, team)),
                   ],
                 ),
               ),
@@ -561,8 +581,95 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                             },
                           )
                         else
-                          ...usersWithoutTeam
-                              .map((user) => _buildAgentCard(user, null)),
+                          ...usersWithoutTeam.map(
+                            (user) => _buildAgentCard(user, null),
+                          ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+
+          // Section agents en suspension d'engagement (visible leaders/admins uniquement)
+          if (_isLeader && suspendedFromDutyUsers.isNotEmpty)
+            SliverToBoxAdapter(
+              child: Builder(
+                builder: (context) {
+                  final isDark =
+                      Theme.of(context).brightness == Brightness.dark;
+                  return Container(
+                    margin: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? Colors.white.withValues(alpha: 0.05)
+                          : Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.grey.withValues(alpha: 0.4),
+                        width: 1.5,
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.withValues(
+                              alpha: isDark ? 0.15 : 0.08,
+                            ),
+                            borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(10),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.pause_circle_outline_rounded,
+                                color: isDark
+                                    ? Colors.grey.shade400
+                                    : Colors.grey.shade600,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Suspension d\'engagement',
+                                      style: TextStyle(
+                                        color: isDark
+                                            ? Colors.grey.shade300
+                                            : Colors.grey.shade700,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    Text(
+                                      '${suspendedFromDutyUsers.length} agent${suspendedFromDutyUsers.length > 1 ? 's' : ''}',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: isDark
+                                            ? Colors.grey[400]
+                                            : Colors.grey[600],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Divider(
+                          height: 1,
+                          color: Colors.grey.withValues(alpha: 0.3),
+                        ),
+                        ...suspendedFromDutyUsers.map(
+                          (user) => _buildAgentCard(user, null),
+                        ),
                       ],
                     ),
                   );
@@ -598,7 +705,8 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
           builder: (context, setState) {
             return Dialog(
               shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20)),
+                borderRadius: BorderRadius.circular(20),
+              ),
               child: Padding(
                 padding: const EdgeInsets.all(24),
                 child: Column(
@@ -610,16 +718,16 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .primaryContainer,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.primaryContainer,
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Icon(
                             Icons.person_add,
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onPrimaryContainer,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onPrimaryContainer,
                             size: 28,
                           ),
                         ),
@@ -630,17 +738,13 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                             children: [
                               Text(
                                 'Ajouter un agent',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .titleLarge
+                                style: Theme.of(context).textTheme.titleLarge
                                     ?.copyWith(fontWeight: FontWeight.bold),
                               ),
                               const SizedBox(height: 4),
                               Text(
                                 'Pré-enregistrement par matricule',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodyMedium
+                                style: Theme.of(context).textTheme.bodyMedium
                                     ?.copyWith(color: Colors.grey[600]),
                               ),
                             ],
@@ -678,16 +782,20 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                       ),
                       child: Row(
                         children: [
-                          Icon(Icons.info_outline,
-                              color: Colors.blue.shade700, size: 20),
+                          Icon(
+                            Icons.info_outline,
+                            color: Colors.blue.shade700,
+                            size: 20,
+                          ),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
                               'L\'agent apparaîtra dans l\'effectif. '
                               'Il pourra créer son compte plus tard et sera automatiquement affilié.',
                               style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.blue.shade700),
+                                fontSize: 12,
+                                color: Colors.blue.shade700,
+                              ),
                             ),
                           ),
                         ],
@@ -709,8 +817,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                                 ? null
                                 : () => Navigator.pop(dialogContext),
                             style: OutlinedButton.styleFrom(
-                              padding:
-                                  const EdgeInsets.symmetric(vertical: 12),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12),
                               ),
@@ -724,14 +831,17 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                             onPressed: isLoading
                                 ? null
                                 : () async {
-                                    final matricule =
-                                        matriculeController.text.trim();
+                                    final matricule = matriculeController.text
+                                        .trim();
                                     if (matricule.isEmpty) {
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
                                         const SnackBar(
-                                            content: Text(
-                                                'Veuillez entrer un matricule')),
+                                          content: Text(
+                                            'Veuillez entrer un matricule',
+                                          ),
+                                        ),
                                       );
                                       return;
                                     }
@@ -741,10 +851,10 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                                     try {
                                       await CloudFunctionsService()
                                           .preRegisterAgent(
-                                        stationId:
-                                            widget.currentUser!.station,
-                                        matricule: matricule,
-                                      );
+                                            stationId:
+                                                widget.currentUser!.station,
+                                            matricule: matricule,
+                                          );
 
                                       if (dialogContext.mounted) {
                                         Navigator.pop(dialogContext);
@@ -752,11 +862,13 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
 
                                       if (mounted) {
                                         widget.onDataChanged();
-                                        ScaffoldMessenger.of(context)
-                                            .showSnackBar(
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
                                           SnackBar(
                                             content: Text(
-                                                'Agent $matricule pré-enregistré'),
+                                              'Agent $matricule pré-enregistré',
+                                            ),
                                             backgroundColor: Colors.green,
                                           ),
                                         );
@@ -764,8 +876,9 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                                     } catch (e) {
                                       setState(() => isLoading = false);
                                       if (mounted) {
-                                        ScaffoldMessenger.of(context)
-                                            .showSnackBar(
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
                                           SnackBar(
                                             content: Text('Erreur: $e'),
                                             backgroundColor: Colors.red,
@@ -775,8 +888,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                                     }
                                   },
                             style: FilledButton.styleFrom(
-                              padding:
-                                  const EdgeInsets.symmetric(vertical: 12),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12),
                               ),
@@ -796,6 +908,41 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
     );
   }
 
+  Widget _buildSuspensionBadge(User user, bool isDark) {
+    final isSick =
+        user.agentAvailabilityStatus == AgentAvailabilityStatus.sickLeave;
+    final badgeColor = isSick ? Colors.red : Colors.grey;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+      decoration: BoxDecoration(
+        color: badgeColor.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isSick
+                ? Icons.medical_services_outlined
+                : Icons.pause_circle_outline_rounded,
+            size: 10,
+            color: isDark ? badgeColor.shade200 : badgeColor.shade700,
+          ),
+          const SizedBox(width: 3),
+          Text(
+            isSick ? 'Arrêt maladie' : 'Suspendu',
+            style: TextStyle(
+              fontSize: 10,
+              color: isDark ? badgeColor.shade200 : badgeColor.shade700,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildAgentCard(User user, Team? team) {
     final teamColor = team?.color ?? Colors.grey;
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -807,319 +954,344 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
         : null;
     final hasPosition = position != null && position.id.isNotEmpty;
     final subtitleColor = isDark ? Colors.grey[400] : Colors.grey[600];
+    final isSuspended = user.isSuspended;
 
-    return InkWell(
-      onTap: () async {
-        // Navigate to SkillsPage for any user
-        final result = await Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => SkillsPage(userId: user.id)),
-        );
-        // Reload data if skills were modified
-        if (result == true && mounted) {
-          widget.onDataChanged();
-        }
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          border: Border(
-            bottom: BorderSide(
-              color: isDark
-                  ? Colors.white.withValues(alpha: 0.07)
-                  : Colors.grey.shade100,
+    return Opacity(
+      opacity: isSuspended ? 0.55 : 1.0,
+      child: InkWell(
+        onTap: () async {
+          // Navigate to SkillsPage for any user
+          final result = await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => SkillsPage(userId: user.id),
             ),
-          ),
-        ),
-        child: Row(
-          children: [
-            // Avatar
-            CircleAvatar(
-              radius: 22,
-              backgroundColor: teamColor.withValues(alpha: 0.18),
-              child: Text(
-                user.initials,
-                style: TextStyle(
-                  color: teamColor,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15,
-                ),
+          );
+          // Reload data if skills were modified
+          if (result == true && mounted) {
+            widget.onDataChanged();
+          }
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.07)
+                    : Colors.grey.shade100,
               ),
             ),
-            const SizedBox(width: 12),
+          ),
+          child: Row(
+            children: [
+              // Avatar
+              CircleAvatar(
+                radius: 22,
+                backgroundColor: teamColor.withValues(alpha: 0.18),
+                child: Text(
+                  user.initials,
+                  style: TextStyle(
+                    color: teamColor,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
 
-            // Info
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    user.displayName,
-                    style: TextStyle(
-                      color: isDark ? Colors.white : Colors.black87,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 15,
-                      fontStyle: user.isPreRegistered
-                          ? FontStyle.italic
-                          : FontStyle.normal,
+              // Info
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      user.displayName,
+                      style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black87,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 15,
+                        fontStyle: user.isPreRegistered
+                            ? FontStyle.italic
+                            : FontStyle.normal,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 2),
-                  Row(
-                    children: [
-                      Icon(
-                        user.status == KConstants.statusLeader
-                            ? Icons.shield_moon_rounded
-                            : user.status == KConstants.statusChief
-                            ? Icons.verified_user_rounded
-                            : Icons.person_rounded,
-                        size: 13,
-                        color: subtitleColor,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        user.status == KConstants.statusLeader
-                            ? 'Chef de centre'
-                            : user.status == KConstants.statusChief
-                            ? 'Chef de garde'
-                            : 'Agent',
-                        style: TextStyle(fontSize: 12, color: subtitleColor),
-                      ),
-                      if (user.admin) ...[
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 5,
-                            vertical: 1,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.teal.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.settings_rounded,
-                                color: Colors.teal,
-                                size: 10,
-                              ),
-                              const SizedBox(width: 3),
-                              Text(
-                                'Admin',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: isDark
-                                      ? Colors.teal.shade200
-                                      : Colors.teal.shade700,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  if (hasPosition) ...[
                     const SizedBox(height: 2),
                     Row(
                       children: [
-                        if (position.iconName != null) ...[
-                          Icon(
-                            KSkills.positionIcons[position.iconName],
-                            size: 13,
-                            color: subtitleColor,
-                          ),
-                          const SizedBox(width: 4),
-                        ],
-                        Text(
-                          position.name,
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontStyle: FontStyle.italic,
-                            color: subtitleColor,
-                          ),
+                        Icon(
+                          user.status == KConstants.statusLeader
+                              ? Icons.shield_moon_rounded
+                              : user.status == KConstants.statusChief
+                              ? Icons.verified_user_rounded
+                              : Icons.person_rounded,
+                          size: 13,
+                          color: subtitleColor,
                         ),
+                        const SizedBox(width: 4),
+                        Text(
+                          user.status == KConstants.statusLeader
+                              ? 'Chef de centre'
+                              : user.status == KConstants.statusChief
+                              ? 'Chef de garde'
+                              : 'Agent',
+                          style: TextStyle(fontSize: 12, color: subtitleColor),
+                        ),
+                        if (user.admin) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 5,
+                              vertical: 1,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.teal.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.settings_rounded,
+                                  color: Colors.teal,
+                                  size: 10,
+                                ),
+                                const SizedBox(width: 3),
+                                Text(
+                                  'Admin',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: isDark
+                                        ? Colors.teal.shade200
+                                        : Colors.teal.shade700,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                        if (user.isSuspended) ...[
+                          const SizedBox(width: 6),
+                          _buildSuspensionBadge(user, isDark),
+                        ],
                       ],
                     ),
-                  ],
-                  if (user.skills.isNotEmpty) ...[
-                    const SizedBox(height: 5),
-                    Wrap(
-                      spacing: 4,
-                      runSpacing: 4,
-                      children: [
-                        // Highest level for SUAP, PPBE, INC, COD (in that order)
-                        ...['SUAP', 'PPBE', 'INC', 'COD']
-                            .map((cat) => _highestForCategory(user.skills, cat))
-                            .where((s) => s != null)
-                            .cast<String>()
-                            .map((skill) {
-                              final levelColor = KSkills.skillColors[skill];
-                              final color = levelColor != null
-                                  ? KSkills.getColorForSkillLevel(
-                                      levelColor,
-                                      context,
-                                    )
-                                  : Theme.of(context).colorScheme.primary;
-                              final isKeySkill = user.keySkills.contains(skill);
-                              return Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 2,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: color.withValues(alpha: 0.15),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    if (isKeySkill)
-                                      const Padding(
-                                        padding: EdgeInsets.only(right: 2),
-                                        child: Icon(
-                                          Icons.star_rounded,
-                                          size: 10,
-                                          color: Colors.amber,
-                                        ),
-                                      ),
-                                    Text(
-                                      skill,
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        color: color,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            }),
-                        // Extra skills count
-                        if (user.skills.length >
-                            ['SUAP', 'PPBE', 'INC', 'COD']
-                                .map(
-                                  (cat) =>
-                                      _highestForCategory(user.skills, cat),
-                                )
-                                .where((s) => s != null)
-                                .length)
+                    if (hasPosition) ...[
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          if (position.iconName != null) ...[
+                            Icon(
+                              KSkills.positionIcons[position.iconName],
+                              size: 13,
+                              color: subtitleColor,
+                            ),
+                            const SizedBox(width: 4),
+                          ],
                           Text(
-                            '+${user.skills.length - ['SUAP', 'PPBE', 'INC', 'COD'].map((cat) => _highestForCategory(user.skills, cat)).where((s) => s != null).length}',
+                            position.name,
                             style: TextStyle(
-                              fontSize: 10,
+                              fontSize: 12,
+                              fontStyle: FontStyle.italic,
                               color: subtitleColor,
                             ),
                           ),
-                      ],
-                    ),
+                        ],
+                      ),
+                    ],
+                    if (user.skills.isNotEmpty) ...[
+                      const SizedBox(height: 5),
+                      Wrap(
+                        spacing: 4,
+                        runSpacing: 4,
+                        children: [
+                          // Highest level for SUAP, PPBE, INC, COD (in that order)
+                          ...['SUAP', 'PPBE', 'INC', 'COD']
+                              .map(
+                                (cat) => _highestForCategory(user.skills, cat),
+                              )
+                              .where((s) => s != null)
+                              .cast<String>()
+                              .map((skill) {
+                                final levelColor = KSkills.skillColors[skill];
+                                final color = levelColor != null
+                                    ? KSkills.getColorForSkillLevel(
+                                        levelColor,
+                                        context,
+                                      )
+                                    : Theme.of(context).colorScheme.primary;
+                                final isKeySkill = user.keySkills.contains(
+                                  skill,
+                                );
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: color.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (isKeySkill)
+                                        const Padding(
+                                          padding: EdgeInsets.only(right: 2),
+                                          child: Icon(
+                                            Icons.star_rounded,
+                                            size: 10,
+                                            color: Colors.amber,
+                                          ),
+                                        ),
+                                      Text(
+                                        skill,
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          color: color,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }),
+                          // Extra skills count
+                          if (user.skills.length >
+                              ['SUAP', 'PPBE', 'INC', 'COD']
+                                  .map(
+                                    (cat) =>
+                                        _highestForCategory(user.skills, cat),
+                                  )
+                                  .where((s) => s != null)
+                                  .length)
+                            Text(
+                              '+${user.skills.length - ['SUAP', 'PPBE', 'INC', 'COD'].map((cat) => _highestForCategory(user.skills, cat)).where((s) => s != null).length}',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: subtitleColor,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
                   ],
-                ],
-              ),
-            ),
-
-            // Actions menu (only for leaders)
-            if (_isLeader)
-              PopupMenuButton<String>(
-                icon: Icon(Icons.more_vert, color: subtitleColor),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
                 ),
-                itemBuilder: (context) => [
-                  const PopupMenuItem(
-                    value: 'team',
-                    child: Row(
-                      children: [
-                        Icon(Icons.group_rounded, size: 18),
-                        SizedBox(width: 8),
-                        Text('Changer d\'équipe'),
-                      ],
-                    ),
+              ),
+
+              // Actions menu (only for leaders)
+              if (_isLeader)
+                PopupMenuButton<String>(
+                  icon: Icon(Icons.more_vert, color: subtitleColor),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  const PopupMenuItem(
-                    value: 'skills',
-                    child: Row(
-                      children: [
-                        Icon(Icons.workspace_premium_rounded, size: 18),
-                        SizedBox(width: 8),
-                        Text('Compétences'),
-                      ],
-                    ),
-                  ),
-                  const PopupMenuItem(
-                    value: 'similarities',
-                    child: Row(
-                      children: [
-                        Icon(Icons.people_alt_rounded, size: 18),
-                        SizedBox(width: 8),
-                        Text('Similarités'),
-                      ],
-                    ),
-                  ),
-                  const PopupMenuItem(
-                    value: 'role',
-                    child: Row(
-                      children: [
-                        Icon(Icons.manage_accounts_rounded, size: 18),
-                        SizedBox(width: 8),
-                        Text('Changer le rôle'),
-                      ],
-                    ),
-                  ),
-                  const PopupMenuItem(
-                    value: 'position',
-                    child: Row(
-                      children: [
-                        Icon(Icons.work_outline_rounded, size: 18),
-                        SizedBox(width: 8),
-                        Text('Définir le poste'),
-                      ],
-                    ),
-                  ),
-                  if (widget.currentUser?.admin == true)
+                  itemBuilder: (context) => [
                     const PopupMenuItem(
-                      value: 'test_notification',
+                      value: 'team',
+                      child: Row(
+                        children: [
+                          Icon(Icons.group_rounded, size: 18),
+                          SizedBox(width: 8),
+                          Text('Changer d\'équipe'),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'skills',
+                      child: Row(
+                        children: [
+                          Icon(Icons.workspace_premium_rounded, size: 18),
+                          SizedBox(width: 8),
+                          Text('Compétences'),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'similarities',
+                      child: Row(
+                        children: [
+                          Icon(Icons.people_alt_rounded, size: 18),
+                          SizedBox(width: 8),
+                          Text('Similarités'),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'role',
+                      child: Row(
+                        children: [
+                          Icon(Icons.manage_accounts_rounded, size: 18),
+                          SizedBox(width: 8),
+                          Text('Changer le rôle'),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'position',
+                      child: Row(
+                        children: [
+                          Icon(Icons.work_outline_rounded, size: 18),
+                          SizedBox(width: 8),
+                          Text('Définir le poste'),
+                        ],
+                      ),
+                    ),
+                    if (widget.currentUser?.admin == true)
+                      const PopupMenuItem(
+                        value: 'test_notification',
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.notifications_active_rounded,
+                              size: 18,
+                              color: Colors.blue,
+                            ),
+                            SizedBox(width: 8),
+                            Text(
+                              'Tester notification',
+                              style: TextStyle(color: Colors.blue),
+                            ),
+                          ],
+                        ),
+                      ),
+                    // Option de changement d'état (leader/admin uniquement)
+                    const PopupMenuItem(
+                      value: 'change_status',
+                      child: Row(
+                        children: [
+                          Icon(Icons.pause_circle_outline_rounded, size: 18),
+                          SizedBox(width: 8),
+                          Text('Changer l\'état'),
+                        ],
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'delete',
                       child: Row(
                         children: [
                           Icon(
-                            Icons.notifications_active_rounded,
+                            Icons.person_remove_rounded,
                             size: 18,
-                            color: Colors.blue,
+                            color: Colors.orange.shade700,
                           ),
-                          SizedBox(width: 8),
+                          const SizedBox(width: 8),
                           Text(
-                            'Tester notification',
-                            style: TextStyle(color: Colors.blue),
+                            'Retirer de l\'effectif',
+                            style: TextStyle(color: Colors.orange.shade700),
                           ),
                         ],
                       ),
                     ),
-                  PopupMenuItem(
-                    value: 'delete',
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.person_remove_rounded,
-                          size: 18,
-                          color: Colors.orange.shade700,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Retirer de l\'effectif',
-                          style: TextStyle(color: Colors.orange.shade700),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-                onSelected: (value) => _handleAgentAction(value, user),
-              ),
-          ],
+                  ],
+                  onSelected: (value) => _handleAgentAction(value, user),
+                ),
+            ],
+          ),
         ),
-      ),
-    );
+      ), // InkWell
+    ); // Opacity
   }
 
   Widget _buildDraggableAgentCard(User user, Team? team) {
@@ -1222,9 +1394,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
 
       // Show snackbar only when the team actually changes
       scaffoldMessenger.showSnackBar(
-        SnackBar(
-          content: Text('${user.displayName} → $teamName'),
-        ),
+        SnackBar(content: Text('${user.displayName} → $teamName')),
       );
     }
   }
@@ -1261,9 +1431,378 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
       case 'test_notification':
         _sendTestNotification(user);
         break;
+      case 'change_status':
+        _showChangeStatusSheet(user);
+        break;
       case 'delete':
         _showDeleteAgentDialog(user);
         break;
+    }
+  }
+
+  void _showChangeStatusSheet(User user) {
+    final currentStatus = user.agentAvailabilityStatus;
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Poignée
+          Center(
+            child: Container(
+              margin: const EdgeInsets.only(top: 12, bottom: 8),
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[400],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+            child: Text(
+              'Changer l\'état de ${user.displayName}',
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+            ),
+          ),
+          Divider(height: 1, color: Colors.grey[300]),
+          // Option : Disponible
+          _buildStatusOption(
+            ctx: ctx,
+            icon: Icons.check_circle_outline_rounded,
+            iconColor: Colors.green.shade600,
+            title: 'Disponible',
+            subtitle: 'Retour en service actif',
+            isSelected: currentStatus == AgentAvailabilityStatus.active,
+            onTap: currentStatus == AgentAvailabilityStatus.active
+                ? null
+                : () {
+                    Navigator.pop(ctx);
+                    _reinstateAgent(user);
+                  },
+          ),
+          Divider(height: 1, color: Colors.grey[300]),
+          // Option : Arrêt maladie
+          _buildStatusOption(
+            ctx: ctx,
+            icon: Icons.medical_services_outlined,
+            iconColor: Colors.red.shade400,
+            title: 'Arrêt maladie',
+            subtitle: 'Retrait temporaire pour raison médicale',
+            isSelected: currentStatus == AgentAvailabilityStatus.sickLeave,
+            onTap: currentStatus == AgentAvailabilityStatus.sickLeave
+                ? null
+                : () {
+                    Navigator.pop(ctx);
+                    _showSuspendAgentDialog(
+                      user,
+                      AgentAvailabilityStatus.sickLeave,
+                    );
+                  },
+          ),
+          Divider(height: 1, color: Colors.grey[300]),
+          // Option : Suspension d'engagement
+          _buildStatusOption(
+            ctx: ctx,
+            icon: Icons.pause_circle_outline_rounded,
+            iconColor: Colors.orange.shade700,
+            title: 'Suspension d\'engagement',
+            subtitle: 'Retrait de l\'effectif opérationnel',
+            isSelected:
+                currentStatus == AgentAvailabilityStatus.suspendedFromDuty,
+            onTap: currentStatus == AgentAvailabilityStatus.suspendedFromDuty
+                ? null
+                : () {
+                    Navigator.pop(ctx);
+                    _showSuspendAgentDialog(
+                      user,
+                      AgentAvailabilityStatus.suspendedFromDuty,
+                    );
+                  },
+          ),
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusOption({
+    required BuildContext ctx,
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String subtitle,
+    required bool isSelected,
+    required VoidCallback? onTap,
+  }) {
+    final isDimmed = onTap == null;
+    return InkWell(
+      onTap: onTap,
+      child: Opacity(
+        opacity: isDimmed ? 0.45 : 1.0,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: iconColor.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, color: iconColor, size: 24),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                  ],
+                ),
+              ),
+              if (isSelected)
+                Icon(Icons.check_rounded, color: iconColor, size: 20)
+              else
+                Icon(
+                  Icons.arrow_forward_ios,
+                  size: 16,
+                  color: Colors.grey[400],
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showSuspendAgentDialog(User user, String suspensionType) {
+    final isSickLeave = suspensionType == AgentAvailabilityStatus.sickLeave;
+    DateTime selectedDate = DateTime.now();
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Row(
+            children: [
+              Icon(
+                isSickLeave
+                    ? Icons.medical_services_outlined
+                    : Icons.pause_circle_outline_rounded,
+                color: isSickLeave
+                    ? Colors.red.shade400
+                    : Colors.orange.shade700,
+              ),
+              const SizedBox(width: 8),
+              Text(isSickLeave ? 'Arrêt maladie' : 'Suspension d\'engagement'),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${user.displayName} sera ${isSickLeave ? 'placé(e) en arrêt maladie' : 'suspendu(e) de l\'engagement'} à partir de la date choisie.',
+                  style: const TextStyle(fontWeight: FontWeight.w500),
+                ),
+                const SizedBox(height: 16),
+                // Sélecteur de date
+                InkWell(
+                  onTap: () async {
+                    final picked = await showDatePicker(
+                      context: ctx,
+                      initialDate: selectedDate,
+                      firstDate: DateTime.now().subtract(
+                        const Duration(days: 90),
+                      ),
+                      lastDate: DateTime.now().add(const Duration(days: 30)),
+                    );
+                    if (picked != null) {
+                      setDialogState(() => selectedDate = picked);
+                    }
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey.shade400),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.calendar_today_rounded, size: 18),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Date de début : ${selectedDate.day.toString().padLeft(2, '0')}/${selectedDate.month.toString().padLeft(2, '0')}/${selectedDate.year}',
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    border: Border.all(color: Colors.orange.shade300),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.warning_amber_rounded,
+                            color: Colors.orange.shade700,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Effets immédiats',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.orange.shade700,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        '• Retiré(e) de tous les plannings futurs\n'
+                        '• Demandes de remplacement annulées\n'
+                        '• Échanges de garde annulés\n'
+                        '• Plus de notifications reçues\n'
+                        '• Ne peut plus être remplaçant(e)${isSickLeave ? '' : '\n• Retiré(e) de son équipe'}',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Annuler'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: isSickLeave
+                    ? Colors.red.shade400
+                    : Colors.orange.shade700,
+              ),
+              onPressed: () async {
+                Navigator.pop(dialogContext);
+                try {
+                  await AgentSuspensionService().suspendAgent(
+                    agent: user,
+                    newStatus: suspensionType,
+                    suspensionStartDate: selectedDate,
+                  );
+                  if (mounted) {
+                    widget.onDataChanged();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          '${user.displayName} ${isSickLeave ? 'placé(e) en arrêt maladie' : 'suspendu(e)'}',
+                        ),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Erreur : $e'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                }
+              },
+              child: Text(
+                isSickLeave ? 'Confirmer l\'arrêt' : 'Confirmer la suspension',
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _reinstateAgent(User user) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.check_circle_outline_rounded, color: Colors.green),
+            SizedBox(width: 8),
+            Text('Retour en service'),
+          ],
+        ),
+        content: Text(
+          'Remettre ${user.displayName} en service actif ?\n\n'
+          'Note : les plannings supprimés lors de la suspension ne sont pas restaurés automatiquement.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.green),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Retour en service'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await AgentSuspensionService().reinstateAgent(agent: user);
+      if (mounted) {
+        widget.onDataChanged();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${user.displayName} est de retour en service'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur : $e'), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 
@@ -1299,7 +1838,6 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
     String currentStation,
   ) async {
     final scaffoldMessenger = ScaffoldMessenger.of(context);
-    final navigator = Navigator.of(context);
     final otherStationIds = allStations
         .where((s) => s != currentStation)
         .toList();

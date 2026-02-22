@@ -224,48 +224,65 @@ class LocalRepository {
 
   // --- Availabilities management ---
 
+  AvailabilityRepository _availabilityRepo({String? stationId}) =>
+      stationId != null && stationId.isNotEmpty
+          ? AvailabilityRepository(stationId: stationId)
+          : _availabilityRepository;
+
   /// Récupère toutes les disponibilités
-  Future<List<Availability>> getAvailabilities() async {
-    return await _availabilityRepository.getAll();
+  Future<List<Availability>> getAvailabilities({String? stationId}) async {
+    return await _availabilityRepo(stationId: stationId).getAll();
   }
 
   /// Récupère les disponibilités d'un agent spécifique
-  Future<List<Availability>> getAvailabilitiesForAgent(String agentId) async {
-    return await _availabilityRepository.getByAgentId(agentId);
+  Future<List<Availability>> getAvailabilitiesForAgent(
+    String agentId, {
+    String? stationId,
+  }) async {
+    return await _availabilityRepo(stationId: stationId).getByAgentId(agentId);
   }
 
   /// Récupère les disponibilités pour un planning
   Future<List<Availability>> getAvailabilitiesForPlanning(
-    String planningId,
-  ) async {
-    return await _availabilityRepository.getByPlanningId(planningId);
+    String planningId, {
+    String? stationId,
+  }) async {
+    return await _availabilityRepo(stationId: stationId).getByPlanningId(planningId);
   }
 
   /// Récupère les disponibilités dans une plage temporelle
   Future<List<Availability>> getAvailabilitiesInRange(
     DateTime start,
-    DateTime end,
-  ) async {
-    return await _availabilityRepository.getInRange(start, end);
+    DateTime end, {
+    String? stationId,
+  }) async {
+    return await _availabilityRepo(stationId: stationId).getInRange(start, end);
   }
 
   /// Ajoute une nouvelle disponibilité
   /// Valide que l'heure de début n'est pas dans le passé
-  Future<void> addAvailability(Availability availability) async {
+  Future<void> addAvailability(
+    Availability availability, {
+    String? stationId,
+  }) async {
     final now = DateTime.now();
     if (availability.start.isBefore(now)) {
       throw Exception(
         'Impossible d\'ajouter une disponibilité avec une heure de début antérieure à maintenant',
       );
     }
-    await _availabilityRepository.upsert(availability);
+    await _availabilityRepo(stationId: stationId).upsert(availability);
   }
 
   /// Supprime une disponibilité
   /// Si la disponibilité est en cours, elle est découpée (fin = maintenant)
   /// Si la disponibilité est terminée, elle ne peut pas être supprimée
-  Future<void> deleteAvailability(String availabilityId) async {
-    final all = await _availabilityRepository.getAll();
+  Future<void> deleteAvailability(
+    String availabilityId, {
+    String? stationId,
+  }) async {
+    final repo = _availabilityRepo(stationId: stationId);
+    final all = await repo.getAll();
     final availability = all.where((a) => a.id == availabilityId).firstOrNull;
 
     if (availability == null) {
@@ -283,11 +300,14 @@ class LocalRepository {
 
     // Si la disponibilité est en cours ou future, on utilise deleteOngoing
     // qui gère automatiquement le découpage
-    await _availabilityRepository.deleteOngoing(availabilityId);
+    await repo.deleteOngoing(availabilityId);
   }
 
   /// Met à jour une disponibilité existante
-  Future<void> updateAvailability(Availability availability) async {
-    await _availabilityRepository.upsert(availability);
+  Future<void> updateAvailability(
+    Availability availability, {
+    String? stationId,
+  }) async {
+    await _availabilityRepo(stationId: stationId).upsert(availability);
   }
 }

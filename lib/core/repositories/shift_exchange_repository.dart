@@ -4,7 +4,6 @@ import 'package:nexshift_app/core/data/models/shift_exchange_request_model.dart'
 import 'package:nexshift_app/core/data/models/shift_exchange_proposal_model.dart';
 import 'package:nexshift_app/core/services/firestore_service.dart';
 import 'package:nexshift_app/core/config/environment_config.dart';
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/core/repositories/planning_repository.dart';
 
 class ShiftExchangeRepository {
@@ -31,15 +30,8 @@ class ShiftExchangeRepository {
   /// Retourne le chemin de collection selon l'environnement
   /// /sdis/{sdisId}/stations/{stationId}/replacements/exchange/{subcollection}
   String _getCollectionPath(String stationId, String subcollection) {
-    if (EnvironmentConfig.useStationSubcollections && stationId.isNotEmpty) {
-      final sdisId = SDISContext().currentSDISId;
-      if (sdisId != null && sdisId.isNotEmpty) {
-        return 'sdis/$sdisId/stations/$stationId/replacements/exchange/$subcollection';
-      }
-      // Fallback legacy sans SDIS
-      return 'stations/$stationId/replacements/exchange/$subcollection';
-    }
-    return subcollection; // Fallback pour ancien système
+    return EnvironmentConfig.getCollectionPath(
+        'replacements/exchange/$subcollection', stationId);
   }
 
   // ============================================================================

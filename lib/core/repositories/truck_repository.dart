@@ -70,37 +70,15 @@ class TruckRepository {
     try {
       final collectionPath = _getCollectionPath(stationName);
 
-      // En mode dev (sous-collections), récupérer tous les trucks de la sous-collection
-      if (EnvironmentConfig.useStationSubcollections) {
-        // Mode test
-        if (_directFirestore != null) {
-          final snapshot = await _directFirestore.collection(collectionPath).get();
-          return snapshot.docs.map((doc) {
-            final data = doc.data();
-            data['id'] = doc.id;
-            return Truck.fromJson(data);
-          }).toList();
-        }
-        // Mode production
-        final data = await _firestoreService.getAll(collectionPath);
-        return data.map((e) => Truck.fromJson(e)).toList();
-      }
-
-      // En mode prod (collections plates), filtrer par stationName
-      // Mode test
       if (_directFirestore != null) {
-        final snapshot = await _directFirestore
-            .collection(_collectionName)
-            .where('station', isEqualTo: stationName)
-            .get();
+        final snapshot = await _directFirestore.collection(collectionPath).get();
         return snapshot.docs.map((doc) {
           final data = doc.data();
           data['id'] = doc.id;
           return Truck.fromJson(data);
         }).toList();
       }
-      // Mode production
-      final data = await _firestoreService.getWhere(_collectionName, 'station', stationName);
+      final data = await _firestoreService.getAll(collectionPath);
       return data.map((e) => Truck.fromJson(e)).toList();
     } catch (e) {
       debugPrint('Firestore error in getByStation: $e');
@@ -115,7 +93,7 @@ class TruckRepository {
       final List<Truck> allTrucks;
 
       // En mode sous-collections, on doit récupérer les trucks de la station
-      if (EnvironmentConfig.useStationSubcollections && stationId != null) {
+      if (stationId != null) {
         allTrucks = await getByStation(stationId);
       } else {
         allTrucks = await getAll();

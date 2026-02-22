@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
+import 'package:nexshift_app/core/config/environment_config.dart';
 import 'package:nexshift_app/core/data/models/shift_exchange_request_model.dart';
 import 'package:nexshift_app/core/data/models/shift_exchange_proposal_model.dart';
 
@@ -18,6 +19,7 @@ class ShiftExchangeNotificationService {
     required String title,
     required String body,
     required Map<String, dynamic> data,
+    required String stationId,
   }) async {
     try {
       if (targetUserIds.isEmpty) {
@@ -25,7 +27,6 @@ class ShiftExchangeNotificationService {
         return;
       }
 
-      // Créer un trigger qui sera traité par la Cloud Function
       final triggerData = {
         'type': type,
         'targetUserIds': targetUserIds,
@@ -36,8 +37,10 @@ class ShiftExchangeNotificationService {
         'processed': false,
       };
 
+      final triggerPath = EnvironmentConfig.getCollectionPath(
+          'notificationTriggers', stationId);
       await FirebaseFirestore.instance
-          .collection('notificationTriggers')
+          .collection(triggerPath)
           .add(triggerData);
 
       debugPrint('✅ [ShiftExchangeNotif] Push notification trigger created for ${targetUserIds.length} user(s)');
@@ -125,6 +128,7 @@ class ShiftExchangeNotificationService {
           'proposalId': proposal.id,
           'proposerName': proposal.proposerName,
         },
+        stationId: stationId,
       );
     } catch (e) {
       debugPrint('❌ [ShiftExchangeNotif] Error notifying proposal created: $e');
@@ -188,6 +192,7 @@ class ShiftExchangeNotificationService {
             'initiatorName': request.initiatorName,
             'proposerName': proposal.proposerName,
           },
+          stationId: stationId,
         );
       }
     } catch (e) {
@@ -251,6 +256,7 @@ class ShiftExchangeNotificationService {
           'requestId': request.id,
           'proposalId': proposal.id,
         },
+        stationId: stationId,
       );
     } catch (e) {
       debugPrint('❌ [ShiftExchangeNotif] Error notifying exchange validated: $e');
@@ -303,6 +309,7 @@ class ShiftExchangeNotificationService {
           'leaderName': leaderName,
           'rejectionReason': rejectionReason,
         },
+        stationId: stationId,
       );
     } catch (e) {
       debugPrint('❌ [ShiftExchangeNotif] Error notifying proposal rejected: $e');
@@ -349,6 +356,7 @@ class ShiftExchangeNotificationService {
           'proposalId': proposal.id,
           'initiatorName': request.initiatorName,
         },
+        stationId: stationId,
       );
     } catch (e) {
       debugPrint('❌ [ShiftExchangeNotif] Error notifying proposer selected: $e');

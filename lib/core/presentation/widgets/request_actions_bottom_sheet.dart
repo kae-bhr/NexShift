@@ -168,6 +168,8 @@ class RequestActionsBottomSheet extends StatelessWidget {
         return Icons.person_search;
       case UnifiedRequestType.exchange:
         return Icons.swap_horiz;
+      case UnifiedRequestType.agentQuery:
+        return Icons.manage_search_rounded;
     }
   }
 
@@ -181,6 +183,7 @@ class RequestActionsBottomSheet extends StatelessWidget {
       case UnifiedRequestType.manualReplacement:
         return Colors.purple;
       case UnifiedRequestType.exchange:
+      case UnifiedRequestType.agentQuery:
         return Colors.teal;
     }
   }
@@ -234,53 +237,41 @@ class RequestActionsBottomSheet extends StatelessWidget {
             ),
             child: Column(
               children: [
-                // Équipe
-                if (team != null && team!.isNotEmpty) ...[
-                  Row(
-                    children: [
-                      Icon(Icons.groups, color: Colors.grey[700], size: 20),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'Équipe $team',
-                          style: Theme.of(context).textTheme.bodyLarge,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                ],
+                // Du
+                _buildInfoRow(
+                  context: context,
+                  icon: Icons.calendar_month,
+                  text: 'Du $startFormatted',
+                  iconColor: Colors.blue.shade600,
+                ),
+                const SizedBox(height: 8),
+                // Au
+                _buildInfoRow(
+                  context: context,
+                  icon: Icons.calendar_month,
+                  text: 'Au $endFormatted',
+                  iconColor: Colors.blue.shade600,
+                ),
                 // Caserne
                 if (station != null && station!.isNotEmpty) ...[
-                  Row(
-                    children: [
-                      Icon(Icons.location_on, color: Colors.grey[700], size: 20),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          station!,
-                          style: Theme.of(context).textTheme.bodyLarge,
-                        ),
-                      ),
-                    ],
-                  ),
                   const SizedBox(height: 8),
+                  _buildInfoRow(
+                    context: context,
+                    icon: Icons.location_on,
+                    text: station!,
+                    iconColor: Colors.grey.shade700,
+                  ),
                 ],
-                // Horaires
-                Row(
-                  children: [
-                    Icon(Icons.access_time, color: Colors.grey[700], size: 20),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        '$startFormatted → $endFormatted',
-                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                              fontWeight: FontWeight.w500,
-                            ),
-                      ),
-                    ),
-                  ],
-                ),
+                // Équipe
+                if (team != null && team!.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  _buildInfoRow(
+                    context: context,
+                    icon: Icons.people,
+                    text: 'Équipe $team',
+                    iconColor: Colors.grey.shade700,
+                  ),
+                ],
               ],
             ),
           ),
@@ -337,6 +328,23 @@ class RequestActionsBottomSheet extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildInfoRow({
+    required BuildContext context,
+    required IconData icon,
+    required String text,
+    required Color iconColor,
+  }) {
+    return Row(
+      children: [
+        Icon(icon, color: iconColor, size: 20),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(text, style: Theme.of(context).textTheme.bodyLarge),
+        ),
+      ],
     );
   }
 }

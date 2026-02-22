@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:nexshift_app/core/presentation/widgets/app_empty_state.dart';
 import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/data/models/shift_exchange_request_model.dart';
@@ -288,16 +289,16 @@ class _ExchangeContentWidgetState extends State<ExchangeContentWidget>
             ReplacementSubTab.myRequests: _myRequestsCount,
             ReplacementSubTab.toValidate: _validationCount,
           },
-          badgeColors: const {
-            ReplacementSubTab.pending: Colors.green,
-            ReplacementSubTab.myRequests: Colors.green,
+          badgeColors: {
+            ReplacementSubTab.pending: KColors.appNameColor,
+            ReplacementSubTab.myRequests: KColors.appNameColor,
             ReplacementSubTab.toValidate: Colors.blue,
           },
           secondaryBadgeCounts: {
             ReplacementSubTab.myRequests: _needingSelectionCount,
           },
-          secondaryBadgeColors: const {
-            ReplacementSubTab.myRequests: Colors.purple,
+          secondaryBadgeColors: {
+            ReplacementSubTab.myRequests: KColors.appNameColor,
           },
         ),
         // Contenu des sous-onglets avec RefreshIndicator
@@ -361,31 +362,10 @@ class _ExchangeContentWidgetState extends State<ExchangeContentWidget>
     });
 
     if (requestsWithProposals.isEmpty) {
-      return ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        children: [
-          SizedBox(
-            height: MediaQuery.of(context).size.height * 0.5,
-            child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.swap_horiz, size: 64, color: Colors.grey[400]),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Aucune demande d\'échange',
-                    style: TextStyle(fontSize: 18, color: Colors.grey[600]),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Créez une demande pour échanger votre astreinte',
-                    style: TextStyle(fontSize: 14, color: Colors.grey[500]),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
+      return const AppEmptyState(
+        icon: Icons.swap_horiz,
+        headline: 'Aucune demande d\'échange',
+        subtitle: 'Créez une demande pour échanger votre astreinte',
       );
     }
 
@@ -423,31 +403,10 @@ class _ExchangeContentWidgetState extends State<ExchangeContentWidget>
     );
 
     if (requests.isEmpty) {
-      return ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        children: [
-          SizedBox(
-            height: MediaQuery.of(context).size.height * 0.5,
-            child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.search, size: 64, color: Colors.grey[400]),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Aucune demande disponible',
-                    style: TextStyle(fontSize: 18, color: Colors.grey[600]),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Il n\'y a pas de demandes d\'échange compatibles',
-                    style: TextStyle(fontSize: 14, color: Colors.grey[500]),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
+      return const AppEmptyState(
+        icon: Icons.search,
+        headline: 'Aucune demande disponible',
+        subtitle: 'Il n\'y a pas de demandes d\'échange compatibles',
       );
     }
 
@@ -1168,30 +1127,10 @@ class _ExchangeContentWidgetState extends State<ExchangeContentWidget>
     }).toList();
 
     if (proposalsToValidate.isEmpty) {
-      return ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        children: [
-          SizedBox(
-            height: MediaQuery.of(context).size.height * 0.5,
-            child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.check_circle_outline,
-                    size: 64,
-                    color: Colors.grey[400],
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Aucune demande à valider',
-                    style: TextStyle(fontSize: 18, color: Colors.grey[600]),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
+      return const AppEmptyState(
+        icon: Icons.check_circle_outline,
+        headline: 'Aucune validation requise',
+        subtitle: 'Il n\'y a pas de demandes à valider',
       );
     }
 
@@ -1417,177 +1356,6 @@ class _ExchangeContentWidgetState extends State<ExchangeContentWidget>
     );
   }
 
-  /// Construit une carte d'historique (similaire à validation mais sans boutons)
-  Widget _buildHistoryCard(
-    ShiftExchangeRequest request,
-    ShiftExchangeProposal? selectedProposal,
-    String? initiatorTeam,
-    String? proposerTeam, {
-    String historyStatus = 'accepted',
-  }) {
-    // Déterminer les couleurs et textes selon le statut
-    Color statusColor;
-    IconData statusIcon;
-    String statusText;
-    Color swapIconColor;
-
-    switch (historyStatus) {
-      case 'accepted':
-        statusColor = Colors.green;
-        statusIcon = Icons.check_circle;
-        statusText = 'Validé';
-        swapIconColor = Colors.green.shade600;
-        break;
-      case 'cancelled':
-        statusColor = Colors.orange;
-        statusIcon = Icons.cancel;
-        statusText = 'Annulé';
-        swapIconColor = Colors.orange.shade600;
-        break;
-      case 'expired':
-        statusColor = Colors.grey;
-        statusIcon = Icons.schedule;
-        statusText = 'Expiré';
-        swapIconColor = Colors.grey.shade600;
-        break;
-      default:
-        statusColor = Colors.grey;
-        statusIcon = Icons.help_outline;
-        statusText = '?';
-        swapIconColor = Colors.grey.shade600;
-    }
-
-    return FutureBuilder<Planning?>(
-      future: _getPlanningDetails(request.initiatorPlanningId, request.station),
-      builder: (context, initiatorPlanningSnapshot) {
-        final initiatorPlanning = initiatorPlanningSnapshot.data;
-
-        // Récupérer le premier planning proposé pour afficher les détails
-        return FutureBuilder<Planning?>(
-          future:
-              selectedProposal != null &&
-                  selectedProposal.proposedPlanningIds.isNotEmpty
-              ? _getPlanningDetails(
-                  selectedProposal.proposedPlanningIds.first,
-                  request.station,
-                )
-              : Future.value(null),
-          builder: (context, proposerPlanningSnapshot) {
-            final proposerPlanning = proposerPlanningSnapshot.data;
-
-            // Récupérer les chefs des deux équipes pour calculer l'alignement
-            return FutureBuilder<List<List<User>>>(
-              future: Future.wait([
-                _getTeamLeaders(initiatorTeam ?? '?', request.station),
-                _getTeamLeaders(proposerTeam ?? '?', request.station),
-              ]),
-              builder: (context, leadersSnapshot) {
-                final initiatorLeadersCount = leadersSnapshot.hasData
-                    ? leadersSnapshot.data![0].length
-                    : 0;
-                final proposerLeadersCount = leadersSnapshot.hasData
-                    ? leadersSnapshot.data![1].length
-                    : 0;
-
-                // Calculer combien de lignes vides ajouter pour aligner les dividers
-                final maxLeaders = [
-                  initiatorLeadersCount,
-                  proposerLeadersCount,
-                ].reduce((a, b) => a > b ? a : b);
-                final initiatorEmptyLines = maxLeaders - initiatorLeadersCount;
-                final proposerEmptyLines = maxLeaders - proposerLeadersCount;
-
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 16),
-                  elevation: 2,
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Deux colonnes côte à côte
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Colonne 1: Initiateur (gauche)
-                            Expanded(
-                              child: _buildExchangeColumn(
-                                label: initiatorTeam ?? '?',
-                                agentName: request.initiatorName.trim().isNotEmpty
-                                    ? request.initiatorName
-                                    : 'Agent ${request.initiatorId}',
-                                badge: _buildStatusBadge(
-                                  statusText,
-                                  statusColor,
-                                  statusIcon,
-                                ),
-                                planning: initiatorPlanning,
-                                station: request.station,
-                                emptyLinesCount: initiatorEmptyLines,
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            // Icône de swap au milieu
-                            Padding(
-                              padding: const EdgeInsets.only(top: 30),
-                              child: Icon(
-                                historyStatus == 'expired' ? Icons.block : Icons.swap_horiz,
-                                color: swapIconColor,
-                                size: 32,
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            // Colonne 2: Proposeur (droite) - afficher seulement si une proposition existe
-                            Expanded(
-                              child: selectedProposal != null
-                                  ? _buildExchangeColumn(
-                                      label: proposerTeam ?? '?',
-                                      agentName: selectedProposal.proposerName.trim().isNotEmpty
-                                          ? selectedProposal.proposerName
-                                          : 'Agent ${selectedProposal.proposerId}',
-                                      badge: _buildStatusBadge(
-                                        statusText,
-                                        statusColor,
-                                        statusIcon,
-                                      ),
-                                      planning: proposerPlanning,
-                                      station: request.station,
-                                      emptyLinesCount: proposerEmptyLines,
-                                    )
-                                  : Center(
-                                      child: Column(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: [
-                                          Icon(
-                                            Icons.person_off,
-                                            color: Colors.grey.shade400,
-                                            size: 40,
-                                          ),
-                                          const SizedBox(height: 8),
-                                          Text(
-                                            'Aucune proposition',
-                                            style: TextStyle(
-                                              color: Colors.grey.shade600,
-                                              fontSize: 12,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            );
-          },
-        );
-      },
-    );
-  }
 
   /// Construit une colonne pour afficher les informations d'un agent dans la validation
   Widget _buildExchangeColumn({
@@ -1970,15 +1738,22 @@ class _ExchangeContentWidgetState extends State<ExchangeContentWidget>
       children: [
         // Navigateur mensuel
         Container(
-          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-          color: Theme.of(context).brightness == Brightness.dark
-              ? Colors.grey.shade900
-              : Colors.grey.shade100,
+          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+          decoration: BoxDecoration(
+            color: Theme.of(context).brightness == Brightness.dark
+                ? KColors.appNameColor.withValues(alpha: 0.12)
+                : KColors.appNameColor.withValues(alpha: 0.06),
+            border: Border(
+              bottom: BorderSide(
+                color: KColors.appNameColor.withValues(alpha: 0.2),
+                width: 1,
+              ),
+            ),
+          ),
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               IconButton(
-                icon: const Icon(Icons.chevron_left),
+                icon: Icon(Icons.chevron_left_rounded, color: KColors.appNameColor),
                 onPressed: () {
                   setState(() {
                     _selectedMonth = DateTime(
@@ -1987,16 +1762,27 @@ class _ExchangeContentWidgetState extends State<ExchangeContentWidget>
                     );
                   });
                 },
+                tooltip: 'Mois précédent',
               ),
-              Text(
-                _formatMonthYear(_selectedMonth),
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
+              Expanded(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.calendar_month_rounded, size: 16, color: KColors.appNameColor),
+                    const SizedBox(width: 6),
+                    Text(
+                      _formatMonthYear(_selectedMonth),
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: KColors.appNameColor,
+                      ),
+                    ),
+                  ],
                 ),
               ),
               IconButton(
-                icon: const Icon(Icons.chevron_right),
+                icon: Icon(Icons.chevron_right_rounded, color: KColors.appNameColor),
                 onPressed: () {
                   setState(() {
                     _selectedMonth = DateTime(
@@ -2005,6 +1791,7 @@ class _ExchangeContentWidgetState extends State<ExchangeContentWidget>
                     );
                   });
                 },
+                tooltip: 'Mois suivant',
               ),
             ],
           ),
@@ -2012,26 +1799,10 @@ class _ExchangeContentWidgetState extends State<ExchangeContentWidget>
         // Liste des échanges historiques
         Expanded(
           child: historicRequests.isEmpty
-              ? ListView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  children: [
-                    SizedBox(
-                      height: MediaQuery.of(context).size.height * 0.4,
-                      child: Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.history, size: 64, color: Colors.grey[400]),
-                            const SizedBox(height: 16),
-                            Text(
-                              'Aucun historique pour cette période',
-                              style: TextStyle(fontSize: 18, color: Colors.grey[600]),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
+              ? const AppEmptyState(
+                  icon: Icons.history,
+                  headline: 'Aucun historique',
+                  subtitle: 'Il n\'y a pas d\'échanges pour cette période',
                 )
               : ListView.builder(
                   physics: const AlwaysScrollableScrollPhysics(),
@@ -2058,46 +1829,12 @@ class _ExchangeContentWidgetState extends State<ExchangeContentWidget>
                       }
                     }
 
-                    // Déterminer le statut historique
-                    String historyStatus;
-                    if (request.status == ShiftExchangeRequestStatus.accepted) {
-                      historyStatus = 'accepted';
-                    } else if (request.status == ShiftExchangeRequestStatus.cancelled) {
-                      historyStatus = 'cancelled';
-                    } else {
-                      // Demande expirée (date passée sans aboutissement)
-                      historyStatus = 'expired';
-                    }
-
-                    // Récupérer les équipes depuis les plannings (utilise le cache)
-                    return FutureBuilder<Planning?>(
-                      future: _getPlanningDetails(
-                        request.initiatorPlanningId,
-                        request.station,
-                      ),
-                      builder: (context, initiatorSnapshot) {
-                        final initiatorTeam = initiatorSnapshot.data?.team;
-
-                        return FutureBuilder<Planning?>(
-                          future: selectedProposal != null && selectedProposal.proposedPlanningIds.isNotEmpty
-                              ? _getPlanningDetails(
-                                  selectedProposal.proposedPlanningIds.first,
-                                  request.station,
-                                )
-                              : Future.value(null),
-                          builder: (context, proposerSnapshot) {
-                            final proposerTeam = proposerSnapshot.data?.team;
-
-                            return _buildHistoryCard(
-                              request,
-                              selectedProposal,
-                              initiatorTeam,
-                              proposerTeam,
-                              historyStatus: historyStatus,
-                            );
-                          },
-                        );
-                      },
+                    return ExchangeTileWrapper(
+                      request: request,
+                      currentUserId: _currentUser!.id,
+                      currentUserTeam: _currentUser!.team,
+                      viewMode: TileViewMode.history,
+                      selectedProposal: selectedProposal,
                     );
                   },
                 ),

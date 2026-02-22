@@ -7,6 +7,8 @@ import 'package:nexshift_app/core/data/models/station_model.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/services/on_call_disposition_service.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:nexshift_app/features/planning/presentation/widgets/add_agent_menu_overlay.dart';
+import 'package:nexshift_app/core/presentation/widgets/contextual_menu_button.dart';
 
 /// Section affichant les agents présents dans une garde, groupés par niveau d'astreinte.
 /// Lit directement depuis planning.agents — source unique de vérité.
@@ -171,7 +173,12 @@ class OnCallPresenceSection extends StatelessWidget {
         ],
         if (canManage && onAddAgent != null) ...[
           const SizedBox(height: 12),
-          _AddAgentTile(onTap: onAddAgent!),
+          _AddAgentTile(
+            planning: planning,
+            currentUser: currentUser,
+            onCallLevels: levels,
+            onManualChoice: onAddAgent!,
+          ),
         ],
       ],
     );
@@ -410,17 +417,33 @@ class _OnCallPresenceTile extends StatelessWidget {
   }
 }
 
-/// Tuile "+" pour ajouter un agent
+/// Tuile "+" pour ajouter un agent — affiche un overlay animé (comme "Je souhaite m'absenter")
 class _AddAgentTile extends StatelessWidget {
-  final VoidCallback onTap;
+  final Planning planning;
+  final User currentUser;
+  final List<OnCallLevel> onCallLevels;
+  final VoidCallback onManualChoice;
 
-  const _AddAgentTile({required this.onTap});
+  const _AddAgentTile({
+    required this.planning,
+    required this.currentUser,
+    required this.onCallLevels,
+    required this.onManualChoice,
+  });
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return GestureDetector(
-      onTap: onTap,
+    return ContextualMenuButton(
+      menuBorderRadius: 16,
+      menuContent: (onClose) => AddAgentMenuOverlay.buildMenuContent(
+        context: context,
+        planning: planning,
+        currentUser: currentUser,
+        onCallLevels: onCallLevels,
+        onOptionSelected: onClose,
+        onManualChoice: onManualChoice,
+      ),
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
@@ -433,17 +456,12 @@ class _AddAgentTile extends StatelessWidget {
             color: isDark
                 ? Colors.white.withValues(alpha: 0.08)
                 : Colors.grey.shade300,
-            style: BorderStyle.solid,
           ),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.add_circle_outline_rounded,
-              size: 20,
-              color: KColors.appNameColor,
-            ),
+            Icon(Icons.add_circle_outline_rounded, size: 20, color: KColors.appNameColor),
             const SizedBox(width: 8),
             Text(
               'Ajouter un agent',

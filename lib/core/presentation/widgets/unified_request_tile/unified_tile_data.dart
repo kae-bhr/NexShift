@@ -20,6 +20,9 @@ class AgentColumnData {
   /// Station
   final String station;
 
+  /// Tags supplémentaires (ex. compétences requises pour les AgentQuery)
+  final List<String> tags;
+
   const AgentColumnData({
     required this.agentId,
     required this.agentName,
@@ -27,6 +30,7 @@ class AgentColumnData {
     required this.startTime,
     required this.endTime,
     required this.station,
+    this.tags = const [],
   });
 
   /// Crée une copie avec un nom de station différent
@@ -38,6 +42,7 @@ class AgentColumnData {
       startTime: startTime,
       endTime: endTime,
       station: stationName,
+      tags: tags,
     );
   }
 
@@ -50,6 +55,7 @@ class AgentColumnData {
       startTime: startTime,
       endTime: endTime,
       station: station,
+      tags: tags,
     );
   }
 }

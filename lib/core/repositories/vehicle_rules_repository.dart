@@ -131,35 +131,13 @@ class VehicleRulesRepository {
     try {
       final collectionPath = _getCollectionPath(stationId);
 
-      // En mode dev (sous-collections), récupérer tous les documents de la sous-collection
-      if (EnvironmentConfig.useStationSubcollections) {
-        final data = await _firestore.getAll(collectionPath);
-        final result = <VehicleRuleSet>[];
-
-        for (final item in data) {
-          try {
-            final rs = VehicleRuleSet.fromJson(item);
-            result.add(rs);
-            // Update cache
-            final key = '${stationId}_${rs.vehicleType}';
-            _stationRules[key] = rs;
-          } catch (_) {
-            // Skip malformed entries
-          }
-        }
-
-        return result;
-      }
-
-      // En mode prod (collections plates), filtrer par stationId
-      final data = await _firestore.getWhere(_collectionName, 'stationId', stationId);
+      final data = await _firestore.getAll(collectionPath);
       final result = <VehicleRuleSet>[];
 
       for (final item in data) {
         try {
           final rs = VehicleRuleSet.fromJson(item);
           result.add(rs);
-          // Update cache
           final key = '${stationId}_${rs.vehicleType}';
           _stationRules[key] = rs;
         } catch (_) {

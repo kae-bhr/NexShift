@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:nexshift_app/core/utils/constants.dart';
 import '../unified_tile_data.dart';
 
 /// Colonne d'informations pour un agent (gauche ou droite)
@@ -23,6 +24,9 @@ class RequestColumn extends StatelessWidget {
   /// Afficher l'équipe
   final bool showTeam;
 
+  /// Afficher les dates (début/fin)
+  final bool showDates;
+
   /// Indique si le badge doit être affiché (true) ou un placeholder (false)
   /// Si null, le badge n'est pas affiché du tout et le divider est masqué
   final bool? showBadge;
@@ -35,6 +39,7 @@ class RequestColumn extends StatelessWidget {
     this.emptyLinesForAlignment = 0,
     this.showStation = true,
     this.showTeam = true,
+    this.showDates = true,
     this.showBadge = true,
   });
 
@@ -134,20 +139,21 @@ class RequestColumn extends StatelessWidget {
 
         const SizedBox(height: 8),
 
-        // Dates
-        _buildInfoRow(
-          icon: Icons.calendar_today,
-          text: 'Du ${_formatDateTime(data.startTime)}',
-          iconColor: Colors.blue.shade600,
-        ),
-        const SizedBox(height: 4),
-        _buildInfoRow(
-          icon: Icons.calendar_today,
-          text: 'Au ${_formatDateTime(data.endTime)}',
-          iconColor: Colors.blue.shade600,
-        ),
-
-        const SizedBox(height: 8),
+        // Dates (masquables pour les colonnes droites agentQuery)
+        if (showDates) ...[
+          _buildInfoRow(
+            icon: Icons.calendar_today,
+            text: 'Du ${_formatDateTime(data.startTime)}',
+            iconColor: Colors.blue.shade600,
+          ),
+          const SizedBox(height: 4),
+          _buildInfoRow(
+            icon: Icons.calendar_today,
+            text: 'Au ${_formatDateTime(data.endTime)}',
+            iconColor: Colors.blue.shade600,
+          ),
+          const SizedBox(height: 8),
+        ],
 
         // Station
         if (showStation && data.station.isNotEmpty)
@@ -164,6 +170,38 @@ class RequestColumn extends StatelessWidget {
             icon: Icons.group,
             text: 'Équipe ${data.team}',
             iconColor: Colors.grey.shade600,
+          ),
+        ],
+
+        // Tags (ex. compétences requises)
+        if (data.tags.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Builder(
+            builder: (ctx) => Wrap(
+              spacing: 4,
+              runSpacing: 4,
+              children: data.tags.map((tag) {
+                final levelColor = KSkills.skillColors[tag];
+                final color = levelColor != null
+                    ? KSkills.getColorForSkillLevel(levelColor, ctx)
+                    : KColors.appNameColor;
+                return Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.13),
+                    borderRadius: BorderRadius.circular(5),
+                  ),
+                  child: Text(
+                    tag,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: color,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
           ),
         ],
       ],

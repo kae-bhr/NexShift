@@ -2,19 +2,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:nexshift_app/core/data/models/on_call_level_model.dart';
 import 'package:nexshift_app/core/config/environment_config.dart';
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 
 class OnCallLevelRepository {
   static const _collectionName = 'onCallLevels';
 
   String _getCollectionPath(String stationId) {
-    if (EnvironmentConfig.useStationSubcollections) {
-      final sdisId = SDISContext().currentSDISId;
-      if (sdisId != null && sdisId.isNotEmpty) {
-        return 'sdis/$sdisId/stations/$stationId/$_collectionName';
-      }
-    }
-    return 'stations/$stationId/$_collectionName';
+    return EnvironmentConfig.getCollectionPath(_collectionName, stationId);
   }
 
   /// Récupère tous les niveaux d'astreinte d'une station, triés par order

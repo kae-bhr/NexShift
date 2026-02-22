@@ -30,13 +30,7 @@ class ShiftRuleRepository {
       final collectionPath = _getCollectionPath(stationId);
 
       // En mode dev (sous-collections), récupérer toutes les règles de la sous-collection
-      if (EnvironmentConfig.useStationSubcollections) {
-        final data = await _firestore.getAll(collectionPath);
-        return data.map((e) => ShiftRule.fromJson(e)).toList();
-      }
-
-      // En mode prod (collections plates), filtrer par stationId
-      final data = await _firestore.getWhere(collectionPath, 'stationId', stationId);
+      final data = await _firestore.getAll(collectionPath);
       return data.map((e) => ShiftRule.fromJson(e)).toList();
     } catch (e) {
       debugPrint('Firestore error in getByStation: $e');
@@ -48,8 +42,8 @@ class ShiftRuleRepository {
   Future<ShiftRule?> getById(String id, {String? stationId}) async {
     try {
       // En mode dev, stationId est requis
-      if (EnvironmentConfig.useStationSubcollections && stationId == null) {
-        throw Exception('stationId required in dev mode for getById');
+      if (stationId == null) {
+        throw Exception('stationId required forgetById');
       }
 
       final collectionPath = _getCollectionPath(stationId);
@@ -72,8 +66,8 @@ class ShiftRuleRepository {
 
   /// Sauvegarde toutes les règles
   Future<void> saveAll(List<ShiftRule> rules, {String? stationId}) async {
-    if (EnvironmentConfig.useStationSubcollections && stationId == null) {
-      throw Exception('stationId required in dev mode for saveAll');
+    if (stationId == null) {
+      throw Exception('stationId required forsaveAll');
     }
 
     // Trier par priorité avant sauvegarde
@@ -100,8 +94,8 @@ class ShiftRuleRepository {
   Future<void> upsert(ShiftRule rule, {String? stationId}) async {
     try {
       // En mode dev, stationId est requis
-      if (EnvironmentConfig.useStationSubcollections && stationId == null) {
-        throw Exception('stationId required in dev mode for upsert');
+      if (stationId == null) {
+        throw Exception('stationId required forupsert');
       }
 
       final collectionPath = _getCollectionPath(stationId);
@@ -116,8 +110,8 @@ class ShiftRuleRepository {
   Future<void> delete(String id, {String? stationId}) async {
     try {
       // En mode dev, stationId est requis
-      if (EnvironmentConfig.useStationSubcollections && stationId == null) {
-        throw Exception('stationId required in dev mode for delete');
+      if (stationId == null) {
+        throw Exception('stationId required fordelete');
       }
 
       final collectionPath = _getCollectionPath(stationId);
@@ -139,8 +133,8 @@ class ShiftRuleRepository {
 
   /// Réinitialise avec des règles par défaut (exemple)
   Future<void> resetToDefaultRules({String? stationId}) async {
-    if (EnvironmentConfig.useStationSubcollections && stationId == null) {
-      throw Exception('stationId required in dev mode for resetToDefaultRules');
+    if (stationId == null) {
+      throw Exception('stationId required forresetToDefaultRules');
     }
 
     final now = DateTime.now();

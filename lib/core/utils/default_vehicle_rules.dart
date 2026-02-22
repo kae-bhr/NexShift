@@ -408,7 +408,7 @@ class KDefaultVehicleRules {
           CrewPosition(
             id: 'commander',
             label: 'Commandant',
-            requiredSkills: [KSkills.cod2],
+            requiredSkills: [KSkills.cod2VL],
           ),
         ],
       ),

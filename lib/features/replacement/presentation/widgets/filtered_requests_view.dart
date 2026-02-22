@@ -1,10 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:nexshift_app/core/presentation/widgets/app_empty_state.dart';
 import 'package:nexshift_app/core/services/replacement_notification_service.dart';
 import 'package:nexshift_app/features/replacement/presentation/widgets/replacement_sub_tabs.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/config/environment_config.dart';
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 
 /// Type de demande de remplacement
 enum ReplacementItemType {
@@ -151,29 +151,13 @@ class _FilteredRequestsViewState extends State<FilteredRequestsView> {
   final _notificationService = ReplacementNotificationService();
 
   String _getAutomaticRequestsPath() {
-    if (widget.currentStationId == null || widget.currentStationId!.isEmpty) {
-      return 'replacementRequests';
-    }
-
-    final sdisId = SDISContext().currentSDISId;
-    if (EnvironmentConfig.useStationSubcollections && sdisId != null && sdisId.isNotEmpty) {
-      return 'sdis/$sdisId/stations/${widget.currentStationId}/replacements/automatic/replacementRequests';
-    }
-
-    return 'replacementRequests';
+    return EnvironmentConfig.getCollectionPath(
+        'replacements/automatic/replacementRequests', widget.currentStationId);
   }
 
   String _getManualProposalsPath() {
-    if (widget.currentStationId == null || widget.currentStationId!.isEmpty) {
-      return 'manualReplacementProposals';
-    }
-
-    final sdisId = SDISContext().currentSDISId;
-    if (EnvironmentConfig.useStationSubcollections && sdisId != null && sdisId.isNotEmpty) {
-      return 'sdis/$sdisId/stations/${widget.currentStationId}/replacements/manual/proposals';
-    }
-
-    return 'manualReplacementProposals';
+    return EnvironmentConfig.getCollectionPath(
+        'replacements/manual/proposals', widget.currentStationId);
   }
 
   /// Stream combiné des demandes automatiques et manuelles
@@ -436,35 +420,7 @@ class _FilteredRequestsViewState extends State<FilteredRequestsView> {
             onRefresh: () async {
               setState(() {}); // Force rebuild to restart stream
             },
-            child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              children: [
-                SizedBox(
-                  height: MediaQuery.of(context).size.height * 0.5,
-                  child: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.inbox_outlined,
-                          size: 64,
-                          color: Colors.grey[400],
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          _getEmptyMessage(),
-                          style: TextStyle(
-                            fontSize: 18,
-                            color: Colors.grey[600],
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
+            child: _buildEmptyState(),
           );
         }
 
@@ -624,16 +580,32 @@ class _FilteredRequestsViewState extends State<FilteredRequestsView> {
     return "${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
   }
 
-  String _getEmptyMessage() {
+  Widget _buildEmptyState() {
     switch (widget.subTab) {
       case ReplacementSubTab.pending:
-        return 'Aucune demande en attente';
+        return AppEmptyState(
+          icon: Icons.inbox_outlined,
+          headline: 'Aucune demande disponible',
+          subtitle: 'Il n\'y a pas de demandes de remplacement compatibles',
+        );
       case ReplacementSubTab.myRequests:
-        return 'Vous n\'avez aucune demande en cours';
+        return AppEmptyState(
+          icon: Icons.person_search_rounded,
+          headline: 'Aucune demande en cours',
+          subtitle: 'Vous n\'avez pas de demandes de remplacement en cours',
+        );
       case ReplacementSubTab.toValidate:
-        return 'Aucune demande à valider';
+        return AppEmptyState(
+          icon: Icons.check_circle_outline,
+          headline: 'Aucune validation requise',
+          subtitle: 'Il n\'y a pas de demandes à valider',
+        );
       case ReplacementSubTab.history:
-        return 'Aucun historique pour cette période';
+        return AppEmptyState(
+          icon: Icons.history,
+          headline: 'Aucun historique',
+          subtitle: 'Il n\'y a pas d\'entrées pour cette période',
+        );
     }
   }
 }

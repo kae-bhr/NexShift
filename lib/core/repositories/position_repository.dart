@@ -17,37 +17,22 @@ class PositionRepository {
   /// Récupère toutes les positions d'une caserne
   Stream<List<Position>> getPositionsByStation(String stationId) {
     final collectionPath = _getCollectionPath(stationId);
-
-    // En mode dev (sous-collections), récupérer toutes les positions de la sous-collection
-    if (EnvironmentConfig.useStationSubcollections) {
-      return _firestore
-          .collection(collectionPath)
-          .orderBy('order')
-          .snapshots()
-          .map((snapshot) => snapshot.docs
-              .map((doc) => Position.fromFirestore(doc))
-              .toList());
-    }
-
-    // En mode prod (collections plates), filtrer par stationId
     return _firestore
-        .collection(_collectionName)
-        .where('stationId', isEqualTo: stationId)
+        .collection(collectionPath)
         .orderBy('order')
         .snapshots()
-        .map((snapshot) => snapshot.docs
-            .map((doc) => Position.fromFirestore(doc))
-            .toList());
+        .map((snapshot) =>
+            snapshot.docs.map((doc) => Position.fromFirestore(doc)).toList());
   }
 
   /// Récupère une position par son ID
   Future<Position?> getPositionById(String positionId, {String? stationId}) async {
     // En mode dev, stationId est requis
-    if (EnvironmentConfig.useStationSubcollections && stationId == null) {
-      throw Exception('stationId required in dev mode for getPositionById');
+    if (stationId == null) {
+      throw Exception('stationId required for getPositionById');
     }
 
-    final collectionPath = _getCollectionPath(stationId ?? '');
+    final collectionPath = _getCollectionPath(stationId);
     final doc = await _firestore.collection(collectionPath).doc(positionId).get();
     if (!doc.exists) return null;
     return Position.fromFirestore(doc);
@@ -57,10 +42,6 @@ class PositionRepository {
   Future<String> createPosition(Position position, {String? stationId}) async {
     // En mode dev, utiliser stationId depuis position ou paramètre
     final station = stationId ?? position.stationId;
-    if (EnvironmentConfig.useStationSubcollections && station == null) {
-      throw Exception('stationId required in dev mode for createPosition');
-    }
-
     final collectionPath = _getCollectionPath(station);
     final docRef = await _firestore
         .collection(collectionPath)
@@ -72,10 +53,6 @@ class PositionRepository {
   Future<void> updatePosition(Position position, {String? stationId}) async {
     // En mode dev, utiliser stationId depuis position ou paramètre
     final station = stationId ?? position.stationId;
-    if (EnvironmentConfig.useStationSubcollections && station == null) {
-      throw Exception('stationId required in dev mode for updatePosition');
-    }
-
     final collectionPath = _getCollectionPath(station);
     await _firestore
         .collection(collectionPath)
@@ -85,11 +62,11 @@ class PositionRepository {
 
   /// Supprime une position
   Future<void> deletePosition(String positionId, {String? stationId}) async {
-    if (EnvironmentConfig.useStationSubcollections && stationId == null) {
-      throw Exception('stationId required in dev mode for deletePosition');
+    if (stationId == null) {
+      throw Exception('stationId required for deletePosition');
     }
 
-    final collectionPath = _getCollectionPath(stationId ?? '');
+    final collectionPath = _getCollectionPath(stationId);
     await _firestore.collection(collectionPath).doc(positionId).delete();
   }
 

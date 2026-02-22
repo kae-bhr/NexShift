@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:nexshift_app/core/config/environment_config.dart';
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
 
 /// Service centralisé pour le calcul des compteurs de badges.
@@ -24,6 +23,16 @@ class BadgeCountService {
 
   /// Nombre de demandes de remplacement à valider (pour les chefs)
   final ValueNotifier<int> replacementToValidateCount = ValueNotifier(0);
+
+  // === COMPTEURS RECHERCHES D'AGENT (AgentQuery) ===
+  /// Nombre de recherches en attente nécessitant une action (notifié, pas encore répondu)
+  final ValueNotifier<int> agentQueryPendingCount = ValueNotifier(0);
+
+  /// Nombre de mes recherches d'agent en cours (créées par moi, still pending)
+  final ValueNotifier<int> agentQueryMyRequestsCount = ValueNotifier(0);
+
+  /// True si au moins une recherche d'agent nécessite une action
+  final ValueNotifier<bool> hasAgentQueryPending = ValueNotifier(false);
 
   // === COMPTEURS ÉCHANGES ===
   /// Nombre de demandes d'échange en attente nécessitant une action
@@ -57,6 +66,7 @@ class BadgeCountService {
   // === SUBSCRIPTIONS ===
   StreamSubscription? _replacementSubscription;
   StreamSubscription? _manualProposalsSubscription;
+  StreamSubscription? _agentQuerySubscription;
   StreamSubscription? _exchangeRequestsSubscription;
   StreamSubscription? _exchangeProposalsSubscription;
   StreamSubscription? _myExchangeRequestsSubscription;
@@ -93,6 +103,7 @@ class BadgeCountService {
     // Démarrer l'écoute des streams
     _subscribeToReplacements();
     _subscribeToManualProposals();
+    _subscribeToAgentQueries();
     _subscribeToExchanges();
     _subscribeToValidations();
   }
@@ -106,62 +117,32 @@ class BadgeCountService {
 
   /// Retourne le chemin Firestore pour les demandes de remplacement automatiques.
   String _getReplacementRequestsPath() {
-    if (EnvironmentConfig.useStationSubcollections && _currentStationId != null && _currentStationId!.isNotEmpty) {
-      final sdisId = SDISContext().currentSDISId;
-      if (sdisId != null && sdisId.isNotEmpty) {
-        return 'sdis/$sdisId/stations/$_currentStationId/replacements/automatic/replacementRequests';
-      }
-      return 'stations/$_currentStationId/replacements/automatic/replacementRequests';
-    }
-    return 'replacementRequests';
+    return EnvironmentConfig.getCollectionPath('replacements/automatic/replacementRequests', _currentStationId);
   }
 
   /// Retourne le chemin Firestore pour les propositions de remplacement manuelles.
   String _getManualProposalsPath() {
-    if (EnvironmentConfig.useStationSubcollections && _currentStationId != null && _currentStationId!.isNotEmpty) {
-      final sdisId = SDISContext().currentSDISId;
-      if (sdisId != null && sdisId.isNotEmpty) {
-        return 'sdis/$sdisId/stations/$_currentStationId/replacements/manual/proposals';
-      }
-      return 'stations/$_currentStationId/replacements/manual/proposals';
-    }
-    return 'manualReplacementProposals';
+    return EnvironmentConfig.getCollectionPath('replacements/manual/proposals', _currentStationId);
   }
 
   /// Retourne le chemin Firestore pour les demandes d'échange.
   String _getExchangeRequestsPath() {
-    if (EnvironmentConfig.useStationSubcollections && _currentStationId != null && _currentStationId!.isNotEmpty) {
-      final sdisId = SDISContext().currentSDISId;
-      if (sdisId != null && sdisId.isNotEmpty) {
-        return 'sdis/$sdisId/stations/$_currentStationId/replacements/exchange/shiftExchangeRequests';
-      }
-      return 'stations/$_currentStationId/replacements/exchange/shiftExchangeRequests';
-    }
-    return 'shiftExchangeRequests';
+    return EnvironmentConfig.getCollectionPath('replacements/exchange/shiftExchangeRequests', _currentStationId);
   }
 
   /// Retourne le chemin Firestore pour les propositions d'échange.
   String _getExchangeProposalsPath() {
-    if (EnvironmentConfig.useStationSubcollections && _currentStationId != null && _currentStationId!.isNotEmpty) {
-      final sdisId = SDISContext().currentSDISId;
-      if (sdisId != null && sdisId.isNotEmpty) {
-        return 'sdis/$sdisId/stations/$_currentStationId/replacements/exchange/shiftExchangeProposals';
-      }
-      return 'stations/$_currentStationId/replacements/exchange/shiftExchangeProposals';
-    }
-    return 'shiftExchangeProposals';
+    return EnvironmentConfig.getCollectionPath('replacements/exchange/shiftExchangeProposals', _currentStationId);
+  }
+
+  /// Retourne le chemin Firestore pour les recherches automatiques d'agent.
+  String _getAgentQueriesPath() {
+    return EnvironmentConfig.getCollectionPath('replacements/queries/agentQueries', _currentStationId);
   }
 
   /// Retourne le chemin Firestore pour les acceptations de remplacement.
   String _getReplacementAcceptancesPath() {
-    if (EnvironmentConfig.useStationSubcollections && _currentStationId != null && _currentStationId!.isNotEmpty) {
-      final sdisId = SDISContext().currentSDISId;
-      if (sdisId != null && sdisId.isNotEmpty) {
-        return 'sdis/$sdisId/stations/$_currentStationId/replacements/automatic/replacementAcceptances';
-      }
-      return 'stations/$_currentStationId/replacements/automatic/replacementAcceptances';
-    }
-    return 'replacementAcceptances';
+    return EnvironmentConfig.getCollectionPath('replacements/automatic/replacementAcceptances', _currentStationId);
   }
 
   // ============================================================
@@ -347,6 +328,68 @@ class BadgeCountService {
   int _automaticPendingCount = 0;
   int _automaticMyRequestsCount = 0;
   int _automaticToValidateCount = 0;
+
+  // ============================================================
+  // RECHERCHES D'AGENT (AgentQuery)
+  // ============================================================
+
+  void _subscribeToAgentQueries() {
+    final path = _getAgentQueriesPath();
+    debugPrint('🔔 [BadgeCountService] Subscribing to agentQueries at: $path');
+
+    _agentQuerySubscription = FirebaseFirestore.instance
+        .collection(path)
+        .where('status', isEqualTo: 'pending')
+        .snapshots()
+        .listen(
+          (snapshot) => _updateAgentQueryCounts(snapshot),
+          onError: (error) => debugPrint('🔔 [BadgeCountService] AgentQuery stream error: $error'),
+        );
+  }
+
+  void _updateAgentQueryCounts(QuerySnapshot snapshot) {
+    if (_currentUserId == null) return;
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+
+    int pending = 0;
+    int myRequests = 0;
+
+    for (final doc in snapshot.docs) {
+      final data = doc.data() as Map<String, dynamic>;
+
+      final createdById = data['createdById'] as String?;
+      final startTime = (data['startTime'] as Timestamp?)?.toDate();
+      final notifiedUserIds = List<String>.from(data['notifiedUserIds'] ?? []);
+      final declinedByUserIds = List<String>.from(data['declinedByUserIds'] ?? []);
+
+      if (startTime == null) continue;
+
+      // Filtre date : startTime >= aujourd'hui
+      final startDate = DateTime(startTime.year, startTime.month, startTime.day);
+      final isFuture = startDate.isAfter(today) || startDate.isAtSameMomentAs(today);
+      if (!isFuture) continue;
+
+      // === MES DEMANDES (créées par moi) ===
+      if (createdById == _currentUserId) {
+        myRequests++;
+      }
+
+      // === EN ATTENTE (notifié, pas encore refusé) ===
+      if (createdById != _currentUserId &&
+          notifiedUserIds.contains(_currentUserId) &&
+          !declinedByUserIds.contains(_currentUserId)) {
+        pending++;
+      }
+    }
+
+    agentQueryPendingCount.value = pending;
+    agentQueryMyRequestsCount.value = myRequests;
+    hasAgentQueryPending.value = pending > 0;
+
+    debugPrint('🔔 [BadgeCountService] AgentQuery counts: pending=$pending, myRequests=$myRequests');
+  }
 
   // ============================================================
   // ÉCHANGES
@@ -638,6 +681,7 @@ class BadgeCountService {
 
     _replacementSubscription?.cancel();
     _manualProposalsSubscription?.cancel();
+    _agentQuerySubscription?.cancel();
     _exchangeRequestsSubscription?.cancel();
     _exchangeProposalsSubscription?.cancel();
     _myExchangeRequestsSubscription?.cancel();
@@ -646,6 +690,7 @@ class BadgeCountService {
 
     _replacementSubscription = null;
     _manualProposalsSubscription = null;
+    _agentQuerySubscription = null;
     _exchangeRequestsSubscription = null;
     _exchangeProposalsSubscription = null;
     _myExchangeRequestsSubscription = null;
@@ -656,6 +701,8 @@ class BadgeCountService {
     replacementPendingCount.value = 0;
     replacementMyRequestsCount.value = 0;
     replacementToValidateCount.value = 0;
+    agentQueryPendingCount.value = 0;
+    agentQueryMyRequestsCount.value = 0;
     exchangePendingCount.value = 0;
     exchangeMyRequestsCount.value = 0;
     exchangeNeedingSelectionCount.value = 0;
@@ -663,6 +710,7 @@ class BadgeCountService {
 
     hasReplacementPending.value = false;
     hasReplacementValidation.value = false;
+    hasAgentQueryPending.value = false;
     hasExchangePending.value = false;
     hasExchangeNeedingSelection.value = false;
     hasExchangeValidation.value = false;

@@ -14,6 +14,9 @@ enum UnifiedRequestType {
 
   /// Échange de garde
   exchange,
+
+  /// Recherche automatique d'agent
+  agentQuery,
 }
 
 /// Mode de vue déterminant les actions disponibles
@@ -112,6 +115,8 @@ extension UnifiedRequestTypeDisplay on UnifiedRequestType {
         return 'Remplacement manuel';
       case UnifiedRequestType.exchange:
         return 'Échange';
+      case UnifiedRequestType.agentQuery:
+        return 'Recherche';
     }
   }
 }

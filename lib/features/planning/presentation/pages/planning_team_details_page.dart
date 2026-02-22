@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:nexshift_app/core/repositories/truck_repository.dart';
@@ -9,7 +7,6 @@ import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/data/models/trucks_model.dart';
 import 'package:nexshift_app/core/data/models/planning_model.dart';
 import 'package:nexshift_app/core/data/models/crew_position_model.dart';
-import 'package:nexshift_app/core/data/models/subshift_model.dart';
 import 'package:nexshift_app/core/data/models/availability_model.dart';
 import 'package:nexshift_app/core/repositories/local_repositories.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
@@ -21,7 +18,6 @@ import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 import 'package:nexshift_app/features/replacement/presentation/pages/skill_search_page.dart';
 import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
 import 'package:nexshift_app/features/planning/presentation/widgets/vehicle_detail_dialog.dart';
-import 'package:nexshift_app/core/utils/subshift_normalizer.dart';
 import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/core/utils/station_name_cache.dart';
 
@@ -46,7 +42,6 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
   Map<String, int> _skillsCount = {};
   List<Truck> _stationTrucks = [];
   Map<String, CrewResult> _crewResults = {};
-  List<Subshift> _subshifts = [];
   List<Availability> _availabilities = [];
   DateTime _at = DateTime.now();
   Planning? _currentPlanning;
@@ -89,11 +84,8 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
     }
 
     final users = await UserRepository().getByStation(_currentUser!.station);
-    final subshifts = await repo.getSubshifts(stationId: _currentUser!.station);
-    final availabilities = await repo.getAvailabilities();
+    final availabilities = await repo.getAvailabilities(stationId: _currentUser!.station);
     _allUsers = users;
-    // Résoudre les cascades de remplacements pour toujours pointer vers l'agent original
-    _subshifts = resolveReplacementCascades(subshifts);
     _availabilities = availabilities;
 
     // Find planning (garde) active at _at. Use UTC comparators with start <= at < end
@@ -143,13 +135,40 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
     _nextPlanning = next;
 
     // agents: if planning exists use its agents, otherwise show empty (no active garde)
+    // Only include agents whose PlanningAgent window covers atUtc (start <= at < end).
+    // Also include agents who were replaced at atUtc (their id appears as replacedAgentId
+    // on a replacer entry that is active at atUtc) so replacements remain visible.
     var agents = planningExists
-        ? users.where((u) => maybePlanning.agentsId.contains(u.id)).toList()
+        ? () {
+            final originalIds = <String>{};
+            // Active base agents: window covers atUtc, not a replacer entry
+            for (final a in maybePlanning.agents) {
+              final aStart = a.start.toUtc();
+              final aEnd = a.end.toUtc();
+              final activeAtAt =
+                  (aStart.isBefore(atUtc) || aStart.isAtSameMomentAs(atUtc)) &&
+                  aEnd.isAfter(atUtc);
+              if (activeAtAt && a.replacedAgentId == null) {
+                originalIds.add(a.agentId);
+              }
+            }
+            // Replaced agents: their replacer entry is active at atUtc
+            for (final a in maybePlanning.agents) {
+              if (a.replacedAgentId == null) continue;
+              final aStart = a.start.toUtc();
+              final aEnd = a.end.toUtc();
+              final activeAtAt =
+                  (aStart.isBefore(atUtc) || aStart.isAtSameMomentAs(atUtc)) &&
+                  aEnd.isAfter(atUtc);
+              if (activeAtAt) originalIds.add(a.replacedAgentId!);
+            }
+            return users.where((u) => originalIds.contains(u.id)).toList();
+          }()
         : <User>[];
 
     // fallback: only if planning explicitly declares agents but repository
-    // lookup failed to resolve them (avoid showing full team when agentsId is empty)
-    if (planningExists && agents.isEmpty && maybePlanning.agentsId.isNotEmpty) {
+    // lookup failed to resolve them (avoid showing full team when agents is empty)
+    if (planningExists && agents.isEmpty && maybePlanning.agents.isNotEmpty) {
       agents = users.where((u) => u.team == maybePlanning.team).toList();
     }
 
@@ -191,36 +210,35 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
       }
     }
 
-    // Build effective crew: apply active replacements
-    // For each agent, if they are being replaced at _at, use the replacer instead
+    // Build effective crew directly from planning.agents (source of truth).
+    // For each PlanningAgent entry active at atUtc:
+    //   - replacedAgentId == null → base agent present at this time
+    //   - replacedAgentId != null → replacer entry; the original is absent
+    // Build a map replacedId→replacerId from active replacer entries, then
+    // resolve the effective crew: for each base agent, use the replacer if one
+    // exists, otherwise use the base agent itself.
     final List<User> effectiveAgents = [];
-    final Map<String, String> activeReplacementMap =
-        {}; // replacedId -> replacerId
+    final Map<String, String> activeReplacementMap = {}; // replacedId → replacerId
 
-    // IMPORTANT: Utiliser _subshifts (après resolveReplacementCascades) pour être
-    // cohérent avec le build() qui utilise aussi _subshifts
-    for (final s in _subshifts) {
-      final start = s.start.toUtc();
-      final end = s.end.toUtc();
-      if ((start.isBefore(atUtc) || start.isAtSameMomentAs(atUtc)) &&
-          end.isAfter(atUtc)) {
-        // Check if this replacement affects current planning
-        final inAgents = agents.any((a) => a.id == s.replacedId);
-        final inPlanning =
-            planningExists && maybePlanning.agentsId.contains(s.replacedId);
-        if (inAgents || inPlanning) {
-          activeReplacementMap[s.replacedId] = s.replacerId;
+    if (planningExists) {
+      for (final a in maybePlanning.agents) {
+        if (a.replacedAgentId == null) continue; // only replacer entries
+        final aStart = a.start.toUtc();
+        final aEnd = a.end.toUtc();
+        if ((aStart.isBefore(atUtc) || aStart.isAtSameMomentAs(atUtc)) &&
+            aEnd.isAfter(atUtc)) {
+          activeReplacementMap[a.replacedAgentId!] = a.agentId;
         }
       }
     }
 
-    // Build effective crew: swap replaced agents with replacers
+    // agents already contains only the originals active at atUtc (built above)
     for (final agent in agents) {
-      if (activeReplacementMap.containsKey(agent.id)) {
-        final replacerId = activeReplacementMap[agent.id];
+      final replacerId = activeReplacementMap[agent.id];
+      if (replacerId != null) {
         final replacer = users.firstWhere(
           (u) => u.id == replacerId,
-          orElse: () => agent, // fallback to original if replacer not found
+          orElse: () => agent,
         );
         effectiveAgents.add(replacer);
       } else {
@@ -233,41 +251,18 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
     for (final availability in availabilities) {
       final start = availability.start.toUtc();
       final end = availability.end.toUtc();
-      // Check if availability is active at _at
       if ((start.isBefore(atUtc) || start.isAtSameMomentAs(atUtc)) &&
           end.isAfter(atUtc)) {
-        final agent = users.firstWhereOrNull(
-          (u) => u.id == availability.agentId,
-        );
+        final agent = users.where((u) => u.id == availability.agentId).firstOrNull;
         if (agent != null && !effectiveAgents.any((a) => a.id == agent.id)) {
-          // Only add if not already in effective agents (to avoid duplicates)
           availableAgents.add(agent);
         }
       }
     }
 
-    // Intégrer les agents supplémentaires depuis planning.agents (source unique de vérité)
-    final List<User> manualAgents = [];
-    if (planningExists) {
-      for (final entry in maybePlanning.agents) {
-        final eStart = entry.start.toUtc();
-        final eEnd = entry.end.toUtc();
-        if ((eStart.isBefore(atUtc) || eStart.isAtSameMomentAs(atUtc)) &&
-            eEnd.isAfter(atUtc)) {
-          final alreadyCounted = effectiveAgents.any((a) => a.id == entry.agentId) ||
-              availableAgents.any((a) => a.id == entry.agentId);
-          if (!alreadyCounted) {
-            final agent = users.firstWhereOrNull((u) => u.id == entry.agentId);
-            if (agent != null) {
-              manualAgents.add(agent);
-            }
-          }
-        }
-      }
-    }
-
-    // Combine effective agents + available agents + agents from planning.agents
-    final allActiveAgents = [...effectiveAgents, ...availableAgents, ...manualAgents];
+    // Combine effective agents + available agents (planning.agents is already
+    // fully represented via effectiveAgents above — no manualAgents needed)
+    final allActiveAgents = [...effectiveAgents, ...availableAgents];
 
     // compute skill counts based on effective + available crew
     final Map<String, int> skillCount = {
@@ -432,10 +427,12 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
       events.add(p.endTime);
     }
 
-    // Ajouter les débuts et fins de subshifts
-    for (final s in _subshifts) {
-      events.add(s.start);
-      events.add(s.end);
+    // Ajouter les débuts et fins des entrées PlanningAgent (source de vérité)
+    for (final p in _allPlannings) {
+      for (final a in p.agents) {
+        events.add(a.start);
+        events.add(a.end);
+      }
     }
 
     // Ajouter les débuts et fins de disponibilités
@@ -449,7 +446,7 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
     return events;
   }
 
-  /// Returns true if the given replaced agent is covered by replacements
+  /// Returns true if the given replaced agent is covered by replacer entries
   /// over the entire current planning window (with a small tolerance).
   bool _isFullyReplacedForPlanning(String replacedId) {
     if (_currentPlanning == null) return false;
@@ -461,16 +458,12 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
       return false;
     }
 
-    // Collect intervals for this replaced agent within the planning window
-    final intervals = _subshifts
-        .where(
-          (s) =>
-              s.planningId == _currentPlanning!.id &&
-              s.replacedId == replacedId,
-        )
-        .map((s) {
-          final start = s.start.isBefore(planStart) ? planStart : s.start;
-          final end = s.end.isAfter(planEnd) ? planEnd : s.end;
+    // Collect intervals from replacer PlanningAgent entries for this agent
+    final intervals = _currentPlanning!.agents
+        .where((a) => a.replacedAgentId == replacedId)
+        .map((a) {
+          final start = a.start.isBefore(planStart) ? planStart : a.start;
+          final end = a.end.isAfter(planEnd) ? planEnd : a.end;
           return end.isAfter(start) ? [start, end] : null;
         })
         .whereType<List<DateTime>>()
@@ -478,7 +471,6 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
 
     if (intervals.isEmpty) return false;
 
-    // Sort by start and merge overlaps to compute union coverage
     intervals.sort((a, b) => a[0].compareTo(b[0]));
     DateTime curStart = intervals.first[0];
     DateTime curEnd = intervals.first[1];
@@ -488,16 +480,13 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
       final s = intervals[i][0];
       final e = intervals[i][1];
       if (s.isAfter(curEnd)) {
-        // disjoint interval: accumulate previous and start a new one
         covered += curEnd.difference(curStart);
         curStart = s;
         curEnd = e;
       } else {
-        // overlapping: extend if needed
         if (e.isAfter(curEnd)) curEnd = e;
       }
     }
-    // accumulate last interval
     covered += curEnd.difference(curStart);
 
     const tolerance = Duration(minutes: 1);
@@ -576,21 +565,17 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
     final hasPreviousEvent = events.any((e) => e.toUtc().isBefore(atUtc));
     final hasNextEvent = events.any((e) => e.toUtc().isAfter(atUtc));
 
-    // find replacements active at _at for agents in current garde
-    final Map<String, Subshift> activeReplacementByReplaced = {};
-    for (final s in _subshifts) {
-      final start = s.start.toUtc();
-      final end = s.end.toUtc();
-      // consider subshift active when start <= at < end
-      if ((start.isBefore(atUtc) || start.isAtSameMomentAs(atUtc)) &&
-          end.isAfter(atUtc)) {
-        final replacedId = s.replacedId;
-        final inAgents = _agents.any((a) => a.id == replacedId);
-        final inPlanning =
-            _currentPlanning != null &&
-            _currentPlanning!.agentsId.contains(replacedId);
-        if (inAgents || inPlanning) {
-          activeReplacementByReplaced[s.replacedId] = s;
+    // Build replacement map for UI display from planning.agents (source of truth).
+    // Maps replacedId → replacerId for all replacer entries active at atUtc.
+    final Map<String, String> activeReplacementByReplaced = {}; // replacedId → replacerId
+    if (_currentPlanning != null) {
+      for (final a in _currentPlanning!.agents) {
+        if (a.replacedAgentId == null) continue;
+        final aStart = a.start.toUtc();
+        final aEnd = a.end.toUtc();
+        if ((aStart.isBefore(atUtc) || aStart.isAtSameMomentAs(atUtc)) &&
+            aEnd.isAfter(atUtc)) {
+          activeReplacementByReplaced[a.replacedAgentId!] = a.agentId;
         }
       }
     }
@@ -650,9 +635,9 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
                         ? null
                         : Column(
                             children: _agents.map((a) {
-                              final active = activeReplacementByReplaced[a.id];
-                              if (active != null) {
-                                final replacer = _findUserById(active.replacerId);
+                              final replacerId = activeReplacementByReplaced[a.id];
+                              if (replacerId != null) {
+                                final replacer = _findUserById(replacerId);
                                 final isFullyReplaced =
                                     _isFullyReplacedForPlanning(a.id);
                                 return _AgentReplacementRow(

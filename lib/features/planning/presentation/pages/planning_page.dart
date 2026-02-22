@@ -458,7 +458,7 @@ class _PlanningPageState extends State<PlanningPage> {
         debugPrint('📅 [PLANNING_PAGE] Final plannings count after adding replacer plannings: ${plannings.length}');
 
         // Load user's availabilities for personal view
-        final allAvailabilities = await repo.getAvailabilities();
+        final allAvailabilities = await repo.getAvailabilities(stationId: user.station);
         final userAvailabilities = allAvailabilities
             .where(
               (a) =>
@@ -1059,11 +1059,8 @@ class _PlanningPageState extends State<PlanningPage> {
   Future<bool> _hasActiveReplacementRequest(Planning planning, String userId, String stationId) async {
     try {
       // Construire le chemin vers les demandes de remplacement
-      final requestsPath = EnvironmentConfig.useStationSubcollections && stationId.isNotEmpty
-          ? (SDISContext().currentSDISId != null && SDISContext().currentSDISId!.isNotEmpty
-              ? 'sdis/${SDISContext().currentSDISId}/stations/$stationId/replacements/automatic/replacementRequests'
-              : 'stations/$stationId/replacements/automatic/replacementRequests')
-          : 'replacementRequests';
+      final requestsPath = EnvironmentConfig.getCollectionPath(
+          'replacements/automatic/replacementRequests', stationId);
 
       // Chercher les demandes de remplacement pour ce planning et cet utilisateur
       final snapshot = await FirebaseFirestore.instance

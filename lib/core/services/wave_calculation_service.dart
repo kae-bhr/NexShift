@@ -5,9 +5,11 @@ import 'package:nexshift_app/core/utils/constants.dart';
 
 /// Sous-catégories pour les agents non-notifiés (vague 0)
 enum NonNotifiedCategory {
-  onDuty,          // En astreinte
-  replacing,       // Remplaçant sur la période
-  underQualified,  // Sous-qualifié (manque keySkills)
+  onDuty,               // En astreinte
+  replacing,            // Remplaçant sur la période
+  underQualified,       // Sous-qualifié (manque keySkills)
+  sickLeave,            // En arrêt maladie
+  suspendedFromDuty,    // En suspension d'engagement
 }
 
 /// Service pour calculer les vagues de notifications
@@ -31,6 +33,11 @@ class WaveCalculationService {
     required Map<String, int> skillRarityWeights,
     Map<String, double>? stationSkillWeights, // Pondération configurable par station
   }) {
+    // Vague 0 : Agents suspendus ou en arrêt maladie (jamais notifiés)
+    if (!candidate.isActiveForReplacement) {
+      return 0;
+    }
+
     // Vague 0 : Agents en astreinte (jamais notifiés)
     if (agentsInPlanning.contains(candidate.id)) {
       return 0;
@@ -71,6 +78,13 @@ class WaveCalculationService {
     required String planningTeam,
     required List<String> agentsInPlanning,
   }) {
+    // Vérifier si l'agent est suspendu ou en arrêt maladie
+    if (!candidate.isActiveForReplacement) {
+      return candidate.agentAvailabilityStatus == AgentAvailabilityStatus.sickLeave
+          ? NonNotifiedCategory.sickLeave
+          : NonNotifiedCategory.suspendedFromDuty;
+    }
+
     // Vérifier si l'agent est en astreinte
     if (agentsInPlanning.contains(candidate.id)) {
       return NonNotifiedCategory.onDuty;

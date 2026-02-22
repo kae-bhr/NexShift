@@ -513,6 +513,10 @@ class CloudFunctionsService {
           anomalyAlertEnabled: userMap['anomalyAlertEnabled'] as bool? ?? false,
           anomalyAlertDaysBefore: userMap['anomalyAlertDaysBefore'] as int? ?? 14,
           positionId: userMap['positionId'] as String?,
+          agentAvailabilityStatus: userMap['agentAvailabilityStatus'] as String? ?? AgentAvailabilityStatus.active,
+          suspensionStartDate: userMap['suspensionStartDate'] != null
+              ? DateTime.tryParse(userMap['suspensionStartDate'] as String)
+              : null,
         );
       }).toList();
 
