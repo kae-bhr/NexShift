@@ -65,6 +65,7 @@ class _StationShellPageState extends State<StationShellPage>
       // Charger le nom de la station
       String? stationName;
       if (currentUser != null) {
+        await SDISContext().ensureInitialized();
         final sdisId = SDISContext().currentSDISId;
         if (sdisId != null) {
           stationName = await StationNameCache().getStationName(sdisId, currentUser.station);

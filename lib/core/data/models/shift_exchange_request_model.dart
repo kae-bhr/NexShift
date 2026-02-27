@@ -58,11 +58,11 @@ class ShiftExchangeRequest {
   });
 
   /// Conversion vers JSON pour Firestore
+  /// Le champ initiatorName n'est pas persisté — résolu via déchiffrement CF.
   Map<String, dynamic> toJson() {
     return {
       'id': id,
       'initiatorId': initiatorId,
-      'initiatorName': initiatorName,
       'initiatorPlanningId': initiatorPlanningId,
       'initiatorStartTime': Timestamp.fromDate(initiatorStartTime),
       'initiatorEndTime': Timestamp.fromDate(initiatorEndTime),

@@ -17,8 +17,6 @@ import 'package:nexshift_app/core/services/badge_count_service.dart';
 import 'package:nexshift_app/core/services/subscription_service.dart';
 import 'package:nexshift_app/core/services/cloud_functions_service.dart';
 
-List<Widget> pages = [HomePage(), PlanningPage()];
-
 class WidgetTree extends StatefulWidget {
   const WidgetTree({super.key});
 
@@ -28,11 +26,16 @@ class WidgetTree extends StatefulWidget {
 
 class _WidgetTreeState extends State<WidgetTree> {
   late PageController _pageController;
+  // Les pages sont créées dans le State et non plus comme variable globale,
+  // pour éviter que HomePage/PlanningPage soient instanciées avant que
+  // SDISContext et userNotifier soient restaurés au démarrage.
+  late final List<Widget> _pages;
 
   @override
   void initState() {
     super.initState();
     debugPrint('🏠 [WIDGET_TREE] initState() called');
+    _pages = [HomePage(), PlanningPage()];
     _pageController = PageController(initialPage: selectedPageNotifier.value);
     // Sync PageView with notifier
     selectedPageNotifier.addListener(_onPageNotifierChanged);
@@ -519,7 +522,7 @@ class _WidgetTreeState extends State<WidgetTree> {
               child: PageView(
                 controller: _pageController,
                 onPageChanged: _onPageChanged,
-                children: pages,
+                children: _pages,
               ),
             ),
           ],

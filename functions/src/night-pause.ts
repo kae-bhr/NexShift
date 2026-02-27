@@ -12,6 +12,7 @@ import {getFirestore, Timestamp} from "firebase-admin/firestore";
  */
 export const sendPendingWavesAfterNightPause = onSchedule(
   {
+    region: "europe-west1",
     schedule: "every 15 minutes",
     timeZone: "Europe/Paris",
   },

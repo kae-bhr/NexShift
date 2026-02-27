@@ -152,10 +152,11 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
     // donc pas besoin de vérifier isUserNotified pour ces types
     final usesWaveSystem =
         widget.data.requestType == UnifiedRequestType.automaticReplacement ||
-            widget.data.requestType == UnifiedRequestType.sosReplacement;
+        widget.data.requestType == UnifiedRequestType.sosReplacement;
 
     // Déterminer si les actions sont possibles
-    final canActNow = widget.canAct &&
+    final canActNow =
+        widget.canAct &&
         !hasDeclined &&
         (widget.viewMode != TileViewMode.pending ||
             isUserNotified ||
@@ -187,10 +188,7 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
             children: [
               // En-tête de validation (si présent)
               if (validationChiefs.isNotEmpty) ...[
-                ValidationHeader(
-                  chiefs: validationChiefs,
-                  showDivider: true,
-                ),
+                ValidationHeader(chiefs: validationChiefs, showDivider: true),
                 const SizedBox(height: 12),
               ],
 
@@ -198,7 +196,9 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
               Builder(
                 builder: (context) {
                   // Calculer si les badges doivent être affichés
-                  final badgeVisibility = _calculateBadgeVisibility(hasDeclined);
+                  final badgeVisibility = _calculateBadgeVisibility(
+                    hasDeclined,
+                  );
 
                   return Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -211,8 +211,8 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
                           showBadge: badgeVisibility.leftBadge,
                           emptyLinesForAlignment:
                               rightChiefsCount > leftChiefsCount
-                                  ? rightChiefsCount - leftChiefsCount
-                                  : 0,
+                              ? rightChiefsCount - leftChiefsCount
+                              : 0,
                         ),
                       ),
 
@@ -238,13 +238,15 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
                                 showBadge: badgeVisibility.rightBadge,
                                 emptyLinesForAlignment:
                                     leftChiefsCount > rightChiefsCount
-                                        ? leftChiefsCount - rightChiefsCount
-                                        : 0,
+                                    ? leftChiefsCount - rightChiefsCount
+                                    : 0,
                                 // Pour les AgentQuery, la colonne droite affiche les skills
                                 // sans répéter les dates (déjà dans la colonne gauche)
-                                showDates: widget.data.requestType !=
+                                showDates:
+                                    widget.data.requestType !=
                                     UnifiedRequestType.agentQuery,
-                                showStation: widget.data.requestType !=
+                                showStation:
+                                    widget.data.requestType !=
                                     UnifiedRequestType.agentQuery,
                               )
                             : _buildEmptyColumnWithDelete(),
@@ -260,7 +262,8 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
                 SpecialIndicatorsBar(
                   currentWave: widget.data.currentWave,
                   // Ne pas afficher le notifiedCount pour les échanges (pas pertinent)
-                  notifiedCount: widget.data.requestType == UnifiedRequestType.exchange
+                  notifiedCount:
+                      widget.data.requestType == UnifiedRequestType.exchange
                       ? null
                       : widget.data.notifiedUserIds.length,
                   proposalCount: widget.data.proposalCount,
@@ -279,7 +282,8 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
                 TileActionBar(
                   viewMode: widget.viewMode,
                   canAct: canActNow,
-                  onDelete: null, // Le bouton suppression est dans la colonne droite
+                  onDelete:
+                      null, // Le bouton suppression est dans la colonne droite
                   onAccept: widget.onAccept,
                   onRefuse: widget.onRefuse,
                   onValidate: widget.onValidate,
@@ -288,22 +292,22 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
                 ),
               ],
 
-              // Bouton DEV uniquement : Passer à la vague suivante (sans divider)
-              if (widget.showDevButton && widget.onSkipToNextWave != null) ...[
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: widget.onSkipToNextWave,
-                    icon: const Icon(Icons.fast_forward, size: 18),
-                    label: const Text('DEV: Passer à la vague suivante'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.orange,
-                      side: const BorderSide(color: Colors.orange),
-                    ),
-                  ),
-                ),
-              ],
+              //// Bouton DEV uniquement : Passer à la vague suivante (sans divider)
+              //if (widget.showDevButton && widget.onSkipToNextWave != null) ...[
+              //  const SizedBox(height: 12),
+              //  SizedBox(
+              //    width: double.infinity,
+              //    child: OutlinedButton.icon(
+              //      onPressed: widget.onSkipToNextWave,
+              //      icon: const Icon(Icons.fast_forward, size: 18),
+              //      label: const Text('DEV: Passer à la vague suivante'),
+              //      style: OutlinedButton.styleFrom(
+              //        foregroundColor: Colors.orange,
+              //        side: const BorderSide(color: Colors.orange),
+              //      ),
+              //    ),
+              //  ),
+              //],
             ],
           ),
         ),
@@ -349,14 +353,12 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
 
     // Toujours afficher le badge "Expiré" si la demande est expirée
     if (widget.data.status == TileStatus.expired) {
-      return const StatusBadge(
-        status: TileStatus.expired,
-        compact: true,
-      );
+      return const StatusBadge(status: TileStatus.expired, compact: true);
     }
 
     // Pour "En attente de validation", afficher uniquement si vraiment en attente de validation chef
-    final hasPendingAcceptance = widget.data.extraData['hasPendingAcceptance'] == true;
+    final hasPendingAcceptance =
+        widget.data.extraData['hasPendingAcceptance'] == true;
     if (hasPendingAcceptance) {
       return const StatusBadge(
         status: TileStatus.pendingValidation,
@@ -367,17 +369,15 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
     // Les badges de validation ne s'affichent que pour :
     // - Les échanges
     // - Les remplacements nécessitant validation chef (validationChiefs non vide)
-    final requiresChiefValidation = widget.data.requiresChiefValidation ||
+    final requiresChiefValidation =
+        widget.data.requiresChiefValidation ||
         widget.data.requestType == UnifiedRequestType.exchange;
 
     // Pour les vues "A valider" et "Historique", afficher le statut de validation si applicable
     if (requiresChiefValidation &&
         (widget.viewMode == TileViewMode.toValidate ||
             widget.viewMode == TileViewMode.history)) {
-      return StatusBadge(
-        status: widget.data.status,
-        compact: true,
-      );
+      return StatusBadge(status: widget.data.status, compact: true);
     }
 
     // Pour les autres cas (remplacements normaux sans validation chef), pas de badge
@@ -391,26 +391,21 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
 
     // Toujours afficher le badge "Expiré" si la demande est expirée
     if (widget.data.status == TileStatus.expired) {
-      return const StatusBadge(
-        status: TileStatus.expired,
-        compact: true,
-      );
+      return const StatusBadge(status: TileStatus.expired, compact: true);
     }
 
     // Les badges de validation ne s'affichent que pour :
     // - Les échanges
     // - Les remplacements nécessitant validation chef (validationChiefs non vide)
-    final requiresChiefValidation = widget.data.requiresChiefValidation ||
+    final requiresChiefValidation =
+        widget.data.requiresChiefValidation ||
         widget.data.requestType == UnifiedRequestType.exchange;
 
     // Pour les vues "A valider" et "Historique", afficher le statut de validation si applicable
     if (requiresChiefValidation &&
         (widget.viewMode == TileViewMode.toValidate ||
             widget.viewMode == TileViewMode.history)) {
-      return StatusBadge(
-        status: widget.data.status,
-        compact: true,
-      );
+      return StatusBadge(status: widget.data.status, compact: true);
     }
 
     // Pour les autres cas, pas de badge
@@ -422,7 +417,9 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
   /// Retourne un record avec :
   /// - leftBadge: true (afficher), false (placeholder), null (masquer avec divider)
   /// - rightBadge: true (afficher), false (placeholder), null (masquer avec divider)
-  ({bool? leftBadge, bool? rightBadge}) _calculateBadgeVisibility(bool hasDeclined) {
+  ({bool? leftBadge, bool? rightBadge}) _calculateBadgeVisibility(
+    bool hasDeclined,
+  ) {
     // Déterminer si chaque colonne a un badge à afficher
     final leftHasBadge = _shouldShowLeftBadge(hasDeclined);
     final rightHasBadge = _shouldShowRightBadge();
@@ -454,11 +451,13 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
     if (widget.data.status == TileStatus.expired) return true;
 
     // "En attente de validation" si applicable
-    final hasPendingAcceptance = widget.data.extraData['hasPendingAcceptance'] == true;
+    final hasPendingAcceptance =
+        widget.data.extraData['hasPendingAcceptance'] == true;
     if (hasPendingAcceptance) return true;
 
     // Badge de validation pour échanges ou remplacements sous-qualifiés
-    final requiresChiefValidation = widget.data.requiresChiefValidation ||
+    final requiresChiefValidation =
+        widget.data.requiresChiefValidation ||
         widget.data.requestType == UnifiedRequestType.exchange;
 
     if (requiresChiefValidation &&
@@ -476,7 +475,8 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
     if (widget.data.status == TileStatus.expired) return true;
 
     // Badge de validation pour échanges ou remplacements sous-qualifiés
-    final requiresChiefValidation = widget.data.requiresChiefValidation ||
+    final requiresChiefValidation =
+        widget.data.requiresChiefValidation ||
         widget.data.requestType == UnifiedRequestType.exchange;
 
     if (requiresChiefValidation &&
@@ -532,7 +532,7 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
     // Les remplacements manuels et échanges n'utilisent pas le système de vagues
     final usesWaveSystem =
         widget.data.requestType == UnifiedRequestType.automaticReplacement ||
-            widget.data.requestType == UnifiedRequestType.sosReplacement;
+        widget.data.requestType == UnifiedRequestType.sosReplacement;
 
     // Badge vague ou notifiés pour remplacement auto uniquement
     if (widget.data.currentWave != null && usesWaveSystem) {

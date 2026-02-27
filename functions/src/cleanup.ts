@@ -30,6 +30,7 @@ function getStationCollectionPath(
  */
 export const cleanupOldData = onSchedule(
   {
+    region: "europe-west1",
     schedule: "0 3 * * 0", // Chaque dimanche à 3h
     timeZone: "Europe/Paris",
   },

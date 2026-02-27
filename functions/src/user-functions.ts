@@ -42,8 +42,6 @@ interface StationUser {
   skills: string[];
   keySkills: string[];
   personalAlertEnabled: boolean;
-  chiefAlertEnabled: boolean;
-  anomalyAlertEnabled: boolean;
   positionId?: string;
   agentAvailabilityStatus?: string;
   suspensionStartDate?: string;
@@ -64,7 +62,7 @@ interface MembershipRequest {
  * Récupère le profil utilisateur (avec déchiffrement)
  */
 export const getUserProfile = onCall(
-  {secrets: [encryptionKey]},
+  {region: "europe-west1", secrets: [encryptionKey]},
   async (request) => {
     // Vérifier l'authentification
     if (!request.auth) {
@@ -131,7 +129,7 @@ export const getUserProfile = onCall(
  * Récupère la liste des utilisateurs d'une station (avec déchiffrement)
  */
 export const getStationUsers = onCall(
-  {secrets: [encryptionKey]},
+  {region: "europe-west1", secrets: [encryptionKey]},
   async (request) => {
     // Vérifier l'authentification
     if (!request.auth) {
@@ -198,8 +196,6 @@ export const getStationUsers = onCall(
         skills: userData.skills || [],
         keySkills: userData.keySkills || [],
         personalAlertEnabled: userData.personalAlertEnabled ?? true,
-        chiefAlertEnabled: userData.chiefAlertEnabled ?? false,
-        anomalyAlertEnabled: userData.anomalyAlertEnabled ?? false,
         positionId: userData.positionId,
         agentAvailabilityStatus: userData.agentAvailabilityStatus || "active",
         suspensionStartDate: userData.suspensionStartDate
@@ -218,7 +214,7 @@ export const getStationUsers = onCall(
  * Récupère les demandes d'adhésion en attente (avec déchiffrement)
  */
 export const getMembershipRequests = onCall(
-  {secrets: [encryptionKey]},
+  {region: "europe-west1", secrets: [encryptionKey]},
   async (request) => {
     // Vérifier l'authentification
     if (!request.auth) {
@@ -297,7 +293,7 @@ export const getMembershipRequests = onCall(
  * Récupère le nombre de demandes d'adhésion en attente
  * (pour l'affichage de la pastille)
  */
-export const getPendingMembershipRequestsCount = onCall(async (request) => {
+export const getPendingMembershipRequestsCount = onCall({region: "europe-west1"}, async (request) => {
   // Vérifier l'authentification
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Authentification requise");
@@ -344,7 +340,7 @@ export const getPendingMembershipRequestsCount = onCall(async (request) => {
 /**
  * Récupère la liste des casernes du SDIS (pour StationSearchPage)
  */
-export const getSDISStations = onCall(async (request) => {
+export const getSDISStations = onCall({region: "europe-west1"}, async (request) => {
   // Vérifier l'authentification
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Authentification requise");
@@ -400,7 +396,7 @@ export const getSDISStations = onCall(async (request) => {
  * Récupère les demandes d'adhésion de l'utilisateur courant
  * (pour voir le statut de ses demandes)
  */
-export const getMyMembershipRequests = onCall(async (request) => {
+export const getMyMembershipRequests = onCall({region: "europe-west1"}, async (request) => {
   // Vérifier l'authentification
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Authentification requise");
@@ -463,7 +459,7 @@ export const getMyMembershipRequests = onCall(async (request) => {
  * avec déchiffrement des PII
  */
 export const getUserByAuthUidForStation = onCall(
-  {secrets: [encryptionKey]},
+  {region: "europe-west1", secrets: [encryptionKey]},
   async (request) => {
     // Vérifier l'authentification
     if (!request.auth) {
@@ -501,7 +497,7 @@ export const getUserByAuthUidForStation = onCall(
 
     try {
       // Chercher l'utilisateur dans la station par authUid
-      const usersSnapshot = await db
+      let usersSnapshot = await db
         .collection("sdis")
         .doc(claims.sdisId)
         .collection("stations")
@@ -510,6 +506,51 @@ export const getUserByAuthUidForStation = onCall(
         .where("authUid", "==", targetAuthUid)
         .limit(1)
         .get();
+
+      // Fallback : doc station créé sans champ authUid (ancienne version du code).
+      // Chercher le matricule via le profil SDIS-level, charger le doc par ID,
+      // puis patcher authUid pour éviter ce fallback aux prochaines connexions.
+      if (usersSnapshot.empty) {
+        console.log(
+          `⚠️ [getUserByAuthUidForStation] No doc found by authUid=${targetAuthUid}, ` +
+          `trying SDIS-level fallback...`
+        );
+        const sdisUserDoc = await db
+          .collection("sdis")
+          .doc(claims.sdisId)
+          .collection("users")
+          .doc(targetAuthUid)
+          .get();
+
+        if (sdisUserDoc.exists) {
+          const matricule = sdisUserDoc.data()?.matricule as string | undefined;
+          if (matricule) {
+            const docByMatricule = await db
+              .collection("sdis")
+              .doc(claims.sdisId)
+              .collection("stations")
+              .doc(stationId)
+              .collection("users")
+              .doc(matricule)
+              .get();
+
+            if (docByMatricule.exists) {
+              console.log(
+                `✅ Found station doc by matricule=${matricule}, patching authUid...`
+              );
+              await docByMatricule.ref.update({authUid: targetAuthUid});
+              // Reconstruire un pseudo-snapshot compatible
+              usersSnapshot = {
+                empty: false,
+                docs: [{
+                  ...docByMatricule,
+                  data: () => ({...docByMatricule.data(), authUid: targetAuthUid}),
+                }],
+              } as unknown as typeof usersSnapshot;
+            }
+          }
+        }
+      }
 
       if (usersSnapshot.empty) {
         throw new HttpsError(
@@ -543,8 +584,6 @@ export const getUserByAuthUidForStation = onCall(
         skills: userData.skills || [],
         keySkills: userData.keySkills || [],
         personalAlertEnabled: userData.personalAlertEnabled ?? true,
-        chiefAlertEnabled: userData.chiefAlertEnabled ?? false,
-        anomalyAlertEnabled: userData.anomalyAlertEnabled ?? false,
         positionId: userData.positionId,
       };
 
@@ -569,7 +608,7 @@ export const getUserByAuthUidForStation = onCall(
  * Permet la connexion par matricule en récupérant l'email réel
  */
 export const getEmailByMatricule = onCall(
-  {secrets: [encryptionKey]},
+  {region: "europe-west1", secrets: [encryptionKey]},
   async (request) => {
     const matricule = request.data?.matricule as string;
     const sdisId = request.data?.sdisId as string;
@@ -638,7 +677,7 @@ export const getEmailByMatricule = onCall(
  * Retourne une liste d'utilisateurs avec leurs données déchiffrées
  */
 export const getUsersByStation = onCall(
-  {secrets: [encryptionKey]},
+  {region: "europe-west1", secrets: [encryptionKey]},
   async (request) => {
     // Vérifier l'authentification
     if (!request.auth) {
@@ -709,8 +748,6 @@ export const getUsersByStation = onCall(
           skills: userData.skills || [],
           keySkills: userData.keySkills || [],
           personalAlertEnabled: userData.personalAlertEnabled ?? true,
-          chiefAlertEnabled: userData.chiefAlertEnabled ?? false,
-          anomalyAlertEnabled: userData.anomalyAlertEnabled ?? false,
           positionId: userData.positionId,
           agentAvailabilityStatus: userData.agentAvailabilityStatus || "active",
           suspensionStartDate: userData.suspensionStartDate

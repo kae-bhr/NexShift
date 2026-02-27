@@ -18,10 +18,9 @@ class NotificationSettingsPage extends StatefulWidget {
 }
 
 class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
-  bool _replacementRequestsEnabled = true;
-  bool _replacementFoundEnabled = true;
-  bool _replacementAssignedEnabled = true;
-  bool _availabilityRequestsEnabled = true;
+  bool _notifReplacementEnabled = true;
+  bool _notifExchangeEnabled = true;
+  bool _notifQueryEnabled = true;
   bool _soundEnabled = true;
   bool _vibrationEnabled = true;
   bool _isLoading = true;
@@ -35,14 +34,9 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
   Future<void> _loadPreferences() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      _replacementRequestsEnabled =
-          prefs.getBool('notif_replacement_requests') ?? true;
-      _replacementFoundEnabled =
-          prefs.getBool('notif_replacement_found') ?? true;
-      _replacementAssignedEnabled =
-          prefs.getBool('notif_replacement_assigned') ?? true;
-      _availabilityRequestsEnabled =
-          prefs.getBool('notif_availability_requests') ?? true;
+      _notifReplacementEnabled = prefs.getBool('notif_replacement') ?? true;
+      _notifExchangeEnabled = prefs.getBool('notif_exchange') ?? true;
+      _notifQueryEnabled = prefs.getBool('notif_query') ?? true;
       _soundEnabled = prefs.getBool('notif_sound') ?? true;
       _vibrationEnabled = prefs.getBool('notif_vibration') ?? true;
       _isLoading = false;
@@ -59,7 +53,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
     return Scaffold(
       appBar: CustomAppBar(
         title: 'Notifications',
-        bottomColor: KColors.appNameColor,
+        bottomColor: const Color.fromARGB(255, 5, 5, 5),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -88,7 +82,9 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
                         ),
                         value: _soundEnabled,
                         activeThumbColor: KColors.appNameColor,
-                        activeTrackColor: KColors.appNameColor.withValues(alpha: 0.5),
+                        activeTrackColor: KColors.appNameColor.withValues(
+                          alpha: 0.5,
+                        ),
                         onChanged: (value) {
                           setState(() => _soundEnabled = value);
                           _savePreference('notif_sound', value);
@@ -100,7 +96,9 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
                         subtitle: const Text('Vibrer lors des notifications'),
                         value: _vibrationEnabled,
                         activeThumbColor: KColors.appNameColor,
-                        activeTrackColor: KColors.appNameColor.withValues(alpha: 0.5),
+                        activeTrackColor: KColors.appNameColor.withValues(
+                          alpha: 0.5,
+                        ),
                         onChanged: (value) {
                           setState(() => _vibrationEnabled = value);
                           _savePreference('notif_vibration', value);
@@ -126,58 +124,50 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
                       ),
                       const Divider(height: 1),
                       SwitchListTile(
-                        title: const Text('Demandes de remplacement'),
+                        title: const Text('Remplacements'),
                         subtitle: const Text(
-                          'Notifications quand quelqu\'un cherche un remplaçant',
+                          'Demandes, acceptations, validations et assignations de remplacement',
                         ),
-                        value: _replacementRequestsEnabled,
+                        value: _notifReplacementEnabled,
                         activeThumbColor: KColors.appNameColor,
-                        activeTrackColor: KColors.appNameColor.withValues(alpha: 0.5),
+                        activeTrackColor: KColors.appNameColor.withValues(
+                          alpha: 0.5,
+                        ),
                         onChanged: (value) {
-                          setState(() => _replacementRequestsEnabled = value);
-                          _savePreference('notif_replacement_requests', value);
+                          setState(() => _notifReplacementEnabled = value);
+                          _savePreference('notif_replacement', value);
                         },
                       ),
                       const Divider(height: 1),
                       SwitchListTile(
-                        title: const Text('Demandes de disponibilité'),
+                        title: const Text('Échanges d\'astreintes'),
                         subtitle: const Text(
-                          'Notifications pour les recherches d\'agents disponibles',
+                          'Propositions, validations et conclusions d\'échanges',
                         ),
-                        value: _availabilityRequestsEnabled,
+                        value: _notifExchangeEnabled,
                         activeThumbColor: KColors.appNameColor,
-                        activeTrackColor: KColors.appNameColor.withValues(alpha: 0.5),
+                        activeTrackColor: KColors.appNameColor.withValues(
+                          alpha: 0.5,
+                        ),
                         onChanged: (value) {
-                          setState(() => _availabilityRequestsEnabled = value);
-                          _savePreference('notif_availability_requests', value);
+                          setState(() => _notifExchangeEnabled = value);
+                          _savePreference('notif_exchange', value);
                         },
                       ),
                       const Divider(height: 1),
                       SwitchListTile(
-                        title: const Text('Remplaçant trouvé'),
+                        title: const Text('Recherches d\'agents'),
                         subtitle: const Text(
-                          'Notifications quand votre remplacement est accepté',
+                          'Demandes de disponibilité et réponses aux recherches',
                         ),
-                        value: _replacementFoundEnabled,
+                        value: _notifQueryEnabled,
                         activeThumbColor: KColors.appNameColor,
-                        activeTrackColor: KColors.appNameColor.withValues(alpha: 0.5),
-                        onChanged: (value) {
-                          setState(() => _replacementFoundEnabled = value);
-                          _savePreference('notif_replacement_found', value);
-                        },
-                      ),
-                      const Divider(height: 1),
-                      SwitchListTile(
-                        title: const Text('Remplacement assigné'),
-                        subtitle: const Text(
-                          'Notifications pour les chefs de garde',
+                        activeTrackColor: KColors.appNameColor.withValues(
+                          alpha: 0.5,
                         ),
-                        value: _replacementAssignedEnabled,
-                        activeThumbColor: KColors.appNameColor,
-                        activeTrackColor: KColors.appNameColor.withValues(alpha: 0.5),
                         onChanged: (value) {
-                          setState(() => _replacementAssignedEnabled = value);
-                          _savePreference('notif_replacement_assigned', value);
+                          setState(() => _notifQueryEnabled = value);
+                          _savePreference('notif_query', value);
                         },
                       ),
                     ],
@@ -219,11 +209,6 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
     final user = userNotifier.value;
     if (user == null) return const SizedBox.shrink();
 
-    final isChiefOrLeader =
-        user.status == KConstants.statusChief ||
-        user.status == KConstants.statusLeader ||
-        user.admin;
-
     return Card(
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       child: Column(
@@ -245,49 +230,19 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
             ),
           ),
           const Divider(height: 1),
-
-          // Alerte personnelle avant astreinte
-          _buildAlertTile(
-            title: 'Rappel avant astreinte',
-            subtitle: 'Recevoir une notification avant le début de votre garde',
-            enabled: user.personalAlertEnabled,
-            hours: user.personalAlertBeforeShiftHours,
-            onEnabledChanged: (value) => _updateUserAlertSetting(
-              user.copyWith(personalAlertEnabled: value),
-            ),
-            onHoursChanged: (hours) => _updateUserAlertSetting(
-              user.copyWith(personalAlertBeforeShiftHours: hours),
-            ),
-          ),
-
-          // Alertes chef (uniquement si chief/leader/admin)
-          if (isChiefOrLeader) ...[
+          _buildDailyReminderTile(user: user, context: context),
+          if (user.admin) ...[
             const Divider(height: 1),
-            _buildAlertTile(
-              title: 'Alerte changements équipe',
-              subtitle:
-                  'Notification si un remplacement est prévu dans votre équipe',
-              enabled: user.chiefAlertEnabled,
-              hours: user.chiefAlertBeforeShiftHours,
-              onEnabledChanged: (value) => _updateUserAlertSetting(
-                user.copyWith(chiefAlertEnabled: value),
+            SwitchListTile(
+              title: const Text('Adhésions caserne'),
+              subtitle: const Text(
+                'Demandes d\'adhésion à votre caserne',
               ),
-              onHoursChanged: (hours) => _updateUserAlertSetting(
-                user.copyWith(chiefAlertBeforeShiftHours: hours),
-              ),
-            ),
-            const Divider(height: 1),
-            _buildAnomalyAlertTile(
-              title: 'Alerte anomalies planning',
-              subtitle:
-                  'Notification si une astreinte future n\'a pas assez d\'agents',
-              enabled: user.anomalyAlertEnabled,
-              days: user.anomalyAlertDaysBefore,
-              onEnabledChanged: (value) => _updateUserAlertSetting(
-                user.copyWith(anomalyAlertEnabled: value),
-              ),
-              onDaysChanged: (days) => _updateUserAlertSetting(
-                user.copyWith(anomalyAlertDaysBefore: days),
+              value: user.membershipAlertEnabled,
+              activeThumbColor: KColors.appNameColor,
+              activeTrackColor: KColors.appNameColor.withValues(alpha: 0.5),
+              onChanged: (value) => _updateUserAlertSetting(
+                user.copyWith(membershipAlertEnabled: value),
               ),
             ),
           ],
@@ -296,90 +251,70 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
     );
   }
 
-  Widget _buildAlertTile({
-    required String title,
-    required String subtitle,
-    required bool enabled,
-    required int hours,
-    required ValueChanged<bool> onEnabledChanged,
-    required ValueChanged<int> onHoursChanged,
+  Widget _buildDailyReminderTile({
+    required User user,
+    required BuildContext context,
   }) {
     return Column(
       children: [
         SwitchListTile(
-          title: Text(title),
-          subtitle: Text(subtitle),
-          value: enabled,
-          activeThumbColor: KColors.appNameColor,
-          activeTrackColor: KColors.appNameColor.withValues(alpha: 0.5),
-          onChanged: onEnabledChanged,
-        ),
-        if (enabled)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-            child: Row(
-              children: [
-                const Icon(Icons.timer_outlined, size: 18, color: Colors.grey),
-                const SizedBox(width: 8),
-                const Text('Délai : '),
-                DropdownButton<int>(
-                  value: hours,
-                  underline: const SizedBox.shrink(),
-                  items: [1, 2, 3, 6, 12, 24].map((h) {
-                    return DropdownMenuItem(
-                      value: h,
-                      child: Text('$h heure${h > 1 ? 's' : ''} avant'),
-                    );
-                  }).toList(),
-                  onChanged: (value) {
-                    if (value != null) onHoursChanged(value);
-                  },
-                ),
-              ],
-            ),
+          title: const Text('Rappel quotidien d\'astreinte'),
+          subtitle: const Text(
+            'Notification quotidienne si vous êtes de garde dans les 24h',
           ),
-      ],
-    );
-  }
-
-  Widget _buildAnomalyAlertTile({
-    required String title,
-    required String subtitle,
-    required bool enabled,
-    required int days,
-    required ValueChanged<bool> onEnabledChanged,
-    required ValueChanged<int> onDaysChanged,
-  }) {
-    return Column(
-      children: [
-        SwitchListTile(
-          title: Text(title),
-          subtitle: Text(subtitle),
-          value: enabled,
+          value: user.personalAlertEnabled,
           activeThumbColor: KColors.appNameColor,
           activeTrackColor: KColors.appNameColor.withValues(alpha: 0.5),
-          onChanged: onEnabledChanged,
+          onChanged: (value) => _updateUserAlertSetting(
+            user.copyWith(personalAlertEnabled: value),
+          ),
         ),
-        if (enabled)
+        if (user.personalAlertEnabled)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
             child: Row(
               children: [
-                const Icon(Icons.calendar_today, size: 18, color: Colors.grey),
+                const Icon(Icons.access_time, size: 18, color: Colors.grey),
                 const SizedBox(width: 8),
-                const Text('Période : '),
-                DropdownButton<int>(
-                  value: days,
-                  underline: const SizedBox.shrink(),
-                  items: [7, 14, 21, 30].map((d) {
-                    return DropdownMenuItem(
-                      value: d,
-                      child: Text('$d jours à l\'avance'),
+                const Text('Heure d\'envoi : '),
+                InkWell(
+                  borderRadius: BorderRadius.circular(4),
+                  onTap: () async {
+                    final picked = await showTimePicker(
+                      context: context,
+                      initialTime: TimeOfDay(
+                        hour: user.personalAlertHour,
+                        minute: 0,
+                      ),
+                      builder: (context, child) {
+                        return MediaQuery(
+                          data: MediaQuery.of(
+                            context,
+                          ).copyWith(alwaysUse24HourFormat: true),
+                          child: child!,
+                        );
+                      },
                     );
-                  }).toList(),
-                  onChanged: (value) {
-                    if (value != null) onDaysChanged(value);
+                    if (picked != null) {
+                      _updateUserAlertSetting(
+                        user.copyWith(personalAlertHour: picked.hour),
+                      );
+                    }
                   },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    child: Text(
+                      '${user.personalAlertHour.toString().padLeft(2, '0')}:00',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: KColors.appNameColor,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ),
                 ),
               ],
             ),

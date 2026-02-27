@@ -607,6 +607,7 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
     BuildContext context,
     bool isAvailabilityRequest,
   ) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -639,9 +640,13 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
+                    color: isDark ? Colors.blue.shade900 : Colors.blue.shade50,
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.blue.shade200),
+                    border: Border.all(
+                      color: isDark
+                          ? Colors.blue.shade700
+                          : Colors.blue.shade200,
+                    ),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,

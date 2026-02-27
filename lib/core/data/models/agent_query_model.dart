@@ -54,24 +54,22 @@ class AgentQuery {
   });
 
   /// Conversion vers JSON pour Firestore.
-  /// Pas de PII dans ce modèle.
+  /// Les champs *Name (createdByName, onCallLevelName, matchedAgentName) ne sont
+  /// pas persistés — ils sont résolus à l'affichage ou par les CF via déchiffrement.
   Map<String, dynamic> toJson() {
     return {
       'id': id,
       'createdById': createdById,
-      'createdByName': createdByName,
       'planningId': planningId,
       'startTime': Timestamp.fromDate(startTime),
       'endTime': Timestamp.fromDate(endTime),
       'station': station,
       'onCallLevelId': onCallLevelId,
-      'onCallLevelName': onCallLevelName,
       'requiredSkills': requiredSkills,
       'status': status.toString().split('.').last,
       'createdAt': Timestamp.fromDate(createdAt),
       if (completedAt != null) 'completedAt': Timestamp.fromDate(completedAt!),
       if (matchedAgentId != null) 'matchedAgentId': matchedAgentId,
-      if (matchedAgentName != null) 'matchedAgentName': matchedAgentName,
       'notifiedUserIds': notifiedUserIds,
       'declinedByUserIds': declinedByUserIds,
       'seenByUserIds': seenByUserIds,

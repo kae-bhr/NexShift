@@ -240,7 +240,7 @@ class ReplacementNotificationService {
 
   String _getNotificationTriggersPath(String stationId) {
     return EnvironmentConfig.getCollectionPath(
-        'replacements/automatic/notificationTriggers', stationId);
+        'notificationTriggers', stationId);
   }
 
   String _getWaveSkipTriggersPath(String stationId) {
@@ -513,11 +513,11 @@ class ReplacementNotificationService {
 
       // Créer un document de notification trigger pour la vague 1
       // La Cloud Function va lire ce document et envoyer les notifications
+      // requesterName est résolu par la CF via décryptage du doc utilisateur
       final notificationData = {
         'type': 'replacement_request',
         'requestId': request.id,
         'requesterId': request.requesterId,
-        'requesterName': '${requester.firstName} ${requester.lastName}',
         'planningId': request.planningId,
         'startTime': Timestamp.fromDate(request.startTime),
         'endTime': Timestamp.fromDate(request.endTime),
@@ -623,7 +623,6 @@ class ReplacementNotificationService {
           'type': 'replacement_request',
           'requestId': request.id,
           'requesterId': request.requesterId,
-          'requesterName': '${requester.firstName} ${requester.lastName}',
           'planningId': request.planningId,
           'startTime': Timestamp.fromDate(request.startTime),
           'endTime': Timestamp.fromDate(request.endTime),
@@ -753,7 +752,6 @@ class ReplacementNotificationService {
           'type': 'replacement_request',
           'requestId': request.id,
           'requesterId': request.requesterId,
-          'requesterName': '${requester.firstName} ${requester.lastName}',
           'planningId': request.planningId,
           'startTime': Timestamp.fromDate(request.startTime),
           'endTime': Timestamp.fromDate(request.endTime),
@@ -914,7 +912,6 @@ class ReplacementNotificationService {
         'type': 'replacement_request',
         'requestId': request.id,
         'requesterId': request.requesterId,
-        'requesterName': '${requester.firstName} ${requester.lastName}',
         'planningId': request.planningId,
         'startTime': Timestamp.fromDate(request.startTime),
         'endTime': Timestamp.fromDate(request.endTime),
@@ -978,7 +975,6 @@ class ReplacementNotificationService {
       'type': 'replacement_request',
       'requestId': request.id,
       'requesterId': request.requesterId,
-      'requesterName': '${requester.firstName} ${requester.lastName}',
       'planningId': request.planningId,
       'startTime': Timestamp.fromDate(request.startTime),
       'endTime': Timestamp.fromDate(request.endTime),
@@ -1089,7 +1085,6 @@ class ReplacementNotificationService {
       'type': 'replacement_request',
       'requestId': request.id,
       'requesterId': request.requesterId,
-      'requesterName': '${requester.firstName} ${requester.lastName}',
       'planningId': request.planningId,
       'startTime': Timestamp.fromDate(request.startTime),
       'endTime': Timestamp.fromDate(request.endTime),
@@ -1208,7 +1203,6 @@ class ReplacementNotificationService {
         'type': 'availability_request',
         'requestId': request.id,
         'requesterId': request.requesterId,
-        'requesterName': '${requester.firstName} ${requester.lastName}',
         'planningId': request.planningId,
         'startTime': Timestamp.fromDate(request.startTime),
         'endTime': Timestamp.fromDate(request.endTime),
@@ -1505,6 +1499,8 @@ class ReplacementNotificationService {
           chiefTeamId: chiefTeamId,
           requester: requester,
           acceptor: acceptor,
+          requestStartTime: request.startTime,
+          requestEndTime: request.endTime,
         );
 
         // La demande reste PENDING (d'autres agents peuvent toujours accepter)
@@ -1940,7 +1936,7 @@ class ReplacementNotificationService {
   Future<void> _rejectAllPendingAcceptances({
     required String requestId,
     required String acceptedUserId,
-    required String requesterName,
+    required String requesterId,
     required String stationId,
   }) async {
     try {
@@ -1966,7 +1962,7 @@ class ReplacementNotificationService {
 
       // Rejeter chaque acceptation en attente avec notification
       for (final acceptance in pendingToReject) {
-        final reason = 'Le remplacement de l\'agent $requesterName a été accepté par un autre utilisateur.';
+        const reason = 'Un autre utilisateur a accepté ce remplacement.';
 
         await _acceptanceRepository.reject(
           acceptance.id,
@@ -1981,7 +1977,8 @@ class ReplacementNotificationService {
         try {
           await _sendRejectionNotification(
             userId: acceptance.userId,
-            requesterName: requesterName,
+            requestId: requestId,
+            requesterId: requesterId,
             reason: reason,
             stationId: stationId,
           );
@@ -2007,24 +2004,13 @@ class ReplacementNotificationService {
     try {
       debugPrint('🔄 Rejecting other pending acceptances for request: $requestId');
 
-      // Récupérer la demande pour avoir le nom du remplacé
+      // Récupérer le requesterId depuis la demande (sans charger le nom)
       final requestsPath = _getReplacementRequestsPath(stationId);
       final requestDoc = await firestore.collection(requestsPath).doc(requestId).get();
 
-      String requesterName = 'l\'agent';
+      String? requesterId;
       if (requestDoc.exists) {
-        final requestData = requestDoc.data();
-        final requesterId = requestData?['requesterId'] as String?;
-        if (requesterId != null) {
-          try {
-            final requester = await _userRepository.getById(requesterId);
-            if (requester != null) {
-              requesterName = '${requester.firstName} ${requester.lastName}';
-            }
-          } catch (e) {
-            debugPrint('⚠️ Could not load requester name: $e');
-          }
-        }
+        requesterId = requestDoc.data()?['requesterId'] as String?;
       }
 
       // Récupérer toutes les acceptations en attente pour cette demande
@@ -2048,7 +2034,7 @@ class ReplacementNotificationService {
 
       // Rejeter chaque acceptation en attente avec notification
       for (final acceptance in pendingToReject) {
-        final reason = 'Le remplacement de l\'agent $requesterName a été accepté par un autre utilisateur.';
+        const reason = 'Un autre utilisateur a accepté ce remplacement.';
 
         await _acceptanceRepository.reject(
           acceptance.id,
@@ -2060,15 +2046,18 @@ class ReplacementNotificationService {
         debugPrint('✅ Rejected acceptance: ${acceptance.id} for user: ${acceptance.userId}');
 
         // Envoyer une notification à l'utilisateur dont l'acceptation est rejetée
-        try {
-          await _sendRejectionNotification(
-            userId: acceptance.userId,
-            requesterName: requesterName,
-            reason: reason,
-            stationId: stationId,
-          );
-        } catch (e) {
-          debugPrint('⚠️ Failed to send rejection notification to user ${acceptance.userId}: $e');
+        if (requesterId != null) {
+          try {
+            await _sendRejectionNotification(
+              userId: acceptance.userId,
+              requestId: requestId,
+              requesterId: requesterId,
+              reason: reason,
+              stationId: stationId,
+            );
+          } catch (e) {
+            debugPrint('⚠️ Failed to send rejection notification to user ${acceptance.userId}: $e');
+          }
         }
       }
 
@@ -2167,14 +2156,17 @@ class ReplacementNotificationService {
 
           if (requestSnapshot.exists) {
             final requestData = requestSnapshot.data();
-            final requesterName = requestData?['requesterName'] as String? ?? 'Agent';
+            final storedRequesterId = requestData?['requesterId'] as String?;
 
-            await _sendRejectionNotification(
-              userId: acceptance.userId,
-              requesterName: requesterName,
-              reason: 'La période que vous aviez acceptée est maintenant entièrement couverte.',
-              stationId: stationId,
-            );
+            if (storedRequesterId != null) {
+              await _sendRejectionNotification(
+                userId: acceptance.userId,
+                requestId: acceptance.requestId,
+                requesterId: storedRequesterId,
+                reason: 'La période que vous aviez acceptée est maintenant entièrement couverte.',
+                stationId: stationId,
+              );
+            }
           }
 
           originalRequestIds.add(acceptance.requestId);
@@ -2280,25 +2272,25 @@ class ReplacementNotificationService {
   }
 
   /// Envoie une notification de rejet à un utilisateur
+  /// requesterId est passé pour que la CF puisse construire le message via déchiffrement
   Future<void> _sendRejectionNotification({
     required String userId,
-    required String requesterName,
+    required String requestId,
+    required String requesterId,
     required String reason,
     required String stationId,
   }) async {
     try {
-      final notificationTriggersPath = EnvironmentConfig.getCollectionPath(
-        'notificationTriggers',
-        stationId,
-      );
+      final notificationTriggersPath = _getNotificationTriggersPath(stationId);
 
       await firestore.collection(notificationTriggersPath).add({
         'userId': userId,
         'type': 'replacement_acceptance_rejected',
         'title': 'Remplacement refusé',
-        'body': reason,
+        'reason': reason,
         'data': {
-          'requesterName': requesterName,
+          'requestId': requestId,
+          'requesterId': requesterId,
         },
         'createdAt': FieldValue.serverTimestamp(),
         'processed': false,
@@ -2382,10 +2374,7 @@ class ReplacementNotificationService {
 
       if (requester == null || acceptor == null) return;
 
-      final notificationTriggersPath = EnvironmentConfig.getCollectionPath(
-        'notificationTriggers',
-        stationId,
-      );
+      final notificationTriggersPath = _getNotificationTriggersPath(stationId);
 
       // Notification au demandeur
       await firestore.collection(notificationTriggersPath).add({
@@ -2402,14 +2391,17 @@ class ReplacementNotificationService {
       });
 
       // Notification à l'accepteur
+      // Le body final est généré par la CF via décryptage du doc requester
       await firestore.collection(notificationTriggersPath).add({
         'userId': acceptor.id,
         'type': 'acceptance_validated',
         'title': 'Remplacement accepté',
-        'body': 'Votre proposition de remplacement de l\'agent ${requester.firstName} ${requester.lastName} a été acceptée.',
         'data': {
           'requestId': request.id,
           'acceptanceId': acceptance.id,
+          'requesterId': request.requesterId,
+          'startTime': Timestamp.fromDate(request.startTime),
+          'endTime': Timestamp.fromDate(request.endTime),
         },
         'createdAt': FieldValue.serverTimestamp(),
         'processed': false,
@@ -2428,6 +2420,8 @@ class ReplacementNotificationService {
     required String chiefTeamId,
     required User requester,
     required User acceptor,
+    required DateTime requestStartTime,
+    required DateTime requestEndTime,
   }) async {
     try {
       // Récupérer tous les chefs de l'équipe concernée
@@ -2453,22 +2447,21 @@ class ReplacementNotificationService {
         : '';
 
       // Créer le trigger de notification pour chaque chef
+      final notificationTriggersPath = _getNotificationTriggersPath(stationId);
       for (final chief in chiefs) {
-        final notificationTriggersPath = EnvironmentConfig.getCollectionPath(
-          'notificationTriggers',
-          stationId,
-        );
-
+        // Le body final est généré par la CF via décryptage du doc acceptor
         await firestore.collection(notificationTriggersPath).add({
           'userId': chief.id,
           'type': 'replacement_validation_required',
           'title': 'Validation requise',
-          'body': '${acceptor.firstName} ${acceptor.lastName} souhaite remplacer${missingSkillsText}',
           'data': {
             'acceptanceId': acceptance.id,
             'requestId': acceptance.requestId,
             'acceptorId': acceptor.id,
             'requesterId': requester.id,
+            'missingSkillsText': missingSkillsText,
+            'startTime': Timestamp.fromDate(requestStartTime),
+            'endTime': Timestamp.fromDate(requestEndTime),
           },
           'createdAt': FieldValue.serverTimestamp(),
           'processed': false,
@@ -2542,11 +2535,12 @@ class ReplacementNotificationService {
       final notificationTriggersPath = _getNotificationTriggersPath(request.station);
 
       // 1. Notification au demandeur
+      // replacerName est résolu par la CF via décryptage du doc replacer
       await firestore.collection(notificationTriggersPath).add({
         'type': 'replacement_found',
         'requestId': request.id,
         'targetUserIds': [request.requesterId],
-        'replacerName': '${replacer.firstName} ${replacer.lastName}',
+        'replacerId': replacerId,
         'startTime': Timestamp.fromDate(notifStartTime),
         'endTime': Timestamp.fromDate(notifEndTime),
         'createdAt': FieldValue.serverTimestamp(),
@@ -2554,13 +2548,14 @@ class ReplacementNotificationService {
       });
 
       // 2. Notification au chef de garde (si différent du demandeur)
+      // replacedName/replacerName sont résolus par la CF via décryptage des docs utilisateurs
       if (chiefId != request.requesterId) {
         await firestore.collection(notificationTriggersPath).add({
           'type': 'replacement_assigned',
           'requestId': request.id,
           'targetUserIds': [chiefId],
-          'replacedName': '${requester.firstName} ${requester.lastName}',
-          'replacerName': '${replacer.firstName} ${replacer.lastName}',
+          'replacedId': request.requesterId,
+          'replacerId': replacerId,
           'startTime': Timestamp.fromDate(notifStartTime),
           'endTime': Timestamp.fromDate(notifEndTime),
           'createdAt': FieldValue.serverTimestamp(),

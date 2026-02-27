@@ -44,3 +44,9 @@ final ValueNotifier<int> teamDataChangedNotifier = ValueNotifier<int>(0);
 // Subscription status notifier - état de l'abonnement de la caserne
 final ValueNotifier<SubscriptionStatus> subscriptionStatusNotifier =
     ValueNotifier<SubscriptionStatus>(SubscriptionStatus.unknown);
+
+// Indique qu'une tentative de restauration de session est en cours au démarrage.
+// Démarre à true, passe à false une fois la vérification terminée (succès ou non).
+// Utilisé par WelcomePage pour afficher un indicateur de chargement et bloquer
+// les boutons pendant la réauthentification automatique.
+final ValueNotifier<bool> isRestoringSessionNotifier = ValueNotifier<bool>(true);

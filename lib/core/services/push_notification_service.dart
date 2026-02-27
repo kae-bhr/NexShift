@@ -2,8 +2,9 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:nexshift_app/core/config/environment_config.dart';
+import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'debug_logger.dart';
 
 /// Handler pour les messages reçus en arrière-plan
@@ -47,9 +48,36 @@ class PushNotificationService {
   final FlutterLocalNotificationsPlugin _localNotifications = FlutterLocalNotificationsPlugin();
 
   // Callback pour gérer les actions sur les notifications
+  // Utiliser le setter onNotificationTapCallback pour bénéficier du replay
+  // automatique du message initial si l'app a été ouverte depuis une notification.
   Function(Map<String, dynamic>)? onNotificationTap;
 
+  // Message initial stocké si getInitialMessage() est appelé avant que
+  // onNotificationTap soit assigné (cas app fermée ouverte par notification).
+  RemoteMessage? _pendingInitialMessage;
+
   bool _initialized = false;
+
+  /// Setter qui assigne le callback et rejoue immédiatement le message initial
+  /// si l'app a été lancée depuis une notification (app était fermée).
+  set onNotificationTapCallback(Function(Map<String, dynamic>) callback) {
+    onNotificationTap = callback;
+    if (_pendingInitialMessage != null) {
+      final msg = _pendingInitialMessage!;
+      _pendingInitialMessage = null;
+      debugPrint('🔔 Replaying pending initial message: ${msg.messageId}');
+      Future.microtask(() => callback(msg.data));
+    }
+  }
+
+  /// Consomme le message en attente (si présent) et le retourne.
+  /// Appelé depuis didChangeAppLifecycleState pour gérer le cas où
+  /// onMessageOpenedApp n'a pas été déclenché (background → foreground).
+  RemoteMessage? consumePendingMessage() {
+    final msg = _pendingInitialMessage;
+    _pendingInitialMessage = null;
+    return msg;
+  }
 
   /// Initialise le service de notifications
   Future<void> initialize() async {
@@ -160,21 +188,29 @@ class PushNotificationService {
     // Handler pour messages reçus en arrière-plan (app fermée/background)
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
-    // Handler pour quand l'utilisateur tape sur une notification
+    // Handler pour quand l'utilisateur tape sur une notification (app en background)
+    // Le message est stocké dans _pendingInitialMessage si le callback n'est pas
+    // encore assigné (race condition possible lors du démarrage).
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      debugPrint('🔔 Notification opened app: ${message.messageId}');
+      debugPrint('🔔 [FCM] onMessageOpenedApp: ${message.messageId}');
+      debugPrint('🔔 [FCM] onMessageOpenedApp data: ${message.data}');
       if (onNotificationTap != null) {
         onNotificationTap!(message.data);
+      } else {
+        debugPrint('🔔 [FCM] onNotificationTap not set yet — storing as pending');
+        _pendingInitialMessage ??= message;
       }
     });
 
-    // Vérifier si l'app a été ouverte par une notification
+    // Vérifier si l'app a été ouverte par une notification (app était fermée = cold start)
+    // On stocke le message dans _pendingInitialMessage car onNotificationTap
+    // n'est pas encore assigné à ce stade (il le sera dans main() juste après).
+    // Le setter onNotificationTapCallback se chargera du replay.
     final initialMessage = await _firebaseMessaging.getInitialMessage();
     if (initialMessage != null) {
-      debugPrint('🔔 App opened from notification: ${initialMessage.messageId}');
-      if (onNotificationTap != null) {
-        onNotificationTap!(initialMessage.data);
-      }
+      debugPrint('🔔 [FCM] getInitialMessage: ${initialMessage.messageId}');
+      debugPrint('🔔 [FCM] getInitialMessage data: ${initialMessage.data}');
+      _pendingInitialMessage = initialMessage;
     }
   }
 
@@ -234,33 +270,34 @@ class PushNotificationService {
 
   /// Supprime le token FCM de l'appareil lors de la déconnexion
   /// Cela permet d'éviter de recevoir des notifications après déconnexion
-  Future<void> clearDeviceToken(String userId, {String? stationId}) async {
+  Future<void> clearDeviceToken(String userId, {String? authUid}) async {
     try {
       debugPrint('🗑️ Clearing FCM token for user: $userId');
 
-      // Utiliser le chemin complet avec station si fourni
-      final collectionPath = stationId != null
-          ? EnvironmentConfig.getCollectionPath('users', stationId)
-          : 'users';
-
-      // Supprimer le token du document utilisateur dans Firestore
-      await FirebaseFirestore.instance
-          .collection(collectionPath)
-          .doc(userId)
-          .update({'fcmToken': FieldValue.delete()});
+      final sdisId = SDISContext().currentSDISId;
+      if (authUid != null && authUid.isNotEmpty && sdisId != null && sdisId.isNotEmpty) {
+        await FirebaseFirestore.instance
+            .collection('sdis')
+            .doc(sdisId)
+            .collection('users')
+            .doc(authUid)
+            .update({'fcmToken': FieldValue.delete()});
+      }
 
       // Supprimer le token local de FCM
       await _firebaseMessaging.deleteToken();
 
-      debugPrint('✅ FCM token cleared successfully in $collectionPath');
+      debugPrint('✅ FCM token cleared successfully for authUid: $authUid');
     } catch (e) {
       debugPrint('❌ Error clearing FCM token: $e');
       // Ne pas throw l'erreur pour ne pas bloquer la déconnexion
     }
   }
 
-  /// Sauvegarde le token FCM pour un utilisateur
-  Future<void> saveUserToken(String userId, {String? stationId}) async {
+  /// Sauvegarde le token FCM pour un utilisateur au niveau SDIS
+  /// Le token est stocké dans sdis/{sdisId}/users/{authUid} pour être accessible
+  /// même avant que l'utilisateur ait rejoint une caserne.
+  Future<void> saveUserToken(String userId, {String? authUid}) async {
     final logger = DebugLogger();
 
     try {
@@ -273,22 +310,24 @@ class PushNotificationService {
       }
 
       logger.logFCM('Token received: ${token.substring(0, 20)}...');
-      logger.logFCM('Saving token for user: $userId, station: $stationId');
 
-      // Utiliser le chemin complet avec station si fourni
-      final collectionPath = stationId != null
-          ? EnvironmentConfig.getCollectionPath('users', stationId)
-          : 'users';
+      final sdisId = SDISContext().currentSDISId;
 
-      await FirebaseFirestore.instance
-          .collection(collectionPath)
-          .doc(userId)
-          .update({
-        'fcmToken': token,
-        'fcmTokenUpdatedAt': FieldValue.serverTimestamp(),
-      });
+      if (authUid != null && authUid.isNotEmpty && sdisId != null && sdisId.isNotEmpty) {
+        await FirebaseFirestore.instance
+            .collection('sdis')
+            .doc(sdisId)
+            .collection('users')
+            .doc(authUid)
+            .set({
+          'fcmToken': token,
+          'fcmTokenUpdatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+        debugPrint('✅ FCM token saved for authUid: $authUid in sdis/$sdisId/users');
+      } else {
+        logger.logError('Cannot save FCM token: authUid ($authUid) or SDIS context ($sdisId) unavailable');
+      }
 
-      debugPrint('✅ FCM token saved for user: $userId in $collectionPath');
       logger.logSuccess('FCM token saved for user: $userId');
     } catch (e) {
       debugPrint('❌ Error saving FCM token: $e');
@@ -297,22 +336,21 @@ class PushNotificationService {
   }
 
   /// Supprime le token FCM lors de la déconnexion
-  Future<void> deleteUserToken(String userId, {String? stationId}) async {
+  Future<void> deleteUserToken(String userId, {String? authUid}) async {
     try {
-      // Utiliser le chemin complet avec station si fourni
-      final collectionPath = stationId != null
-          ? EnvironmentConfig.getCollectionPath('users', stationId)
-          : 'users';
-
-      await FirebaseFirestore.instance
-          .collection(collectionPath)
-          .doc(userId)
-          .update({
-        'fcmToken': FieldValue.delete(),
-        'fcmTokenUpdatedAt': FieldValue.delete(),
-      });
-
-      debugPrint('✅ FCM token deleted for user: $userId in $collectionPath');
+      final sdisId = SDISContext().currentSDISId;
+      if (authUid != null && authUid.isNotEmpty && sdisId != null && sdisId.isNotEmpty) {
+        await FirebaseFirestore.instance
+            .collection('sdis')
+            .doc(sdisId)
+            .collection('users')
+            .doc(authUid)
+            .update({
+          'fcmToken': FieldValue.delete(),
+          'fcmTokenUpdatedAt': FieldValue.delete(),
+        });
+        debugPrint('✅ FCM token deleted for authUid: $authUid in sdis/$sdisId/users');
+      }
     } catch (e) {
       debugPrint('❌ Error deleting FCM token: $e');
     }
@@ -354,6 +392,20 @@ class PushNotificationService {
       ),
       payload: payloadString,
     );
+  }
+
+  static const _badgeChannel = MethodChannel('nexshift/badge');
+
+  /// Efface le badge de l'icône de l'app (iOS uniquement).
+  /// À appeler dès que l'app passe au premier plan.
+  Future<void> clearBadge() async {
+    try {
+      await _badgeChannel.invokeMethod('clearBadge');
+      debugPrint('✅ [FCM] Badge cleared');
+    } catch (e) {
+      // Non-fatal : la fonctionnalité n'est disponible que sur iOS
+      debugPrint('⚠️ [FCM] Failed to clear badge: $e');
+    }
   }
 
   /// Nettoie les ressources

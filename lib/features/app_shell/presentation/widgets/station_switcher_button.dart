@@ -4,6 +4,7 @@ import 'package:nexshift_app/core/data/datasources/notifiers.dart';
 import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/core/repositories/local_repositories.dart';
 import 'package:nexshift_app/core/repositories/user_stations_repository.dart';
+import 'package:nexshift_app/core/services/push_notification_service.dart';
 import 'package:nexshift_app/core/utils/station_name_cache.dart';
 import 'package:nexshift_app/features/auth/presentation/widgets/station_selection_dialog.dart';
 import 'package:nexshift_app/features/auth/presentation/widgets/snake_bar_widget.dart';
@@ -86,6 +87,16 @@ class _StationSwitcherButtonState extends State<StationSwitcherButton> {
       // Mettre à jour l'utilisateur dans le storage et le notifier
       await UserStorageHelper.saveUser(newUser);
       userNotifier.value = newUser;
+
+      // Mettre à jour le token FCM pour la nouvelle station
+      try {
+        await PushNotificationService().saveUserToken(
+          newUser.id,
+          authUid: newUser.authUid,
+        );
+      } catch (e) {
+        debugPrint('⚠️ [StationSwitcher] Failed to save FCM token: $e');
+      }
 
       if (!mounted) return;
 

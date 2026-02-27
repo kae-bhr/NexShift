@@ -13,7 +13,7 @@ class CloudFunctionsService {
   factory CloudFunctionsService() => _instance;
   CloudFunctionsService._internal();
 
-  final FirebaseFunctions _functions = FirebaseFunctions.instance;
+  final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(region: 'europe-west1');
 
   // ============================================
   // CRÉATION DE COMPTE
@@ -454,12 +454,8 @@ class CloudFunctionsService {
         team: userMap['team'] as String? ?? '',
         skills: (userMap['skills'] as List<dynamic>?)?.cast<String>() ?? [],
         keySkills: (userMap['keySkills'] as List<dynamic>?)?.cast<String>() ?? [],
-        personalAlertEnabled: userMap['personalAlertEnabled'] as bool? ?? true,
-        personalAlertBeforeShiftHours: userMap['personalAlertBeforeShiftHours'] as int? ?? 1,
-        chiefAlertEnabled: userMap['chiefAlertEnabled'] as bool? ?? false,
-        chiefAlertBeforeShiftHours: userMap['chiefAlertBeforeShiftHours'] as int? ?? 1,
-        anomalyAlertEnabled: userMap['anomalyAlertEnabled'] as bool? ?? false,
-        anomalyAlertDaysBefore: userMap['anomalyAlertDaysBefore'] as int? ?? 14,
+        personalAlertEnabled: userMap['personalAlertEnabled'] as bool? ?? false,
+        personalAlertHour: userMap['personalAlertHour'] as int? ?? 18,
         positionId: userMap['positionId'] as String?,
       );
 
@@ -506,12 +502,8 @@ class CloudFunctionsService {
           team: userMap['team'] as String? ?? '',
           skills: (userMap['skills'] as List<dynamic>?)?.cast<String>() ?? [],
           keySkills: (userMap['keySkills'] as List<dynamic>?)?.cast<String>() ?? [],
-          personalAlertEnabled: userMap['personalAlertEnabled'] as bool? ?? true,
-          personalAlertBeforeShiftHours: userMap['personalAlertBeforeShiftHours'] as int? ?? 1,
-          chiefAlertEnabled: userMap['chiefAlertEnabled'] as bool? ?? false,
-          chiefAlertBeforeShiftHours: userMap['chiefAlertBeforeShiftHours'] as int? ?? 1,
-          anomalyAlertEnabled: userMap['anomalyAlertEnabled'] as bool? ?? false,
-          anomalyAlertDaysBefore: userMap['anomalyAlertDaysBefore'] as int? ?? 14,
+          personalAlertEnabled: userMap['personalAlertEnabled'] as bool? ?? false,
+          personalAlertHour: userMap['personalAlertHour'] as int? ?? 18,
           positionId: userMap['positionId'] as String?,
           agentAvailabilityStatus: userMap['agentAvailabilityStatus'] as String? ?? AgentAvailabilityStatus.active,
           suspensionStartDate: userMap['suspensionStartDate'] != null

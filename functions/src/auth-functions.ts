@@ -134,7 +134,7 @@ async function updateUserClaims(
  * - Définit les custom claims
  */
 export const createAccount = onCall(
-  {secrets: [encryptionKey]},
+  {region: "europe-west1", secrets: [encryptionKey]},
   async (request) => {
     const data = request.data as CreateAccountData;
 
@@ -325,7 +325,7 @@ export const createAccount = onCall(
  * Demande d'adhésion à une caserne
  */
 export const requestMembership = onCall(
-  {secrets: [encryptionKey]},
+  {region: "europe-west1", secrets: [encryptionKey]},
   async (request) => {
     // Vérifier l'authentification
     if (!request.auth) {
@@ -408,6 +408,24 @@ export const requestMembership = onCall(
         pendingStations: FieldValue.arrayUnion(data.stationId),
       });
 
+    // Notifier les admins de la station
+    const stationAdminsSnap = await db
+      .collection(`sdis/${claims.sdisId}/stations/${data.stationId}/users`)
+      .where("admin", "==", true)
+      .get();
+    const adminMatricules = stationAdminsSnap.docs.map((d) => d.id);
+    if (adminMatricules.length > 0) {
+      await db
+        .collection(`sdis/${claims.sdisId}/stations/${data.stationId}/notificationTriggers`)
+        .add({
+          type: "membership_requested",
+          targetUserIds: adminMatricules,
+          agentMatricule: userData.matricule,
+          createdAt: Timestamp.now(),
+          processed: false,
+        });
+    }
+
     console.log(
       `✅ Membership request created for user ${callerUid} ` +
       `to station ${data.stationId}`
@@ -421,7 +439,7 @@ export const requestMembership = onCall(
  * Traitement d'une demande d'adhésion (accept/reject)
  */
 export const handleMembershipRequest = onCall(
-  {secrets: [encryptionKey]},
+  {region: "europe-west1", secrets: [encryptionKey]},
   async (request) => {
     // Vérifier l'authentification
     if (!request.auth) {
@@ -490,6 +508,25 @@ export const handleMembershipRequest = onCall(
           pendingStations: FieldValue.arrayRemove(data.stationId),
         });
 
+      // Notifier l'utilisateur refusé
+      const rejectedMatricule = requestData.matricule as string | undefined;
+      if (rejectedMatricule) {
+        const stationDocRej = await db
+          .collection(`sdis/${claims.sdisId}/stations`)
+          .doc(data.stationId)
+          .get();
+        const stationNameRej = (stationDocRej.data()?.name as string | undefined) || data.stationId;
+        await db
+          .collection(`sdis/${claims.sdisId}/stations/${data.stationId}/notificationTriggers`)
+          .add({
+            type: "membership_rejected",
+            targetUserIds: [rejectedMatricule],
+            stationName: stationNameRej,
+            createdAt: Timestamp.now(),
+            processed: false,
+          });
+      }
+
       console.log(
         `❌ Membership request rejected for user ${data.requestAuthUid}`
       );
@@ -538,9 +575,9 @@ export const handleMembershipRequest = onCall(
         team: data.team || "",
         skills: [],
         keySkills: [],
-        personalAlertEnabled: true,
-        chiefAlertEnabled: role === "chief" || role === "admin",
-        anomalyAlertEnabled: role === "admin",
+        personalAlertEnabled: false,
+        personalAlertHour: 18,
+        membershipAlertEnabled: role === "admin",
         createdAt: Timestamp.now(),
       });
 
@@ -571,6 +608,22 @@ export const handleMembershipRequest = onCall(
       pendingStations: FieldValue.arrayRemove(data.stationId),
     });
 
+    // Notifier l'utilisateur accepté
+    const stationDocAcc = await db
+      .collection(`sdis/${claims.sdisId}/stations`)
+      .doc(data.stationId)
+      .get();
+    const stationNameAcc = (stationDocAcc.data()?.name as string | undefined) || data.stationId;
+    await db
+      .collection(`sdis/${claims.sdisId}/stations/${data.stationId}/notificationTriggers`)
+      .add({
+        type: "membership_accepted",
+        targetUserIds: [matricule],
+        stationName: stationNameAcc,
+        createdAt: Timestamp.now(),
+        processed: false,
+      });
+
     console.log(
       `✅ Membership request accepted for user ${data.requestAuthUid} ` +
       `to station ${data.stationId} with role ${role}`
@@ -587,7 +640,7 @@ export const handleMembershipRequest = onCall(
 /**
  * Réservation d'un matricule pour pré-affiliation
  */
-export const reserveMatricule = onCall(async (request) => {
+export const reserveMatricule = onCall({region: "europe-west1"}, async (request) => {
   // Vérifier l'authentification
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Authentification requise");
@@ -659,7 +712,7 @@ export const reserveMatricule = onCall(async (request) => {
  * Crée un profil station minimal (sans PII) pour anticiper la création de compte.
  * Accessible aux leaders et admins de la station.
  */
-export const preRegisterAgent = onCall(async (request) => {
+export const preRegisterAgent = onCall({region: "europe-west1"}, async (request) => {
   // Vérifier l'authentification
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Authentification requise");
@@ -737,8 +790,6 @@ export const preRegisterAgent = onCall(async (request) => {
       skills: [],
       keySkills: [],
       personalAlertEnabled: true,
-      chiefAlertEnabled: false,
-      anomalyAlertEnabled: false,
     });
 
   // Créer/mettre à jour l'index de pré-enregistrement pour lookup O(1)
@@ -771,7 +822,7 @@ export const preRegisterAgent = onCall(async (request) => {
  * Ajout d'un utilisateur existant à une station
  */
 export const addExistingUserToStation = onCall(
-  {secrets: [encryptionKey]},
+  {region: "europe-west1", secrets: [encryptionKey]},
   async (request) => {
     // Vérifier l'authentification
     if (!request.auth) {
@@ -844,8 +895,7 @@ export const addExistingUserToStation = onCall(
         skills: [],
         keySkills: [],
         personalAlertEnabled: true,
-        chiefAlertEnabled: role === "chief" || role === "admin",
-        anomalyAlertEnabled: role === "admin",
+        membershipAlertEnabled: role === "admin",
         createdAt: Timestamp.now(),
       });
 
@@ -879,7 +929,7 @@ export const addExistingUserToStation = onCall(
 /**
  * Mise à jour du rôle d'un utilisateur dans une station
  */
-export const updateUserRole = onCall(async (request) => {
+export const updateUserRole = onCall({region: "europe-west1"}, async (request) => {
   // Vérifier l'authentification
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Authentification requise");
@@ -930,8 +980,7 @@ export const updateUserRole = onCall(async (request) => {
   await userRef.update({
     status: data.newRole,
     admin: data.newRole === "admin",
-    chiefAlertEnabled: data.newRole === "chief" || data.newRole === "admin",
-    anomalyAlertEnabled: data.newRole === "admin",
+    membershipAlertEnabled: data.newRole === "admin",
   });
 
   // Mettre à jour les custom claims
@@ -955,7 +1004,7 @@ export const updateUserRole = onCall(async (request) => {
 /**
  * Retrait d'un utilisateur d'une station
  */
-export const removeUserFromStation = onCall(async (request) => {
+export const removeUserFromStation = onCall({region: "europe-west1"}, async (request) => {
   // Vérifier l'authentification
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Authentification requise");
@@ -1053,7 +1102,7 @@ export const removeUserFromStation = onCall(async (request) => {
  * Suppression complète d'un utilisateur
  */
 export const deleteUser = onCall(
-  {secrets: [encryptionKey]},
+  {region: "europe-west1", secrets: [encryptionKey]},
   async (request) => {
     // Vérifier l'authentification
     if (!request.auth) {
@@ -1155,7 +1204,7 @@ interface CreateStationWithCodeData {
  * - Met à jour les custom claims
  */
 export const createStationWithCode = onCall(
-  {secrets: [encryptionKey]},
+  {region: "europe-west1", secrets: [encryptionKey]},
   async (request) => {
     // Vérifier l'authentification
     if (!request.auth) {
@@ -1355,8 +1404,8 @@ export const createStationWithCode = onCall(
           skills: [],
           keySkills: [],
           personalAlertEnabled: true,
-          chiefAlertEnabled: false,
-          anomalyAlertEnabled: false,
+          personalAlertHour: 18,
+          membershipAlertEnabled: true,
           createdAt: Timestamp.now(),
         });
 

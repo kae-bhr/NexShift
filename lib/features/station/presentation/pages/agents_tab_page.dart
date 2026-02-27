@@ -2677,8 +2677,11 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
       );
 
       // Créer un document dans la collection testNotifications
-      // La Cloud Function sendTestNotification sera déclenchée automatiquement
-      await FirebaseFirestore.instance.collection('testNotifications').add({
+      // La Cloud Function sendTestNotificationV2 sera déclenchée automatiquement
+      final sdisId = SDISContext().currentSDISId;
+      final stationId = targetUser.station;
+      final testNotifPath = 'sdis/$sdisId/stations/$stationId/testNotifications';
+      await FirebaseFirestore.instance.collection(testNotifPath).add({
         'targetUserId': targetUser.id,
         'adminId': currentUser.id,
         'createdAt': FieldValue.serverTimestamp(),

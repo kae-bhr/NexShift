@@ -46,12 +46,12 @@ class ReplacementAcceptance {
   });
 
   /// Conversion vers JSON pour Firestore
+  /// Le champ userName n'est pas persisté — résolu via déchiffrement CF.
   Map<String, dynamic> toJson() {
     return {
       'id': id,
       'requestId': requestId,
       'userId': userId,
-      'userName': userName,
       'acceptedStartTime': Timestamp.fromDate(acceptedStartTime),
       'acceptedEndTime': Timestamp.fromDate(acceptedEndTime),
       'status': status.toString().split('.').last,

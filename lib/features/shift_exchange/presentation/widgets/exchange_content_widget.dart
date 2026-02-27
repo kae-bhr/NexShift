@@ -1194,6 +1194,14 @@ class _ExchangeContentWidgetState extends State<ExchangeContentWidget>
                 TeamValidationState.validatedTemporarily ||
             teamValidations[proposerTeam] == TeamValidationState.autoValidated);
 
+    final sdisId = SDISContext().currentSDISId;
+    return FutureBuilder<String>(
+      future: sdisId != null && request.station.isNotEmpty
+          ? StationNameCache().getStationName(sdisId, request.station)
+          : Future.value(request.station),
+      builder: (context, stationNameSnapshot) {
+        final stationName = stationNameSnapshot.data ?? request.station;
+
     return FutureBuilder<Planning?>(
       future: _getPlanningDetails(request.initiatorPlanningId, request.station),
       builder: (context, initiatorPlanningSnapshot) {
@@ -1263,7 +1271,7 @@ class _ExchangeContentWidgetState extends State<ExchangeContentWidget>
                                         Icons.hourglass_empty,
                                       ),
                                 planning: initiatorPlanning,
-                                station: request.station,
+                                station: stationName,
                                 emptyLinesCount: initiatorEmptyLines,
                               ),
                             ),
@@ -1297,7 +1305,7 @@ class _ExchangeContentWidgetState extends State<ExchangeContentWidget>
                                         Icons.hourglass_empty,
                                       ),
                                 planning: proposerPlanning,
-                                station: request.station,
+                                station: stationName,
                                 emptyLinesCount: proposerEmptyLines,
                               ),
                             ),
@@ -1352,6 +1360,8 @@ class _ExchangeContentWidgetState extends State<ExchangeContentWidget>
             );
           },
         );
+      },
+    );
       },
     );
   }

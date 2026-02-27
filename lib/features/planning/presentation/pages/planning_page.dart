@@ -50,6 +50,12 @@ class _PlanningPageState extends State<PlanningPage> {
     });
     stationViewNotifier.addListener(_onStationViewChanged);
     teamDataChangedNotifier.addListener(_onTeamDataChanged);
+    userNotifier.addListener(_onUserChanged);
+  }
+
+  void _onUserChanged() {
+    // Recharger si l'utilisateur change (ex: changement de caserne)
+    _loadUserAndPlanning();
   }
 
   @override
@@ -57,6 +63,7 @@ class _PlanningPageState extends State<PlanningPage> {
     _removeTooltip();
     stationViewNotifier.removeListener(_onStationViewChanged);
     teamDataChangedNotifier.removeListener(_onTeamDataChanged);
+    userNotifier.removeListener(_onUserChanged);
     super.dispose();
   }
 

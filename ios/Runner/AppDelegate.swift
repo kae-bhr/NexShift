@@ -14,6 +14,36 @@ import flutter_local_notifications
     }
 
     GeneratedPluginRegistrant.register(with: self)
+
+    // MethodChannel pour effacer le badge depuis Flutter
+    let controller = window?.rootViewController as! FlutterViewController
+    let badgeChannel = FlutterMethodChannel(
+      name: "nexshift/badge",
+      binaryMessenger: controller.binaryMessenger
+    )
+    badgeChannel.setMethodCallHandler { (call, result) in
+      if call.method == "clearBadge" {
+        if #available(iOS 16.0, *) {
+          UNUserNotificationCenter.current().setBadgeCount(0) { _ in }
+        } else {
+          UIApplication.shared.applicationIconBadgeNumber = 0
+        }
+        result(nil)
+      } else {
+        result(FlutterMethodNotImplemented)
+      }
+    }
+
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  // Efface aussi le badge automatiquement quand l'app passe au premier plan
+  override func applicationDidBecomeActive(_ application: UIApplication) {
+    if #available(iOS 16.0, *) {
+      UNUserNotificationCenter.current().setBadgeCount(0) { _ in }
+    } else {
+      UIApplication.shared.applicationIconBadgeNumber = 0
+    }
+    super.applicationDidBecomeActive(application)
   }
 }

@@ -30,284 +30,101 @@ async function getAllStationPaths(): Promise<
 }
 
 /**
- * Alerte A : Rappel personnel avant astreinte
- * S'exécute toutes les heures.
- * Envoie une notification aux agents dont l'astreinte démarre dans X heures.
- *
- * Parcourt : sdis/{sdisId}/stations/{stationId}/users et /plannings
+ * Rappel quotidien d'astreinte
+ * S'exécute toutes les heures pour couvrir toutes les heures configurées.
+ * Pour chaque utilisateur avec personalAlertEnabled = true :
+ *   - Si l'heure courante (Europe/Paris) == personalAlertHour
+ *   - Cherche les astreintes chevauchant les prochaines 24h
+ *   - Envoie un récapitulatif si au moins une astreinte trouvée
  */
-export const sendPersonalShiftAlerts = onSchedule(
+export const sendDailyShiftReminder = onSchedule(
   {
+    region: "europe-west1",
     schedule: "every 1 hours",
     timeZone: "Europe/Paris",
   },
   async () => {
     const db = getFirestore();
-    console.log("🔔 [Alerte A] Vérification des rappels personnels avant astreinte...");
+    console.log("🔔 [Rappel quotidien] Vérification des rappels quotidiens...");
 
     try {
       const stationPaths = await getAllStationPaths();
-      const now = new Date();
-      let alertsSent = 0;
+
+      // Heure courante en Europe/Paris
+      const nowUtc = new Date();
+      const parisNow = new Date(
+        nowUtc.toLocaleString("en-US", {timeZone: "Europe/Paris"}),
+      );
+      const currentHour = parisNow.getHours();
+
+      const windowStart = nowUtc;
+      const windowEnd = new Date(nowUtc.getTime() + 24 * 60 * 60 * 1000);
+
+      let remindersSent = 0;
 
       for (const {stationPath} of stationPaths) {
-        // Utilisateurs avec alerte personnelle activée
+        // Utilisateurs avec rappel quotidien activé à l'heure courante
         const usersSnapshot = await db
           .collection(`${stationPath}/users`)
           .where("personalAlertEnabled", "==", true)
+          .where("personalAlertHour", "==", currentHour)
           .get();
 
         if (usersSnapshot.empty) continue;
 
         for (const userDoc of usersSnapshot.docs) {
-          const user = userDoc.data();
           const userId = userDoc.id;
-          const hoursBeforeShift = user.personalAlertBeforeShiftHours || 1;
 
-          // Fenêtre de temps : astreinte démarrant dans X heures (+/- 30 min)
-          const targetTime = new Date(now.getTime() + hoursBeforeShift * 60 * 60 * 1000);
-          const windowStart = new Date(targetTime.getTime() - 30 * 60 * 1000);
-          const windowEnd = new Date(targetTime.getTime() + 30 * 60 * 1000);
-
+          // Plannings où l'agent est présent et dont la fin est après maintenant
+          // (filtre complémentaire en mémoire : début avant maintenant+24h)
           const planningsSnapshot = await db
             .collection(`${stationPath}/plannings`)
             .where("agentsId", "array-contains", userId)
-            .where("startDate", ">=", Timestamp.fromDate(windowStart))
-            .where("startDate", "<=", Timestamp.fromDate(windowEnd))
-            .limit(1)
+            .where("endTime", ">", Timestamp.fromDate(windowStart))
             .get();
 
-          if (planningsSnapshot.empty) continue;
-
-          const planning = planningsSnapshot.docs[0].data();
-          const startDate = planning.startDate.toDate();
-          const formattedDate = formatDateFR(startDate);
-
-          await db.collection(`${stationPath}/notificationTriggers`).add({
-            type: "personal_shift_alert",
-            targetUserIds: [userId],
-            title: "⏰ Rappel d'astreinte",
-            body: `Votre astreinte commence le ${formattedDate}`,
-            data: {planningId: planningsSnapshot.docs[0].id},
-            createdAt: Timestamp.now(),
-            processed: false,
+          const overlapping = planningsSnapshot.docs.filter((doc) => {
+            const data = doc.data();
+            const startDate: Date =
+              data.startTime?.toDate?.() ?? data.startDate?.toDate?.();
+            return startDate && startDate < windowEnd;
           });
 
-          alertsSent++;
-        }
-      }
+          if (overlapping.length === 0) continue;
 
-      console.log(`✅ [Alerte A] ${alertsSent} rappel(s) personnel(s) envoyé(s)`);
-    } catch (error) {
-      console.error("💥 [Alerte A] Erreur:", error);
-    }
-  },
-);
-
-/**
- * Alerte B : Rappel chef d'équipe - changements astreinte
- * S'exécute toutes les heures.
- *
- * Parcourt : sdis/{sdisId}/stations/{stationId}/users, /plannings, /replacements/all/subshifts
- */
-export const sendChiefShiftAlerts = onSchedule(
-  {
-    schedule: "every 1 hours",
-    timeZone: "Europe/Paris",
-  },
-  async () => {
-    const db = getFirestore();
-    console.log("🔔 [Alerte B] Vérification des rappels chefs avant astreinte...");
-
-    try {
-      const stationPaths = await getAllStationPaths();
-      const now = new Date();
-      let alertsSent = 0;
-
-      for (const {stationPath} of stationPaths) {
-        const chiefsSnapshot = await db
-          .collection(`${stationPath}/users`)
-          .where("chiefAlertEnabled", "==", true)
-          .get();
-
-        const chiefs = chiefsSnapshot.docs.filter((doc) => {
-          const data = doc.data();
-          return data.status === "chief" || data.status === "leader";
-        });
-
-        if (chiefs.length === 0) continue;
-
-        for (const chiefDoc of chiefs) {
-          const chief = chiefDoc.data();
-          const chiefId = chiefDoc.id;
-          const hoursBeforeShift = chief.chiefAlertBeforeShiftHours || 1;
-          const chiefTeam = chief.team;
-
-          if (!chiefTeam) continue;
-
-          const targetTime = new Date(now.getTime() + hoursBeforeShift * 60 * 60 * 1000);
-          const windowStart = new Date(targetTime.getTime() - 30 * 60 * 1000);
-          const windowEnd = new Date(targetTime.getTime() + 30 * 60 * 1000);
-
-          const planningsSnapshot = await db
-            .collection(`${stationPath}/plannings`)
-            .where("team", "==", chiefTeam)
-            .where("startDate", ">=", Timestamp.fromDate(windowStart))
-            .where("startDate", "<=", Timestamp.fromDate(windowEnd))
-            .limit(1)
-            .get();
-
-          if (planningsSnapshot.empty) continue;
-
-          const planning = planningsSnapshot.docs[0].data();
-          const startDate = planning.startDate.toDate();
-          const formattedDate = formatDateFR(startDate);
-
-          // Vérifier s'il y a des subshifts (remplacements)
-          const subshiftsSnapshot = await db
-            .collection(`${stationPath}/replacements/all/subshifts`)
-            .where("planningId", "==", planningsSnapshot.docs[0].id)
-            .get();
-
-          const hasChanges = !subshiftsSnapshot.empty;
-          const bodyMessage = hasChanges
-            ? `Pensez à vérifier les changements pour l'astreinte du ${formattedDate} (${subshiftsSnapshot.size} remplacement(s))`
-            : `L'astreinte du ${formattedDate} approche. Pensez à effectuer les modifications si nécessaire.`;
+          const planningsSummary = overlapping.map((doc) => {
+            const data = doc.data();
+            const startDate: Date =
+              data.startTime?.toDate?.() ?? data.startDate?.toDate?.();
+            const endDate: Date =
+              data.endTime?.toDate?.() ?? data.endDate?.toDate?.();
+            return {
+              planningId: doc.id,
+              startDate: startDate.toISOString(),
+              endDate: endDate.toISOString(),
+              team: (data.team as string) || "",
+            };
+          });
 
           await db.collection(`${stationPath}/notificationTriggers`).add({
-            type: "chief_shift_alert",
-            targetUserIds: [chiefId],
-            title: "📋 Rappel astreinte équipe",
-            body: bodyMessage,
+            type: "daily_shift_reminder",
+            targetUserIds: [userId],
+            title: "⏰ Astreintes à venir",
+            body: `${overlapping.length} astreinte(s) dans les prochaines 24h`,
             data: {
-              planningId: planningsSnapshot.docs[0].id,
-              team: chiefTeam,
+              plannings: planningsSummary,
             },
             createdAt: Timestamp.now(),
             processed: false,
           });
 
-          alertsSent++;
+          remindersSent++;
         }
       }
 
-      console.log(`✅ [Alerte B] ${alertsSent} rappel(s) chef(s) envoyé(s)`);
+      console.log(`✅ [Rappel quotidien] ${remindersSent} rappel(s) envoyé(s)`);
     } catch (error) {
-      console.error("💥 [Alerte B] Erreur:", error);
-    }
-  },
-);
-
-/**
- * Alerte C : Astreinte en erreur (anomalies)
- * S'exécute une fois par jour à 8h.
- * Vérifie la cohérence des astreintes futures.
- *
- * Parcourt : sdis/{sdisId}/stations/{stationId} pour config + users + plannings
- */
-export const sendAnomalyAlerts = onSchedule(
-  {
-    schedule: "0 8 * * *", // Chaque jour à 8h
-    timeZone: "Europe/Paris",
-  },
-  async () => {
-    const db = getFirestore();
-    console.log("🔔 [Alerte C] Vérification des anomalies de planning...");
-
-    try {
-      const stationPaths = await getAllStationPaths();
-      const now = new Date();
-      let alertsSent = 0;
-
-      for (const {stationPath} of stationPaths) {
-        // Lire la config station (maxAgentsPerShift)
-        const stationDoc = await db.doc(stationPath).get();
-        if (!stationDoc.exists) continue;
-        const stationData = stationDoc.data();
-        const maxAgents = stationData?.maxAgentsPerShift || 6;
-
-        // Chefs avec alerte anomalies activée
-        const chiefsSnapshot = await db
-          .collection(`${stationPath}/users`)
-          .where("anomalyAlertEnabled", "==", true)
-          .get();
-
-        const chiefs = chiefsSnapshot.docs.filter((doc) => {
-          const data = doc.data();
-          return data.status === "chief" || data.status === "leader";
-        });
-
-        if (chiefs.length === 0) continue;
-
-        // Grouper les chefs par équipe
-        const chiefsByTeam = new Map<string, Array<{id: string; daysBefore: number}>>();
-        for (const chiefDoc of chiefs) {
-          const chief = chiefDoc.data();
-          const team = chief.team;
-          if (!team) continue;
-          if (!chiefsByTeam.has(team)) chiefsByTeam.set(team, []);
-          chiefsByTeam.get(team)!.push({
-            id: chiefDoc.id,
-            daysBefore: chief.anomalyAlertDaysBefore || 14,
-          });
-        }
-
-        for (const [team, chiefsInTeam] of chiefsByTeam) {
-          const maxDaysBefore = Math.max(...chiefsInTeam.map((c) => c.daysBefore));
-          const futureLimit = new Date(now.getTime() + maxDaysBefore * 24 * 60 * 60 * 1000);
-
-          const planningsSnapshot = await db
-            .collection(`${stationPath}/plannings`)
-            .where("team", "==", team)
-            .where("startDate", ">=", Timestamp.fromDate(now))
-            .where("startDate", "<=", Timestamp.fromDate(futureLimit))
-            .get();
-
-          for (const planningDoc of planningsSnapshot.docs) {
-            const planning = planningDoc.data();
-            const agentsCount = (planning.agentsId as string[] || []).length;
-
-            if (agentsCount === maxAgents) continue;
-
-            const startDate = planning.startDate.toDate();
-            const formattedDate = formatDateFR(startDate);
-            const daysUntil = Math.ceil(
-              (startDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24),
-            );
-
-            const eligibleChiefs = chiefsInTeam
-              .filter((c) => daysUntil <= c.daysBefore)
-              .map((c) => c.id);
-
-            if (eligibleChiefs.length === 0) continue;
-
-            const anomalyType = agentsCount > maxAgents
-              ? `${agentsCount}/${maxAgents} agents (trop d'agents)`
-              : `${agentsCount}/${maxAgents} agents (pas assez d'agents)`;
-
-            await db.collection(`${stationPath}/notificationTriggers`).add({
-              type: "anomaly_alert",
-              targetUserIds: eligibleChiefs,
-              title: "⚠️ Anomalie planning",
-              body: `Astreinte du ${formattedDate} en erreur : ${anomalyType}`,
-              data: {
-                planningId: planningDoc.id,
-                team: team,
-                agentsCount: String(agentsCount),
-                maxAgents: String(maxAgents),
-              },
-              createdAt: Timestamp.now(),
-              processed: false,
-            });
-
-            alertsSent++;
-          }
-        }
-      }
-
-      console.log(`✅ [Alerte C] ${alertsSent} alerte(s) anomalie(s) envoyée(s)`);
-    } catch (error) {
-      console.error("💥 [Alerte C] Erreur:", error);
+      console.error("💥 [Rappel quotidien] Erreur:", error);
     }
   },
 );
@@ -315,7 +132,7 @@ export const sendAnomalyAlerts = onSchedule(
 /**
  * Formater une date au format français DD/MM/YYYY HH:mm
  */
-function formatDateFR(date: Date): string {
+export function formatDateFR(date: Date): string {
   const parisDate = new Date(
     date.toLocaleString("en-US", {timeZone: "Europe/Paris"}),
   );
@@ -325,4 +142,28 @@ function formatDateFR(date: Date): string {
   const hours = String(parisDate.getHours()).padStart(2, "0");
   const minutes = String(parisDate.getMinutes()).padStart(2, "0");
   return `${day}/${month}/${year} ${hours}:${minutes}`;
+}
+
+/**
+ * Formater uniquement la date (sans l'année) : DD/MM
+ */
+export function formatShortDateFR(date: Date): string {
+  const parisDate = new Date(
+    date.toLocaleString("en-US", {timeZone: "Europe/Paris"}),
+  );
+  const day = String(parisDate.getDate()).padStart(2, "0");
+  const month = String(parisDate.getMonth() + 1).padStart(2, "0");
+  return `${day}/${month}`;
+}
+
+/**
+ * Formater uniquement l'heure : HHhMM (ex: 19h, 04h30)
+ */
+export function formatTimeFR(date: Date): string {
+  const parisDate = new Date(
+    date.toLocaleString("en-US", {timeZone: "Europe/Paris"}),
+  );
+  const hours = String(parisDate.getHours()).padStart(2, "0");
+  const minutes = String(parisDate.getMinutes()).padStart(2, "0");
+  return minutes !== "00" ? `${hours}h${minutes}` : `${hours}h`;
 }

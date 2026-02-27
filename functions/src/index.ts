@@ -3,15 +3,12 @@ import {onSchedule} from "firebase-functions/v2/scheduler";
 import {initializeApp} from "firebase-admin/app";
 import {getFirestore, Timestamp} from "firebase-admin/firestore";
 import {getMessaging} from "firebase-admin/messaging";
+import {encryptionKey, decryptPII} from "./crypto-utils.js";
 
 // Re-export des nouvelles Cloud Functions
 export {cleanupOldData} from "./cleanup";
 export {sendPendingWavesAfterNightPause} from "./night-pause";
-export {
-  sendPersonalShiftAlerts,
-  sendChiefShiftAlerts,
-  sendAnomalyAlerts,
-} from "./alerts";
+export {sendDailyShiftReminder} from "./alerts";
 
 // Auth & User Management Functions
 export {
@@ -61,6 +58,16 @@ function formatDate(date: Date): string {
   const minutes = String(parisDate.getMinutes()).padStart(2, "0");
 
   return `${day}/${month}/${year} ${hours}:${minutes}`;
+}
+
+/** Format court : DD/MM HHh(MM) — ex: "21/05 19h", "22/05 04h30" */
+function formatShort(date: Date): string {
+  const p = new Date(date.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
+  const d = String(p.getDate()).padStart(2, "0");
+  const m = String(p.getMonth() + 1).padStart(2, "0");
+  const H = String(p.getHours()).padStart(2, "0");
+  const M = String(p.getMinutes()).padStart(2, "0");
+  return M !== "00" ? `${d}/${m} ${H}h${M}` : `${d}/${m} ${H}h`;
 }
 
 /**
@@ -393,7 +400,11 @@ async function getAllStationPaths(): Promise<
  * V2 : Écoute les notificationTriggers dans les paths SDIS/station
  */
 export const sendReplacementNotificationsV2 = onDocumentCreated(
-  "sdis/{sdisId}/stations/{stationId}/notificationTriggers/{triggerId}",
+  {
+    region: "europe-west1",
+    document: "sdis/{sdisId}/stations/{stationId}/notificationTriggers/{triggerId}",
+    secrets: [encryptionKey],
+  },
   async (event) => {
     const snapshot = event.data;
     if (!snapshot) {
@@ -403,6 +414,7 @@ export const sendReplacementNotificationsV2 = onDocumentCreated(
 
     const trigger = snapshot.data();
     const stationPath = `sdis/${event.params.sdisId}/stations/${event.params.stationId}`;
+      const sdisId = event.params.sdisId;
 
     if (trigger.processed) {
       console.log("Trigger already processed:", event.params.triggerId);
@@ -411,25 +423,62 @@ export const sendReplacementNotificationsV2 = onDocumentCreated(
 
     try {
       const type = trigger.type;
-      const targetUserIds = trigger.targetUserIds as string[];
+      // Supporte à la fois targetUserIds (tableau) et userId (singulier)
+      const targetUserIds: string[] = trigger.targetUserIds ||
+        (trigger.userId ? [trigger.userId] : []);
 
       console.log(
         `📤 [V2] Processing ${type} notification for ` +
         `${targetUserIds.length} users (${stationPath})`,
       );
 
-      // Récupérer les tokens FCM des utilisateurs cibles
-      const tokens: string[] = [];
+      // Clé de déchiffrement PII
+      const key = encryptionKey.value();
       const db = getFirestore();
+
+      // Helper : charge un doc user et retourne son nom déchiffré
+      const resolveUserName = async (userId: string): Promise<string> => {
+        const userDoc = await db.collection(`${stationPath}/users`).doc(userId).get();
+        if (!userDoc.exists) return "";
+        const {firstName, lastName} = decryptPII(userDoc.data() || {}, key);
+        return `${firstName || ""} ${lastName || ""}`.trim();
+      };
+
+      // Récupérer les tokens FCM des utilisateurs cibles
+      // Helper : résoudre le token FCM depuis le niveau SDIS (sdis/{sdisId}/users)
+      // Les tokens sont stockés par authUid, indexés par le champ 'matricule'
+      const getFcmTokenFromSdis = async (matricule: string): Promise<{token: string | null; authUid: string | null}> => {
+        const snap = await db.collection(`sdis/${sdisId}/users`)
+          .where("matricule", "==", matricule)
+          .limit(1)
+          .get();
+        if (snap.empty) return {token: null, authUid: null};
+        const data = snap.docs[0].data();
+        return {token: data?.fcmToken ?? null, authUid: snap.docs[0].id};
+      };
+
+      const tokens: string[] = [];
+      const tokenAuthUids: string[] = []; // Pour nettoyage des tokens invalides
       for (const userId of targetUserIds) {
-        const userDoc = await db
+        // Lire les données depuis la collection station pour le filtrage des préférences
+        const stationUserDoc = await db
           .collection(`${stationPath}/users`)
           .doc(userId)
           .get();
 
-        const fcmToken = userDoc.data()?.fcmToken;
+        // Pour les demandes d'adhésion, ne notifier que les admins ayant activé la préférence
+        if (type === "membership_requested") {
+          if (stationUserDoc.data()?.membershipAlertEnabled !== true) {
+            console.log(`  ⏭️ Skipping user ${userId} (membershipAlertEnabled not set)`);
+            continue;
+          }
+        }
+
+        // Token FCM lu depuis le niveau SDIS
+        const {token: fcmToken, authUid} = await getFcmTokenFromSdis(userId);
         if (fcmToken) {
           tokens.push(fcmToken);
+          tokenAuthUids.push(authUid!);
           console.log(`  ✓ Token found for user ${userId}`);
         } else {
           console.log(`  ⚠️ No token for user ${userId}`);
@@ -451,14 +500,16 @@ export const sendReplacementNotificationsV2 = onDocumentCreated(
       let data: { [key: string]: string };
 
       switch (type) {
-      case "replacement_request":
+      case "replacement_request": {
+        const requesterName = await resolveUserName(trigger.requesterId);
+        const isSOS = trigger.isSOS === true;
+        const replacementBody =
+          `${requesterName} propose un remplacement du ` +
+          `${formatShort(trigger.startTime.toDate())} au ` +
+          `${formatShort(trigger.endTime.toDate())}, ${trigger.team || ""}`;
         notification = {
-          title: "🔔 Recherche de remplaçant",
-          body:
-              `${trigger.requesterName} recherche un ` +
-              "remplaçant du " +
-              `${formatDate(trigger.startTime.toDate())} au ` +
-              `${formatDate(trigger.endTime.toDate())}`,
+          title: isSOS ? "🚨 URGENT : Recherche de remplaçant" : "🔔 Recherche de remplaçant",
+          body: isSOS ? `URGENT : ${replacementBody}` : replacementBody,
         };
         data = {
           type: "replacement_request",
@@ -469,12 +520,14 @@ export const sendReplacementNotificationsV2 = onDocumentCreated(
           team: trigger.team || "",
         };
         break;
+      }
 
-      case "availability_request":
+      case "availability_request": {
+        const requesterName = await resolveUserName(trigger.requesterId);
         notification = {
           title: "🔍 Recherche d'agent disponible",
           body:
-              `${trigger.requesterName} recherche un ` +
+              `${requesterName} recherche un ` +
               "agent disponible du " +
               `${formatDate(trigger.startTime.toDate())} au ` +
               `${formatDate(trigger.endTime.toDate())}`,
@@ -488,117 +541,159 @@ export const sendReplacementNotificationsV2 = onDocumentCreated(
           team: trigger.team || "",
         };
         break;
+      }
 
-      case "replacement_found":
+      case "replacement_found": {
+        const replacerName = await resolveUserName(trigger.replacerId);
+        const foundBody = (trigger.startTime && trigger.endTime)
+          ? `${replacerName} a accepté votre demande de remplacement du ` +
+            `${formatShort(trigger.startTime.toDate())} au ` +
+            `${formatShort(trigger.endTime.toDate())}`
+          : `${replacerName} a accepté votre demande de remplacement`;
         notification = {
           title: "✅ Remplaçant trouvé !",
-          body:
-              `${trigger.replacerName} a accepté de ` +
-              "vous remplacer",
+          body: foundBody,
         };
         data = {
           type: "replacement_found",
           requestId: trigger.requestId,
-          replacerName: trigger.replacerName,
+          replacerId: trigger.replacerId,
         };
         break;
+      }
 
-      case "replacement_assigned":
+      case "replacement_assigned": {
+        const [replacedNameA, replacerNameA] = await Promise.all([
+          resolveUserName(trigger.replacedId),
+          resolveUserName(trigger.replacerId),
+        ]);
         notification = {
           title: "📋 Remplacement assigné",
           body:
-              `${trigger.replacedName} sera remplacé par ` +
-              `${trigger.replacerName} du ` +
-              `${formatDate(trigger.startTime.toDate())} au ` +
-              `${formatDate(trigger.endTime.toDate())}`,
+              `${replacerNameA} remplacera ${replacedNameA} du ` +
+              `${formatShort(trigger.startTime.toDate())} au ` +
+              `${formatShort(trigger.endTime.toDate())}`,
         };
         data = {
           type: "replacement_assigned",
           requestId: trigger.requestId,
-          replacedName: trigger.replacedName,
-          replacerName: trigger.replacerName,
+          replacedId: trigger.replacedId,
+          replacerId: trigger.replacerId,
         };
         break;
+      }
 
-      case "replacement_completed":
+      case "replacement_completed": {
+        // trigger.replacerIds est un tableau d'IDs, résoudre chaque nom
+        const replacerIdsList: string[] = trigger.replacerIds || [];
+        const replacerNamesList = await Promise.all(
+          replacerIdsList.map((id: string) => resolveUserName(id))
+        );
+        const replacerNamesStr = replacerNamesList.filter(Boolean).join(", ");
         notification = {
           title: "✅ Remplacement complété !",
-          body:
-              `Votre remplacement a été trouvé : ${trigger.replacerNames}`,
+          body: `Votre remplacement a été trouvé : ${replacerNamesStr}`,
         };
         data = {
           type: "replacement_completed",
           requestId: trigger.requestId,
-          replacerNames: trigger.replacerNames,
         };
         break;
+      }
 
-      case "replacement_completed_chief":
+      case "replacement_completed_chief": {
+        const requesterName = await resolveUserName(trigger.requesterId);
+        const replacerIdsList: string[] = trigger.replacerIds || [];
+        const replacerNamesList = await Promise.all(
+          replacerIdsList.map((id: string) => resolveUserName(id))
+        );
+        const replacerNamesStr = replacerNamesList.filter(Boolean).join(", ");
         notification = {
           title: "✅ Remplacement complété",
-          body:
-              `${trigger.requesterName} a trouvé son remplacement : ` +
-              `${trigger.replacerNames}`,
+          body: `${requesterName} a trouvé son remplacement : ${replacerNamesStr}`,
         };
         data = {
           type: "replacement_completed_chief",
           requestId: trigger.requestId,
-          requesterName: trigger.requesterName,
-          replacerNames: trigger.replacerNames,
         };
         break;
+      }
 
-      case "manual_replacement_proposal":
+      case "manual_replacement_proposal": {
+        const proposerNameM = await resolveUserName(trigger.proposerId);
         notification = {
           title: "🔄 Proposition de remplacement",
           body:
-              `${trigger.proposerName} propose que vous ` +
-              `remplaciez ${trigger.replacedName} du ` +
-              `${formatDate(trigger.startTime.toDate())} au ` +
-              `${formatDate(trigger.endTime.toDate())}`,
+              `${proposerNameM} vous propose un remplacement du ` +
+              `${formatShort(trigger.startTime.toDate())} au ` +
+              `${formatShort(trigger.endTime.toDate())}` +
+              (trigger.team ? `, ${trigger.team}` : ""),
         };
         data = {
           type: "manual_replacement_proposal",
           proposalId: trigger.proposalId,
           proposerId: trigger.proposerId,
-          proposerName: trigger.proposerName,
           replacedId: trigger.replacedId,
-          replacedName: trigger.replacedName,
           planningId: trigger.planningId,
         };
         break;
+      }
 
-      case "shift_exchange_proposal_received":
+      case "shift_exchange_proposal_received": {
+        const proposerIdEx = trigger.data?.proposerId || "";
+        const proposerNameEx = proposerIdEx ? await resolveUserName(proposerIdEx) : "";
+        const proposerTeamEx = trigger.data?.proposerTeam || "";
         notification = {
-          title: trigger.title || "Nouvelle proposition d'échange",
-          body: trigger.body || "Une nouvelle proposition d'échange a été reçue",
+          title: "💬 Proposition d'échange reçue",
+          body: proposerNameEx
+            ? `${proposerNameEx} a répondu à votre proposition d'échange` +
+              (proposerTeamEx ? `, ${proposerTeamEx}` : "")
+            : "Un agent a répondu à votre proposition d'échange",
         };
         data = {
           type: "shift_exchange_proposal_received",
           requestId: trigger.data?.requestId || "",
           proposalId: trigger.data?.proposalId || "",
-          proposerName: trigger.data?.proposerName || "",
+          proposerId: proposerIdEx,
         };
         break;
+      }
 
-      case "shift_exchange_validation_required":
+      case "shift_exchange_validation_required": {
+        const initiatorIdV = trigger.data?.initiatorId || "";
+        const proposerIdV = trigger.data?.proposerId || "";
+        const [initiatorNameV, proposerNameV] = await Promise.all([
+          initiatorIdV ? resolveUserName(initiatorIdV) : Promise.resolve(""),
+          proposerIdV ? resolveUserName(proposerIdV) : Promise.resolve(""),
+        ]);
         notification = {
-          title: trigger.title || "Validation d'échange requise",
-          body: trigger.body || "Un échange d'astreinte nécessite votre validation",
+          title: "✋ Validation d'échange requise",
+          body: (initiatorNameV && proposerNameV)
+            ? `Validation attendue de votre part pour l'échange d'astreinte de ${initiatorNameV} et ${proposerNameV}`
+            : "Un échange d'astreinte nécessite votre validation",
         };
         data = {
           type: "shift_exchange_validation_required",
           requestId: trigger.data?.requestId || "",
           proposalId: trigger.data?.proposalId || "",
-          initiatorName: trigger.data?.initiatorName || "",
-          proposerName: trigger.data?.proposerName || "",
+          initiatorId: initiatorIdV,
+          proposerId: proposerIdV,
         };
         break;
+      }
 
-      case "shift_exchange_validated":
+      case "shift_exchange_validated": {
+        const initiatorIdC = trigger.data?.initiatorId || "";
+        const proposerIdC = trigger.data?.proposerId || "";
+        const [initiatorNameC, proposerNameC] = await Promise.all([
+          initiatorIdC ? resolveUserName(initiatorIdC) : Promise.resolve(""),
+          proposerIdC ? resolveUserName(proposerIdC) : Promise.resolve(""),
+        ]);
         notification = {
-          title: trigger.title || "✅ Échange validé",
-          body: trigger.body || "Votre échange d'astreinte a été validé",
+          title: "✅ Échange conclu",
+          body: (initiatorNameC && proposerNameC)
+            ? `Échange d'astreinte conclu entre ${initiatorNameC} et ${proposerNameC}`
+            : "Votre échange d'astreinte a été validé",
         };
         data = {
           type: "shift_exchange_validated",
@@ -606,6 +701,7 @@ export const sendReplacementNotificationsV2 = onDocumentCreated(
           proposalId: trigger.data?.proposalId || "",
         };
         break;
+      }
 
       case "shift_exchange_rejected":
         notification = {
@@ -616,61 +712,208 @@ export const sendReplacementNotificationsV2 = onDocumentCreated(
           type: "shift_exchange_rejected",
           requestId: trigger.data?.requestId || "",
           proposalId: trigger.data?.proposalId || "",
-          proposerName: trigger.data?.proposerName || "",
-          leaderName: trigger.data?.leaderName || "",
           rejectionReason: trigger.data?.rejectionReason || "",
         };
         break;
 
-      case "shift_exchange_proposer_selected":
+      case "shift_exchange_proposer_selected": {
+        const initiatorId = trigger.data?.initiatorId || "";
+        const initiatorName = initiatorId ? await resolveUserName(initiatorId) : "";
         notification = {
           title: trigger.title || "🎯 Votre proposition sélectionnée",
-          body: trigger.body || "Votre proposition d'échange a été sélectionnée",
+          body: initiatorName ?
+            `${initiatorName} a sélectionné votre proposition` :
+            "Votre proposition d'échange a été sélectionnée",
         };
         data = {
           type: "shift_exchange_proposer_selected",
           requestId: trigger.data?.requestId || "",
           proposalId: trigger.data?.proposalId || "",
-          initiatorName: trigger.data?.initiatorName || "",
+          initiatorId,
         };
         break;
+      }
 
-      case "personal_shift_alert":
+      case "daily_shift_reminder": {
+        const plannings = (trigger.data?.plannings as Array<{
+          planningId: string;
+          startDate: string;
+          endDate: string;
+          team: string;
+        }>) || [];
+
+        const lines = plannings.map((p) => {
+          const start = new Date(p.startDate);
+          const end = new Date(p.endDate);
+          const parisStart = new Date(
+            start.toLocaleString("en-US", {timeZone: "Europe/Paris"}),
+          );
+          const parisEnd = new Date(
+            end.toLocaleString("en-US", {timeZone: "Europe/Paris"}),
+          );
+          const day = String(parisStart.getDate()).padStart(2, "0");
+          const month = String(parisStart.getMonth() + 1).padStart(2, "0");
+          const startHH = String(parisStart.getHours()).padStart(2, "0");
+          const startMM = String(parisStart.getMinutes()).padStart(2, "0");
+          const endHH = String(parisEnd.getHours()).padStart(2, "0");
+          const endMM = String(parisEnd.getMinutes()).padStart(2, "0");
+          const startStr = startMM !== "00" ? `${startHH}h${startMM}` : `${startHH}h`;
+          const endStr = endMM !== "00" ? `${endHH}h${endMM}` : `${endHH}h`;
+          return `- ${day}/${month} de ${startStr} à ${endStr}, ${p.team}`;
+        });
+
         notification = {
-          title: trigger.title || "⏰ Rappel d'astreinte",
-          body: trigger.body || "Votre astreinte approche",
+          title: trigger.title || "⏰ Astreintes à venir",
+          body: lines.length > 0
+            ? `Astreintes à venir :\n${lines.join("\n")}`
+            : "Vous avez des astreintes dans les prochaines 24h",
         };
         data = {
-          type: "personal_shift_alert",
-          planningId: trigger.data?.planningId || "",
+          type: "daily_shift_reminder",
         };
         break;
+      }
 
-      case "chief_shift_alert":
+      case "agent_query_request": {
+        const queryTeam = trigger.team || "";
         notification = {
-          title: trigger.title || "📋 Rappel astreinte équipe",
-          body: trigger.body || "Une astreinte de votre équipe approche",
+          title: "🔎 Recherche d'agent",
+          body: `Recherche d'un agent avec vos compétences` +
+              (queryTeam ? ` pour ${queryTeam}` : "") +
+              ` du ${formatShort(trigger.startTime.toDate())}` +
+              ` au ${formatShort(trigger.endTime.toDate())}`,
         };
         data = {
-          type: "chief_shift_alert",
-          planningId: trigger.data?.planningId || "",
-          team: trigger.data?.team || "",
+          type: "agent_query_request",
+          queryId: trigger.queryId || "",
+          createdById: trigger.createdById || "",
+          planningId: trigger.planningId || "",
+          onCallLevelId: trigger.onCallLevelId || "",
         };
         break;
+      }
 
-      case "anomaly_alert":
+      case "replacement_validation_required": {
+        const acceptorIdV = trigger.data?.acceptorId || "";
+        const requesterIdV = trigger.data?.requesterId || "";
+        const [acceptorNameV, requesterNameV] = await Promise.all([
+          acceptorIdV ? resolveUserName(acceptorIdV) : Promise.resolve(""),
+          requesterIdV ? resolveUserName(requesterIdV) : Promise.resolve(""),
+        ]);
+        const hasDatesDV = trigger.data?.startTime && trigger.data?.endTime;
+        const datesSuffixV = hasDatesDV
+          ? ` du ${formatShort(trigger.data.startTime.toDate())} au ${formatShort(trigger.data.endTime.toDate())}`
+          : "";
         notification = {
-          title: trigger.title || "⚠️ Anomalie planning",
-          body: trigger.body || "Une anomalie a été détectée",
+          title: "✋ Validation de remplacement requise",
+          body: (acceptorNameV && requesterNameV)
+            ? `Validation attendue de votre part pour le remplacement de ${requesterNameV} par ${acceptorNameV}${datesSuffixV}`
+            : "Un agent souhaite effectuer un remplacement",
         };
         data = {
-          type: "anomaly_alert",
-          planningId: trigger.data?.planningId || "",
-          team: trigger.data?.team || "",
-          agentsCount: trigger.data?.agentsCount || "",
-          maxAgents: trigger.data?.maxAgents || "",
+          type: "replacement_validation_required",
+          acceptanceId: trigger.data?.acceptanceId || "",
+          requestId: trigger.data?.requestId || "",
+          acceptorId: acceptorIdV,
+          requesterId: requesterIdV,
         };
         break;
+      }
+
+      case "acceptance_validated": {
+        const acceptorIdAV = trigger.data?.requesterId || "";
+        const acceptorNameAV = acceptorIdAV ? await resolveUserName(acceptorIdAV) : "";
+        const hasDateAV = trigger.data?.startTime && trigger.data?.endTime;
+        const dateSuffixAV = hasDateAV
+          ? ` du ${formatShort(trigger.data.startTime.toDate())} au ${formatShort(trigger.data.endTime.toDate())}`
+          : "";
+        notification = {
+          title: "✅ Remplacement validé",
+          body: acceptorNameAV
+            ? `${acceptorNameAV} a accepté votre demande de remplacement${dateSuffixAV}`
+            : "Votre proposition de remplacement a été acceptée.",
+        };
+        data = {
+          type: "acceptance_validated",
+          requestId: trigger.data?.requestId || "",
+          acceptanceId: trigger.data?.acceptanceId || "",
+          requesterId: acceptorIdAV,
+        };
+        break;
+      }
+
+      case "replacement_reminder": {
+        const requesterName = await resolveUserName(trigger.requesterId);
+        notification = {
+          title: "🔔 Rappel : remplacement en attente",
+          body: `${requesterName} recherche toujours un remplaçant du ` +
+              `${formatDate(trigger.startTime.toDate())} au ` +
+              `${formatDate(trigger.endTime.toDate())}`,
+        };
+        data = {
+          type: "replacement_reminder",
+          requestId: trigger.requestId,
+          requesterId: trigger.requesterId,
+        };
+        break;
+      }
+
+      case "replacement_acceptance_rejected": {
+        // Notification de rejet d'acceptation
+        notification = {
+          title: trigger.title || "Remplacement refusé",
+          body: trigger.reason || "Votre acceptation a été refusée.",
+        };
+        data = {
+          type: "replacement_acceptance_rejected",
+          requestId: trigger.data?.requestId || "",
+          requesterId: trigger.data?.requesterId || "",
+        };
+        break;
+      }
+
+      case "membership_requested": {
+        const agentNameM = await resolveUserName(trigger.agentMatricule || "");
+        notification = {
+          title: "🏠 Demande d'adhésion",
+          body: agentNameM
+            ? `${agentNameM} souhaite rejoindre votre caserne`
+            : "Un agent souhaite rejoindre votre caserne",
+        };
+        data = {
+          type: "membership_requested",
+          agentMatricule: trigger.agentMatricule || "",
+        };
+        break;
+      }
+
+      case "membership_accepted": {
+        notification = {
+          title: "✅ Adhésion acceptée",
+          body: trigger.stationName
+            ? `Votre demande d'adhésion à la caserne ${trigger.stationName} a été acceptée`
+            : "Votre demande d'adhésion a été acceptée",
+        };
+        data = {
+          type: "membership_accepted",
+          stationName: trigger.stationName || "",
+        };
+        break;
+      }
+
+      case "membership_rejected": {
+        notification = {
+          title: "❌ Adhésion refusée",
+          body: trigger.stationName
+            ? `Votre demande d'adhésion à la caserne ${trigger.stationName} a été refusée`
+            : "Votre demande d'adhésion a été refusée",
+        };
+        data = {
+          type: "membership_rejected",
+          stationName: trigger.stationName || "",
+        };
+        break;
+      }
 
       default:
         console.error("❌ Unknown notification type:", type);
@@ -694,7 +937,6 @@ export const sendReplacementNotificationsV2 = onDocumentCreated(
             channelId: "nexshift_replacement_channel",
             priority: "high" as const,
             sound: "default",
-            clickAction: "FLUTTER_NOTIFICATION_CLICK",
           },
           ttl: 86400,
           collapseKey: `replacement_${type}`,
@@ -711,7 +953,6 @@ export const sendReplacementNotificationsV2 = onDocumentCreated(
                 body: notification.body,
               },
               "sound": "default",
-              "badge": 1,
               "mutable-content": 1,
               "content-available": 1,
             },
@@ -749,15 +990,17 @@ export const sendReplacementNotificationsV2 = onDocumentCreated(
               errorCode === "messaging/invalid-registration-token" ||
               errorCode === "messaging/registration-token-not-registered"
             ) {
-              const userId = targetUserIds[idx];
+              const authUid = tokenAuthUids[idx];
               console.log(
-                `  🧹 Cleaning invalid token for user ${userId}`,
+                `  🧹 Cleaning invalid token for authUid ${authUid}`,
               );
-              batch.update(
-                db.collection(`${stationPath}/users`).doc(userId),
-                {fcmToken: null},
-              );
-              invalidTokensCount++;
+              if (authUid) {
+                batch.update(
+                  db.collection(`sdis/${sdisId}/users`).doc(authUid),
+                  {fcmToken: null},
+                );
+                invalidTokensCount++;
+              }
             }
           }
         });
@@ -795,6 +1038,7 @@ export const sendReplacementNotificationsV2 = onDocumentCreated(
  */
 export const cleanupProcessedTriggersV2 = onSchedule(
   {
+    region: "europe-west1",
     schedule: "every 24 hours",
     timeZone: "Europe/Paris",
   },
@@ -835,6 +1079,7 @@ export const cleanupProcessedTriggersV2 = onSchedule(
  */
 export const expireOldRequestsV2 = onSchedule(
   {
+    region: "europe-west1",
     schedule: "every 1 hours",
     timeZone: "Europe/Paris",
   },
@@ -848,7 +1093,7 @@ export const expireOldRequestsV2 = onSchedule(
 
     for (const {stationPath} of stationPaths) {
       const snapshot = await db
-        .collection(`${stationPath}/replacementRequests`)
+        .collection(`${stationPath}/replacements/automatic/replacementRequests`)
         .where("status", "==", "pending")
         .where("createdAt", "<", Timestamp.fromDate(oneDayAgo))
         .get();
@@ -876,7 +1121,7 @@ export const expireOldRequestsV2 = onSchedule(
  * V2 : Écoute les subshifts dans les paths SDIS/station
  */
 export const checkReplacementCompletionV2 = onDocumentCreated(
-  "sdis/{sdisId}/stations/{stationId}/replacements/all/subshifts/{subshiftId}",
+  {region: "europe-west1", document: "sdis/{sdisId}/stations/{stationId}/replacements/all/subshifts/{subshiftId}"},
   async (event) => {
     const snapshot = event.data;
     if (!snapshot) {
@@ -898,7 +1143,7 @@ export const checkReplacementCompletionV2 = onDocumentCreated(
       const db = getFirestore();
 
       const requestsSnapshot = await db
-        .collection(`${stationPath}/replacementRequests`)
+        .collection(`${stationPath}/replacements/automatic/replacementRequests`)
         .where("requesterId", "==", replacedId)
         .where("planningId", "==", planningId)
         .where("status", "==", "pending")
@@ -951,10 +1196,6 @@ export const checkReplacementCompletionV2 = onDocumentCreated(
 
           if (!requesterDoc.exists) continue;
 
-          const requester = requesterDoc.data();
-          const requesterName =
-            `${requester?.firstName} ${requester?.lastName}`;
-
           const planningForChiefDoc = await db
             .collection(`${stationPath}/plannings`)
             .doc(planningId)
@@ -985,7 +1226,8 @@ export const checkReplacementCompletionV2 = onDocumentCreated(
             }
           }
 
-          const replacerIds = new Set(
+          // Collecter les IDs des remplaçants (la CF handler résoudra les noms)
+          const replacerIdsSet = new Set<string>(
             intervals.map((interval) => {
               const matchingSubshift = subshiftsSnapshot.docs.find((doc) => {
                 const data = doc.data();
@@ -995,30 +1237,16 @@ export const checkReplacementCompletionV2 = onDocumentCreated(
                   end.getTime() === interval.end.getTime();
               });
               return matchingSubshift?.data().replacerId;
-            }).filter(Boolean),
+            }).filter(Boolean) as string[],
           );
 
-          const replacerNames: string[] = [];
-          for (const replacerId of replacerIds) {
-            const replacerDoc = await db
-              .collection(`${stationPath}/users`)
-              .doc(replacerId)
-              .get();
-            if (replacerDoc.exists) {
-              const replacer = replacerDoc.data();
-              replacerNames.push(
-                `${replacer?.firstName} ${replacer?.lastName}`,
-              );
-            }
-          }
-
-          const replacerNameStr = replacerNames.join(", ");
+          const replacerIdsList = Array.from(replacerIdsSet);
 
           await db.collection(`${stationPath}/notificationTriggers`).add({
             type: "replacement_completed",
             requestId: requestDoc.id,
             targetUserIds: [replacedId],
-            replacerNames: replacerNameStr,
+            replacerIds: replacerIdsList,
             startTime: request.startTime,
             endTime: request.endTime,
             createdAt: Timestamp.now(),
@@ -1030,8 +1258,8 @@ export const checkReplacementCompletionV2 = onDocumentCreated(
               type: "replacement_completed_chief",
               requestId: requestDoc.id,
               targetUserIds: [chiefId],
-              requesterName: requesterName,
-              replacerNames: replacerNameStr,
+              requesterId: replacedId,
+              replacerIds: replacerIdsList,
               startTime: request.startTime,
               endTime: request.endTime,
               createdAt: Timestamp.now(),
@@ -1055,7 +1283,7 @@ export const checkReplacementCompletionV2 = onDocumentCreated(
  * V2 : Notification de test
  */
 export const sendTestNotificationV2 = onDocumentCreated(
-  "sdis/{sdisId}/stations/{stationId}/testNotifications/{testId}",
+  {region: "europe-west1", document: "sdis/{sdisId}/stations/{stationId}/testNotifications/{testId}"},
   async (event) => {
     const snapshot = event.data;
     if (!snapshot) {
@@ -1106,9 +1334,12 @@ export const sendTestNotificationV2 = onDocumentCreated(
         .collection(`${stationPath}/users`)
         .doc(adminId)
         .get();
-      const adminName = adminDoc.exists ?
-        `${adminDoc.data()?.firstName} ${adminDoc.data()?.lastName}` :
-        "Admin";
+      let adminName = "Admin";
+      if (adminDoc.exists) {
+        const key = encryptionKey.value();
+        const {firstName, lastName} = decryptPII(adminDoc.data() || {}, key);
+        adminName = `${firstName || ""} ${lastName || ""}`.trim() || "Admin";
+      }
 
       const notification = {
         title: "🧪 Notification de test",
@@ -1134,7 +1365,6 @@ export const sendTestNotificationV2 = onDocumentCreated(
             channelId: "nexshift_replacement_channel",
             priority: "high" as const,
             sound: "default",
-            clickAction: "FLUTTER_NOTIFICATION_CLICK",
           },
           ttl: 86400,
         },
@@ -1150,7 +1380,6 @@ export const sendTestNotificationV2 = onDocumentCreated(
                 body: notification.body,
               },
               "sound": "default",
-              "badge": 1,
               "mutable-content": 1,
               "content-available": 1,
             },
@@ -1200,7 +1429,7 @@ export const sendTestNotificationV2 = onDocumentCreated(
  * V2 : Vagues vides
  */
 export const processEmptyWaveV2 = onDocumentCreated(
-  "sdis/{sdisId}/stations/{stationId}/waveSkipTriggers/{triggerId}",
+  {region: "europe-west1", document: "sdis/{sdisId}/stations/{stationId}/replacements/automatic/waveSkipTriggers/{triggerId}"},
   async (event) => {
     const snapshot = event.data;
     if (!snapshot) {
@@ -1228,7 +1457,7 @@ export const processEmptyWaveV2 = onDocumentCreated(
       const db = getFirestore();
 
       const requestDoc = await db
-        .collection(`${stationPath}/replacementRequests`)
+        .collection(`${stationPath}/replacements/automatic/replacementRequests`)
         .doc(requestId)
         .get();
 
@@ -1271,6 +1500,7 @@ export const processEmptyWaveV2 = onDocumentCreated(
  */
 export const processNotificationWavesV2 = onSchedule(
   {
+    region: "europe-west1",
     schedule: "every 5 minutes",
     timeZone: "Europe/Paris",
   },
@@ -1283,7 +1513,7 @@ export const processNotificationWavesV2 = onSchedule(
 
       for (const {stationPath} of stationPaths) {
         const pendingRequests = await db
-          .collection(`${stationPath}/replacementRequests`)
+          .collection(`${stationPath}/replacements/automatic/replacementRequests`)
           .where("status", "==", "pending")
           .get();
 
@@ -1476,12 +1706,12 @@ async function sendNextWaveV2(
       );
 
       await db
-        .collection(`${stationPath}/replacementRequests`)
+        .collection(`${stationPath}/replacements/automatic/replacementRequests`)
         .doc(requestId)
         .update({currentWave: nextWave});
 
       const updatedRequestDoc = await db
-        .collection(`${stationPath}/replacementRequests`)
+        .collection(`${stationPath}/replacements/automatic/replacementRequests`)
         .doc(requestId)
         .get();
 
@@ -1499,7 +1729,7 @@ async function sendNextWaveV2(
     ];
 
     await db
-      .collection(`${stationPath}/replacementRequests`)
+      .collection(`${stationPath}/replacements/automatic/replacementRequests`)
       .doc(requestId)
       .update({
         currentWave: nextWave,
@@ -1507,11 +1737,11 @@ async function sendNextWaveV2(
         lastWaveSentAt: Timestamp.now(),
       });
 
+    // requesterName résolu par sendReplacementNotificationsV2 via decryptPII
     const notificationData = {
       type: "replacement_request",
       requestId: requestId,
       requesterId: request.requesterId,
-      requesterName: `${requester?.firstName} ${requester?.lastName}`,
       planningId: request.planningId,
       startTime: request.startTime,
       endTime: request.endTime,
@@ -1543,7 +1773,7 @@ async function sendNextWaveV2(
  * V2 : Proposition de remplacement manuel
  */
 export const handleManualReplacementAcceptanceV2 = onDocumentCreated(
-  "sdis/{sdisId}/stations/{stationId}/manualReplacementProposals/{proposalId}",
+  {region: "europe-west1", document: "sdis/{sdisId}/stations/{stationId}/replacements/automatic/manualReplacementProposals/{proposalId}"},
   async (event) => {
     const snapshot = event.data;
     if (!snapshot) {
@@ -1562,7 +1792,7 @@ export const handleManualReplacementAcceptanceV2 = onDocumentCreated(
  * V2 : Acceptation de remplacement manuel
  */
 export const onManualReplacementAcceptedV2 = onDocumentCreated(
-  "sdis/{sdisId}/stations/{stationId}/replacements/automatic/replacementAcceptances/{acceptanceId}",
+  {region: "europe-west1", document: "sdis/{sdisId}/stations/{stationId}/replacements/automatic/replacementAcceptances/{acceptanceId}"},
   async (event) => {
     const snapshot = event.data;
     if (!snapshot) {
@@ -1584,7 +1814,7 @@ export const onManualReplacementAcceptedV2 = onDocumentCreated(
 
       // Récupérer la proposition
       const proposalDoc = await db
-        .collection(`${stationPath}/manualReplacementProposals`)
+        .collection(`${stationPath}/replacements/automatic/manualReplacementProposals`)
         .doc(proposalId)
         .get();
 
@@ -1660,12 +1890,12 @@ export const onManualReplacementAcceptedV2 = onDocumentCreated(
         }
       }
 
-      // Envoyer notification au remplacé
+      // Envoyer notification au remplacé — replacerName résolu par CF handler via decryptPII
       await db.collection(`${stationPath}/notificationTriggers`).add({
         type: "replacement_found",
         requestId: proposalId,
         targetUserIds: [proposal.replacedId],
-        replacerName: proposal.replacerName,
+        replacerId: proposal.replacerId,
         startTime: proposal.startTime,
         endTime: proposal.endTime,
         createdAt: Timestamp.now(),
@@ -1674,10 +1904,10 @@ export const onManualReplacementAcceptedV2 = onDocumentCreated(
 
       console.log(
         "  ✓ Notification sent to replaced agent: " +
-        `${proposal.replacedName}`,
+        `${proposal.replacedId}`,
       );
 
-      // Envoyer notifications aux chefs d'équipe
+      // Envoyer notifications aux chefs d'équipe — noms résolus par CF handler
       if (chiefIds.length > 0) {
         chiefIds = chiefIds.filter(
           (id) => id !== proposal.replacedId,
@@ -1688,8 +1918,8 @@ export const onManualReplacementAcceptedV2 = onDocumentCreated(
             type: "replacement_assigned",
             requestId: proposalId,
             targetUserIds: chiefIds,
-            replacedName: proposal.replacedName,
-            replacerName: proposal.replacerName,
+            replacedId: proposal.replacedId,
+            replacerId: proposal.replacerId,
             startTime: proposal.startTime,
             endTime: proposal.endTime,
             createdAt: Timestamp.now(),
@@ -1724,7 +1954,7 @@ export const onManualReplacementAcceptedV2 = onDocumentCreated(
 //   4. Marque le trigger comme traité
 // ─────────────────────────────────────────────────────────────────────────────
 export const handleAgentSuspension = onDocumentCreated(
-  "sdis/{sdisId}/stations/{stationId}/replacements/automatic/suspensionTriggers/{triggerId}",
+  {region: "europe-west1", document: "sdis/{sdisId}/stations/{stationId}/replacements/automatic/suspensionTriggers/{triggerId}"},
   async (event) => {
     const trigger = event.data?.data();
     if (!trigger || trigger.processed) return;

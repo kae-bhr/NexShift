@@ -162,6 +162,10 @@ class KSkills {
     'COD': ['', cod0, cod1, cod2VL, cod2PL], // indices 1, 2, 3, 3
   };
 
+  /// Catégories dont les compétences sont indépendantes les unes des autres :
+  /// cocher un niveau supérieur ne force PAS l'auto-sélection des niveaux inférieurs.
+  static const Set<String> standaloneCategories = {'COD'};
+
   /// Display order for skill categories
   static const List<String> skillCategoryOrder = [
     'SUAP',

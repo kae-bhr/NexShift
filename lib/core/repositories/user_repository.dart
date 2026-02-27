@@ -220,12 +220,32 @@ class UserRepository {
       if (_directFirestore != null) {
         await _directFirestore.collection(collectionPath).doc(user.id).set(data, SetOptions(merge: true));
         debugPrint('✅ [UserRepository] User ${user.id} upserted successfully');
+        if (_decryptedUserCache.containsKey(user.id)) {
+          final cached = _decryptedUserCache[user.id]!;
+          _decryptedUserCache[user.id] = cached.copyWith(
+            skills: user.skills,
+            keySkills: user.keySkills,
+            team: user.team,
+            status: user.status,
+          );
+        }
         return;
       }
 
       // Mode production : utiliser FirestoreService
       await _firestoreService.upsert(collectionPath, user.id, data);
       debugPrint('✅ [UserRepository] User ${user.id} upserted successfully');
+
+      // Mettre à jour le cache si cet utilisateur y est présent (préserver les PII déchiffrées)
+      if (_decryptedUserCache.containsKey(user.id)) {
+        final cached = _decryptedUserCache[user.id]!;
+        _decryptedUserCache[user.id] = cached.copyWith(
+          skills: user.skills,
+          keySkills: user.keySkills,
+          team: user.team,
+          status: user.status,
+        );
+      }
     } catch (e) {
       debugPrint('❌ [UserRepository] Firestore error during upsert: $e');
       debugPrint('   User ID: ${user.id}');

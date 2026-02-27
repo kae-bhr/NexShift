@@ -107,26 +107,28 @@ class ShiftExchangeNotificationService {
         stationId: stationId,
         type: 'shift_exchange_proposal_received',
         title: 'Nouvelle proposition d\'échange',
-        body: '${proposal.proposerName} propose ${proposal.proposedPlanningIds.length} astreinte(s) en échange',
+        body: 'Nouvelle proposition : ${proposal.proposedPlanningIds.length} astreinte(s) proposée(s)',
         data: {
           'requestId': request.id,
           'proposalId': proposal.id,
-          'proposerName': proposal.proposerName,
+          'proposerId': proposal.proposerId,
           'planningsCount': proposal.proposedPlanningIds.length,
         },
         actionUrl: '/shift-exchange?requestId=${request.id}',
       );
 
-      // Envoyer notification push via FCM
+      // Envoyer notification push via FCM — body généré par CF via décryptage
       await _sendPushNotification(
         targetUserIds: [request.initiatorId],
         type: 'shift_exchange_proposal_received',
         title: 'Nouvelle proposition d\'échange',
-        body: '${proposal.proposerName} propose ${proposal.proposedPlanningIds.length} astreinte(s) en échange',
+        body: 'Nouvelle proposition d\'échange reçue',
         data: {
           'requestId': request.id,
           'proposalId': proposal.id,
-          'proposerName': proposal.proposerName,
+          'proposerId': proposal.proposerId,
+          'planningsCount': proposal.proposedPlanningIds.length,
+          'proposerTeam': proposal.proposerTeamId ?? '',
         },
         stationId: stationId,
       );
@@ -163,19 +165,18 @@ class ShiftExchangeNotificationService {
           stationId: stationId,
           type: 'shift_exchange_validation_required',
           title: 'Validation d\'échange requise',
-          body: 'Échange entre ${request.initiatorName} et ${proposal.proposerName}',
+          body: 'Un échange d\'astreinte nécessite votre validation',
           data: {
             'requestId': request.id,
             'proposalId': proposal.id,
-            'initiatorName': request.initiatorName,
-            'proposerName': proposal.proposerName,
+            'initiatorId': request.initiatorId,
+            'proposerId': proposal.proposerId,
           },
           actionUrl: '/shift-exchange/validation?proposalId=${proposal.id}',
         );
       }
 
-      // Envoyer notifications push via FCM
-      // Filtrer les chefs qui ne doivent pas être notifiés (auto-validés)
+      // Envoyer notifications push via FCM — body généré par CF via décryptage
       final chiefsToNotify = chiefIds.where((chiefId) =>
         !(chiefId == proposal.proposerId && proposal.isProposerChief)
       ).toList();
@@ -185,12 +186,12 @@ class ShiftExchangeNotificationService {
           targetUserIds: chiefsToNotify,
           type: 'shift_exchange_validation_required',
           title: 'Validation d\'échange requise',
-          body: 'Échange entre ${request.initiatorName} et ${proposal.proposerName}',
+          body: 'Un échange d\'astreinte nécessite votre validation',
           data: {
             'requestId': request.id,
             'proposalId': proposal.id,
-            'initiatorName': request.initiatorName,
-            'proposerName': proposal.proposerName,
+            'initiatorId': request.initiatorId,
+            'proposerId': proposal.proposerId,
           },
           stationId: stationId,
         );
@@ -221,11 +222,11 @@ class ShiftExchangeNotificationService {
         stationId: stationId,
         type: 'shift_exchange_validated',
         title: '✅ Échange validé',
-        body: 'Votre échange avec ${proposal.proposerName} a été validé par les chefs d\'équipe',
+        body: 'Votre échange d\'astreinte a été validé par les chefs d\'équipe',
         data: {
           'requestId': request.id,
           'proposalId': proposal.id,
-          'proposerName': proposal.proposerName,
+          'proposerId': proposal.proposerId,
         },
         actionUrl: '/planning',
       );
@@ -237,24 +238,26 @@ class ShiftExchangeNotificationService {
         stationId: stationId,
         type: 'shift_exchange_validated',
         title: '✅ Échange validé',
-        body: 'Votre proposition d\'échange avec ${request.initiatorName} a été validée par les chefs d\'équipe',
+        body: 'Votre proposition d\'échange a été validée par les chefs d\'équipe',
         data: {
           'requestId': request.id,
           'proposalId': proposal.id,
-          'initiatorName': request.initiatorName,
+          'initiatorId': request.initiatorId,
         },
         actionUrl: '/planning',
       );
 
-      // Envoyer notifications push via FCM
+      // Envoyer notifications push via FCM — body généré par CF via décryptage
       await _sendPushNotification(
         targetUserIds: [request.initiatorId, proposal.proposerId],
         type: 'shift_exchange_validated',
         title: '✅ Échange validé',
-        body: 'L\'échange entre ${request.initiatorName} et ${proposal.proposerName} a été validé',
+        body: 'Votre échange d\'astreinte a été validé',
         data: {
           'requestId': request.id,
           'proposalId': proposal.id,
+          'initiatorId': request.initiatorId,
+          'proposerId': proposal.proposerId,
         },
         stationId: stationId,
       );
@@ -285,12 +288,11 @@ class ShiftExchangeNotificationService {
         stationId: stationId,
         type: 'shift_exchange_rejected',
         title: '❌ Proposition refusée',
-        body: 'La proposition de ${proposal.proposerName} a été refusée',
+        body: 'Une proposition d\'échange a été refusée. Motif : $rejectionReason',
         data: {
           'requestId': request.id,
           'proposalId': proposal.id,
-          'proposerName': proposal.proposerName,
-          'leaderName': leaderName,
+          'proposerId': proposal.proposerId,
           'rejectionReason': rejectionReason,
         },
         actionUrl: '/shift-exchange?requestId=${request.id}',
@@ -301,12 +303,11 @@ class ShiftExchangeNotificationService {
         targetUserIds: [request.initiatorId],
         type: 'shift_exchange_rejected',
         title: '❌ Proposition refusée',
-        body: 'La proposition de ${proposal.proposerName} a été refusée par $leaderName',
+        body: 'Une proposition d\'échange a été refusée. Motif : $rejectionReason',
         data: {
           'requestId': request.id,
           'proposalId': proposal.id,
-          'proposerName': proposal.proposerName,
-          'leaderName': leaderName,
+          'proposerId': proposal.proposerId,
           'rejectionReason': rejectionReason,
         },
         stationId: stationId,
@@ -336,25 +337,25 @@ class ShiftExchangeNotificationService {
         stationId: stationId,
         type: 'shift_exchange_proposer_selected',
         title: '🎯 Votre proposition sélectionnée',
-        body: '${request.initiatorName} a sélectionné votre proposition. En attente de validation des chefs.',
+        body: 'Votre proposition d\'échange a été sélectionnée. En attente de validation des chefs.',
         data: {
           'requestId': request.id,
           'proposalId': proposal.id,
-          'initiatorName': request.initiatorName,
+          'initiatorId': request.initiatorId,
         },
         actionUrl: '/shift-exchange',
       );
 
-      // Envoyer notification push via FCM
+      // Envoyer notification push via FCM — body généré par CF via décryptage
       await _sendPushNotification(
         targetUserIds: [proposal.proposerId],
         type: 'shift_exchange_proposer_selected',
         title: '🎯 Votre proposition sélectionnée',
-        body: '${request.initiatorName} a sélectionné votre proposition',
+        body: 'Votre proposition d\'échange a été sélectionnée',
         data: {
           'requestId': request.id,
           'proposalId': proposal.id,
-          'initiatorName': request.initiatorName,
+          'initiatorId': request.initiatorId,
         },
         stationId: stationId,
       );

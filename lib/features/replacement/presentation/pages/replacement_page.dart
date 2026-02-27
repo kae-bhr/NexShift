@@ -82,7 +82,7 @@ class _ReplacementPageState extends State<ReplacementPage> {
 
   String _getNotificationTriggersPath(String stationId) {
     return EnvironmentConfig.getCollectionPath(
-        'replacements/automatic/notificationTriggers', stationId);
+        'notificationTriggers', stationId);
   }
 
   String _getManualReplacementProposalsPath(String stationId) {
@@ -621,14 +621,12 @@ class _ReplacementPageState extends State<ReplacementPage> {
           .collection(proposalsPath)
           .doc();
 
+      // Aucun champ *Name : les noms sont résolus via décryptage CF
       final proposalData = {
         'id': proposalRef.id,
         'proposerId': proposerUser.id,
-        'proposerName': '${proposerUser.firstName} ${proposerUser.lastName}',
         'replacedId': dataReplacedId,
-        'replacedName': '${replacedUser.firstName} ${replacedUser.lastName}',
         'replacerId': replacerId,
-        'replacerName': '${replacerUser.firstName} ${replacerUser.lastName}',
         'planningId': widget.planning.id,
         'startTime': Timestamp.fromDate(startDateTime!),
         'endTime': Timestamp.fromDate(endDateTime!),
@@ -645,18 +643,18 @@ class _ReplacementPageState extends State<ReplacementPage> {
       final notificationTriggersPath = _getNotificationTriggersPath(
         widget.planning.station,
       );
+      // proposerName/replacedName résolus par CF via décryptage
       await FirebaseFirestore.instance.collection(notificationTriggersPath).add(
         {
           'type': 'manual_replacement_proposal',
           'proposalId': proposalRef.id,
           'proposerId': proposerUser.id,
-          'proposerName': '${proposerUser.firstName} ${proposerUser.lastName}',
           'replacedId': dataReplacedId,
-          'replacedName': '${replacedUser.firstName} ${replacedUser.lastName}',
           'replacerId': replacerId,
           'planningId': widget.planning.id,
           'startTime': Timestamp.fromDate(startDateTime!),
           'endTime': Timestamp.fromDate(endDateTime!),
+          'team': widget.planning.team,
           'targetUserIds': [replacerId],
           'createdAt': FieldValue.serverTimestamp(),
           'processed': false,

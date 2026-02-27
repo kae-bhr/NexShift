@@ -578,14 +578,21 @@ class _ReplacementRequestsListPageState
   // ============================================================
 
   Widget _buildAgentQueriesContent() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final agentQuerySelectedColor =
+        isDark ? Colors.white : KColors.appNameColor;
+    final agentQueryUnselectedColor = isDark
+        ? Colors.white70
+        : KColors.appNameColor.withValues(alpha: 0.6);
+
     if (_currentUserId == null || _currentStationId == null) {
       return Column(
         children: [
           AgentQueryIconTabBar(
             controller: _agentQuerySubTabController!,
             tabs: agentQuerySubTabs,
-            selectedColor: KColors.appNameColor,
-            unselectedColor: KColors.appNameColor.withValues(alpha: 0.6),
+            selectedColor: agentQuerySelectedColor,
+            unselectedColor: agentQueryUnselectedColor,
           ),
           Expanded(child: Container()),
         ],
@@ -605,8 +612,8 @@ class _ReplacementRequestsListPageState
                 AgentQueryIconTabBar(
                   controller: _agentQuerySubTabController!,
                   tabs: agentQuerySubTabs,
-                  selectedColor: KColors.appNameColor,
-                  unselectedColor: KColors.appNameColor.withValues(alpha: 0.6),
+                  selectedColor: agentQuerySelectedColor,
+                  unselectedColor: agentQueryUnselectedColor,
                   badgeCounts: {
                     AgentQuerySubTab.pending: pendingCount,
                     AgentQuerySubTab.myRequests: myRequestsCount,
@@ -3222,28 +3229,20 @@ class _ReplacementRequestsListPageState
   ) async {
     if (userIds.isEmpty) return;
 
-    // Récupérer le nom du demandeur
-    final requester = await _userRepository.getById(
-      request.requesterId,
-      stationId: request.station,
-    );
-    final requesterName = requester != null
-        ? requester.displayName
-        : 'Un agent';
-
     // Créer un trigger de notification pour la relance
     final notificationTriggersPath = EnvironmentConfig.getCollectionPath(
       'notificationTriggers',
       request.station,
     );
 
+    // requesterName résolu par CF via décryptage
     await _notificationService.firestore
         .collection(notificationTriggersPath)
         .add({
           'type': 'replacement_reminder',
           'requestId': request.id,
+          'requesterId': request.requesterId,
           'targetUserIds': userIds,
-          'requesterName': requesterName,
           'startTime': Timestamp.fromDate(request.startTime),
           'endTime': Timestamp.fromDate(request.endTime),
           'createdAt': FieldValue.serverTimestamp(),
@@ -3287,6 +3286,7 @@ class _AgentQueryAcceptDialogState extends State<_AgentQueryAcceptDialog> {
   @override
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Column(
@@ -3333,9 +3333,15 @@ class _AgentQueryAcceptDialogState extends State<_AgentQueryAcceptDialog> {
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Colors.blue.shade50,
+                        color: isDark
+                            ? Colors.blue.shade900
+                            : Colors.blue.shade50,
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.blue.shade200),
+                        border: Border.all(
+                          color: isDark
+                              ? Colors.blue.shade700
+                              : Colors.blue.shade200,
+                        ),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,

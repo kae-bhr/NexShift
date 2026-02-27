@@ -171,20 +171,18 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
       final levels = KSkills.skillLevels[category];
       if (levels == null) continue;
 
-      // Pour SUAP/PPBE/INC, apprenant et équipier/chef sont mutuellement exclusifs
-      // donc pas de vérification de prérequis
-      if (['SUAP', 'PPBE', 'INC'].contains(category)) {
-        continue;
-      }
+      // Les catégories avec logique apprenant/équipier/chef n'ont pas de prérequis hiérarchiques
+      if (['SUAP', 'PPBE', 'INC'].contains(category)) continue;
 
-      // Vérifier si un niveau supérieur est sélectionné sans le niveau inférieur
-      // (uniquement pour VPS et COD)
+      // Les catégories standalone (COD) n'ont pas de prérequis non plus
+      if (KSkills.standaloneCategories.contains(category)) continue;
+
+      // Pour VPS : vérifier qu'un niveau supérieur n'est pas sélectionné sans les niveaux inférieurs
       for (int i = levels.length - 1; i > 0; i--) {
         final higherSkill = levels[i];
         if (higherSkill.isEmpty) continue;
 
         if (_selectedSkills.contains(higherSkill)) {
-          // Vérifier tous les niveaux inférieurs
           for (int j = i - 1; j >= 0; j--) {
             final lowerSkill = levels[j];
             if (lowerSkill.isEmpty) continue;
@@ -428,17 +426,20 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
         _selectedSkills.remove(skill);
         // Si on désélectionne une compétence, retirer aussi des keySkills
         _selectedKeySkills.remove(skill);
-        // Auto-désélectionner les niveaux supérieurs
-        _deselectHigherLevels(category, skill);
+        // Pour les catégories standalone, pas d'auto-désélection des niveaux supérieurs
+        if (!KSkills.standaloneCategories.contains(category)) {
+          _deselectHigherLevels(category, skill);
+        }
       } else {
         _selectedSkills.add(skill);
-        // Logique spéciale pour SUAP/PPBE/INC
         if (['SUAP', 'PPBE', 'INC'].contains(category)) {
+          // Logique mutuellement exclusive apprenant / équipier / chef
           _handleApprenticeEquipierLogic(category, skill);
-        } else {
-          // Pour VPS et COD, garder l'ancienne logique (auto-sélection)
+        } else if (!KSkills.standaloneCategories.contains(category)) {
+          // Pour VPS : auto-sélection des niveaux inférieurs
           _selectLowerLevels(category, skill);
         }
+        // Pour les catégories standalone (COD) : aucun auto-check
       }
     });
   }

@@ -602,7 +602,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     final pushNotificationService = PushNotificationService();
                     await pushNotificationService.clearDeviceToken(
                       user.id,
-                      stationId: user.station,
+                      authUid: user.authUid,
                     );
                   }
 

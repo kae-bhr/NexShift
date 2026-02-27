@@ -23,6 +23,7 @@ import 'package:nexshift_app/core/services/subscription_service.dart';
 import 'package:nexshift_app/features/app_shell/presentation/widgets/widget_tree.dart';
 import 'package:nexshift_app/features/auth/presentation/pages/welcome_page.dart';
 import 'package:nexshift_app/features/auth/presentation/pages/profile_completion_page.dart';
+import 'package:nexshift_app/features/auth/presentation/widgets/enter_app_widget.dart';
 import 'package:nexshift_app/features/replacement/presentation/pages/replacement_request_dialog.dart';
 import 'package:nexshift_app/features/replacement/presentation/pages/replacement_requests_list_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -91,8 +92,9 @@ void main() async {
     final pushNotificationService = PushNotificationService();
     await pushNotificationService.initialize();
 
-    // Set up notification tap handler
-    pushNotificationService.onNotificationTap = (data) {
+    // Set up notification tap handler via le setter qui gère le replay du
+    // message initial si l'app a été lancée depuis une notification fermée.
+    pushNotificationService.onNotificationTapCallback = (data) {
       debugPrint('📱 Notification tapped with data: $data');
       LogService().log('Notification tapped: $data', level: LogLevel.info);
       _handleNotificationTap(data);
@@ -126,20 +128,34 @@ void main() async {
 }
 
 /// Handle notification tap and navigate to appropriate page
-void _handleNotificationTap(Map<String, dynamic> data) {
+void _handleNotificationTap(Map<String, dynamic> data) async {
   debugPrint('🔔 Handling notification tap: $data');
 
-  final type = data['type'];
-  final context = navigatorKey.currentContext;
-
-  if (context == null) {
-    debugPrint('⚠️ No navigation context available');
-    return;
+  // Si l'app était fermée, la session n'est pas encore restaurée au moment où
+  // cette fonction est appelée (getInitialMessage / replay). On attend max 3s.
+  if (userNotifier.value == null) {
+    debugPrint('🔔 Waiting for session to be restored before navigating...');
+    int tries = 0;
+    while (userNotifier.value == null && tries < 30) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      tries++;
+    }
+    debugPrint('🔔 Session wait done (tries=$tries), user=${userNotifier.value?.id}');
   }
 
   final currentUserId = userNotifier.value?.id;
   if (currentUserId == null) {
-    debugPrint('⚠️ No current user');
+    debugPrint('⚠️ No current user after wait');
+    return;
+  }
+
+  final type = data['type'];
+
+  // On utilise navigatorKey pour récupérer le contexte au dernier moment,
+  // après tous les awaits, pour éviter les warnings BuildContext async gaps.
+  final navigator = navigatorKey.currentState;
+  if (navigator == null) {
+    debugPrint('⚠️ No navigator available');
     return;
   }
 
@@ -159,8 +175,9 @@ void _handleNotificationTap(Map<String, dynamic> data) {
         return;
       }
 
+      // ignore: use_build_context_synchronously
       showReplacementRequestDialog(
-        context,
+        navigator.context,
         requestId: requestId,
         currentUserId: currentUserId,
         stationId: stationId,
@@ -173,7 +190,7 @@ void _handleNotificationTap(Map<String, dynamic> data) {
     case 'replacement_completed':
     case 'replacement_completed_chief':
       // Notifications de confirmation : ouvrir la liste des remplacements
-      Navigator.of(context).push(
+      navigator.push(
         MaterialPageRoute(
           builder: (context) => const ReplacementRequestsListPage(),
         ),
@@ -193,9 +210,8 @@ class NexShift extends StatefulWidget {
   State<NexShift> createState() => _NexShiftState();
 }
 
-class _NexShiftState extends State<NexShift> {
+class _NexShiftState extends State<NexShift> with WidgetsBindingObserver {
   final _authService = FirebaseAuthService();
-  final _pushNotificationService = PushNotificationService();
   final _connectivityService = ConnectivityService();
   final _maintenanceService = MaintenanceService();
 
@@ -204,10 +220,28 @@ class _NexShiftState extends State<NexShift> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     initThemeMode();
     _checkAuthState();
     _startConnectivityMonitoring();
     _maintenanceService.startListening();
+  }
+
+  /// Détecte le retour au foreground pour rejouer les notifications en attente.
+  /// Cas : app en background, tap notification → onMessageOpenedApp peut être
+  /// manqué sur certains appareils Android. On vérifie ici si une notification
+  /// est en attente dans le service.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      debugPrint('📱 [LIFECYCLE] App resumed — checking pending notification');
+      PushNotificationService().clearBadge();
+      final pending = PushNotificationService().consumePendingMessage();
+      if (pending != null) {
+        debugPrint('📱 [LIFECYCLE] Replaying pending notification: ${pending.messageId}');
+        _handleNotificationTap(pending.data);
+      }
+    }
   }
 
   /// Démarre la surveillance de la connectivité
@@ -228,6 +262,7 @@ class _NexShiftState extends State<NexShift> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _connectivityService.stopMonitoring();
     _maintenanceService.stopListening();
     super.dispose();
@@ -241,91 +276,38 @@ class _NexShiftState extends State<NexShift> {
 
   /// Vérifie l'état d'authentification Firebase au démarrage
   void _checkAuthState() async {
-    debugPrint('🟡 [AUTH_LISTENER] Setting up authStateChanges listener');
-    // Écouter les changements d'état d'authentification
+    debugPrint('🟡 [AUTH_LISTENER] Setting up auth state check');
+
+    // Tentative de restauration immédiate au cold start :
+    // Firebase Auth persiste la session automatiquement, mais les notifiers
+    // applicatifs (isUserAuthentifiedNotifier, userNotifier) sont réinitialisés
+    // à chaque démarrage. On les restaure depuis le cache local si un utilisateur
+    // Firebase est déjà authentifié.
+    final firebaseUser = _authService.currentFirebaseUser;
+    if (firebaseUser != null) {
+      debugPrint('🟡 [AUTH_LISTENER] Firebase user found at startup, restoring session...');
+      final restored = await EnterApp.restore();
+      debugPrint('🟡 [AUTH_LISTENER] Session restored: $restored');
+    } else {
+      debugPrint('🟡 [AUTH_LISTENER] No Firebase user at startup');
+    }
+    // La vérification est terminée — masquer l'indicateur de chargement sur WelcomePage
+    isRestoringSessionNotifier.value = false;
+
+    // Écoute pour les changements futurs (login/logout en cours de session)
+    // NE PAS appeler restore() ici : c'est déjà fait ci-dessus au cold start,
+    // et EnterApp.build() gère la navigation après un login explicite.
     _authService.authStateChanges.listen((firebaseUser) async {
       debugPrint('🟡 [AUTH_LISTENER] ========== AUTH STATE CHANGED ==========');
       if (firebaseUser != null) {
-        debugPrint(
-          '🟡 [AUTH_LISTENER] User authenticated: ${firebaseUser.email}',
-        );
-        debugPrint(
-          '🟡 [AUTH_LISTENER] Current isUserAuthentifiedNotifier: ${isUserAuthentifiedNotifier.value}',
-        );
-        debugPrint(
-          '🟡 [AUTH_LISTENER] Current userNotifier: ${userNotifier.value != null ? '${userNotifier.value!.firstName} ${userNotifier.value!.lastName} (${userNotifier.value!.id})' : 'NULL'}',
-        );
-
-        // IMPORTANT: Ne pas mettre à jour isUserAuthentifiedNotifier ici
-        // pour éviter une navigation automatique pendant le processus de login
-        // multi-stations. EnterApp.build() gérera la navigation après
-        // la sélection de station.
-
-        // Extraire userId et stationId de l'email Firebase
-        // Format: sdisId_matricule@nexshift.app ou sdisId_matricule_station@nexshift.app
-        final email = firebaseUser.email;
-        if (email != null && email.endsWith('@nexshift.app')) {
-          final parts = email.split('@')[0].split('_');
-          if (parts.length >= 2) {
-            final sdisId = parts[0];
-            final matricule = parts[1];
-            final stationId = parts.length > 2 ? parts[2] : null;
-
-            debugPrint(
-              '🟡 [AUTH_LISTENER] Extracted from email: sdisId=$sdisId, matricule=$matricule, station=$stationId',
-            );
-
-            // Attendre que userNotifier soit mis à jour avec le bon utilisateur
-            // pour obtenir le stationId si nécessaire
-            debugPrint(
-              '🟡 [AUTH_LISTENER] Waiting 500ms for userNotifier update...',
-            );
-            await Future.delayed(Duration(milliseconds: 500));
-            final currentUser = userNotifier.value;
-            debugPrint(
-              '🟡 [AUTH_LISTENER] After wait, userNotifier: ${currentUser != null ? '${currentUser.firstName} ${currentUser.lastName} (${currentUser.id})' : 'NULL'}',
-            );
-
-            if (currentUser != null && currentUser.id == matricule) {
-              try {
-                debugPrint(
-                  '🟡 [AUTH_LISTENER] User match! Saving FCM token...',
-                );
-                DebugLogger().log(
-                  '📱 Attempting to save FCM token for user: ${currentUser.id} at station ${currentUser.station}',
-                );
-                await _pushNotificationService.saveUserToken(
-                  currentUser.id,
-                  stationId: currentUser.station,
-                );
-                debugPrint(
-                  '✅ [AUTH_LISTENER] FCM token saved for user: ${currentUser.id}',
-                );
-              } catch (e) {
-                debugPrint('❌ [AUTH_LISTENER] Error saving FCM token: $e');
-                DebugLogger().logError('Failed to save FCM token: $e');
-              }
-            } else {
-              debugPrint(
-                '⚠️ [AUTH_LISTENER] userNotifier not yet updated or mismatch - skipping FCM token save',
-              );
-              debugPrint(
-                '   Expected userId: $matricule, Got: ${currentUser?.id}',
-              );
-            }
-          }
-        }
+        debugPrint('🟡 [AUTH_LISTENER] User authenticated: ${firebaseUser.email}');
+        // Rien à faire ici : soit restore() a déjà été appelé au démarrage,
+        // soit EnterApp.build() a été appelé après le login explicite.
+        // Le listener sert uniquement de trace pour le debugging.
       } else {
         debugPrint('🟡 [AUTH_LISTENER] User NOT authenticated (null)');
-        debugPrint(
-          '🟡 [AUTH_LISTENER] Current isUserAuthentifiedNotifier: ${isUserAuthentifiedNotifier.value}',
-        );
-        debugPrint(
-          '🟡 [AUTH_LISTENER] Current userNotifier: ${userNotifier.value != null ? '${userNotifier.value!.firstName} ${userNotifier.value!.lastName}' : 'NULL'}',
-        );
-        // NOTE: Ne pas nettoyer les notifiers ici car cela provoque un rebuild
-        // intermédiaire du MaterialApp vers WelcomePage pendant un changement d'utilisateur.
-        // La déconnexion explicite est gérée dans settings_page.dart.
+        // NOTE: Ne pas nettoyer les notifiers ici — la déconnexion explicite
+        // est gérée dans settings_page.dart pour éviter un rebuild intermédiaire.
       }
       debugPrint('🟡 [AUTH_LISTENER] ========================================');
     });
@@ -365,7 +347,10 @@ class _NexShiftState extends State<NexShift> {
                   if (user.firstName.isEmpty || user.lastName.isEmpty) {
                     homePage = ProfileCompletionPage(user: user);
                   } else {
-                    homePage = const WidgetTree();
+                    // La Key basée sur l'userId force une reconstruction complète
+                    // de WidgetTree (et de ses pages) quand l'utilisateur change,
+                    // notamment lors de la restauration de session au démarrage.
+                    homePage = WidgetTree(key: ValueKey(user.id));
                   }
                 } else {
                   homePage = const WelcomePage();

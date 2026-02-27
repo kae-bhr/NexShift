@@ -118,12 +118,12 @@ class ShiftExchangeProposal {
   });
 
   /// Conversion vers JSON pour Firestore
+  /// Le champ proposerName n'est pas persisté — résolu via déchiffrement CF.
   Map<String, dynamic> toJson() {
     return {
       'id': id,
       'requestId': requestId,
       'proposerId': proposerId,
-      'proposerName': proposerName,
       'proposedPlanningIds': proposedPlanningIds,
       if (selectedPlanningId != null) 'selectedPlanningId': selectedPlanningId,
       'rejectedPlanningIds': rejectedPlanningIds,
@@ -187,7 +187,7 @@ class ShiftExchangeProposal {
       id: json['id'] as String,
       requestId: json['requestId'] as String,
       proposerId: json['proposerId'] as String,
-      proposerName: json['proposerName'] as String,
+      proposerName: json['proposerName'] as String? ?? '',
       proposedPlanningIds: planningIds,
       selectedPlanningId: json['selectedPlanningId'] as String?,
       rejectedPlanningIds: (json['rejectedPlanningIds'] as List<dynamic>?)?.map((e) => e as String).toList() ?? [],

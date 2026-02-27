@@ -34,7 +34,7 @@ class AgentQueryService {
   // ============================================================================
 
   String _getNotificationTriggersPath(String stationId) {
-    return EnvironmentConfig.getCollectionPath('replacements/automatic/notificationTriggers', stationId);
+    return EnvironmentConfig.getCollectionPath('notificationTriggers', stationId);
   }
 
   // ============================================================================
@@ -176,7 +176,6 @@ class AgentQueryService {
         transaction.update(docRef, {
           'status': 'matched',
           'matchedAgentId': respondingAgent.id,
-          'matchedAgentName': respondingAgent.displayName,
           'completedAt': Timestamp.fromDate(now),
           'startTime': Timestamp.fromDate(acceptedStart),
           'endTime': Timestamp.fromDate(acceptedEnd),
@@ -392,7 +391,6 @@ class AgentQueryService {
         transaction.update(docRef, {
           'status': 'matched',
           'matchedAgentId': respondingAgent.id,
-          'matchedAgentName': respondingAgent.displayName,
           'completedAt': Timestamp.fromDate(now),
         });
 
@@ -474,10 +472,26 @@ class AgentQueryService {
   Future<void> _triggerNotifications({
     required AgentQuery query,
     required List<String> targetUserIds,
+    String? team,
   }) async {
     try {
       final triggersPath = _getNotificationTriggersPath(query.station);
       final triggerId = 'aqn_${query.id}_${DateTime.now().millisecondsSinceEpoch}';
+
+      // Résoudre l'équipe depuis le planning si non fournie
+      String resolvedTeam = team ?? '';
+      if (resolvedTeam.isEmpty && query.planningId.isNotEmpty) {
+        try {
+          final planningPath = EnvironmentConfig.getCollectionPath('plannings', query.station);
+          final planningDoc = await FirebaseFirestore.instance
+              .collection(planningPath)
+              .doc(query.planningId)
+              .get();
+          if (planningDoc.exists) {
+            resolvedTeam = planningDoc.data()?['team'] as String? ?? '';
+          }
+        } catch (_) {}
+      }
 
       await FirebaseFirestore.instance
           .collection(triggersPath)
@@ -486,13 +500,12 @@ class AgentQueryService {
         'type': 'agent_query_request',
         'queryId': query.id,
         'createdById': query.createdById,
-        'createdByName': query.createdByName,
         'planningId': query.planningId,
         'startTime': Timestamp.fromDate(query.startTime),
         'endTime': Timestamp.fromDate(query.endTime),
         'station': query.station,
+        'team': resolvedTeam,
         'onCallLevelId': query.onCallLevelId,
-        'onCallLevelName': query.onCallLevelName,
         'requiredSkills': query.requiredSkills,
         'targetUserIds': targetUserIds,
         'createdAt': FieldValue.serverTimestamp(),

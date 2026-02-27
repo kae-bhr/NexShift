@@ -1,6 +1,8 @@
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:flutter/material.dart';
 import 'package:nexshift_app/core/services/cloud_functions_service.dart';
 import 'package:nexshift_app/core/services/firebase_auth_service.dart';
+import 'package:nexshift_app/core/services/push_notification_service.dart';
 import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/features/auth/presentation/pages/station_search_page.dart';
 
@@ -77,6 +79,21 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
 
       // Définir le contexte SDIS
       SDISContext().setCurrentSDISId(widget.sdisId);
+
+      // Sauvegarder le token FCM au niveau SDIS dès maintenant,
+      // avant même que l'utilisateur ait rejoint une caserne.
+      // Cela permet de recevoir les notifications membership_accepted/rejected.
+      final authUid = firebase_auth.FirebaseAuth.instance.currentUser?.uid;
+      if (authUid != null) {
+        try {
+          await PushNotificationService().saveUserToken(
+            _matriculeController.text.trim(),
+            authUid: authUid,
+          );
+        } catch (_) {
+          // Non bloquant
+        }
+      }
 
       // Afficher message de succès et rediriger
       if (result.stationsJoined.isNotEmpty) {
