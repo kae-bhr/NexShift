@@ -95,10 +95,12 @@ class LogService {
 
   /// Gestionnaire personnalisé pour capturer tous les debugPrint
   void _customDebugPrint(String? message, {int? wrapWidth}) {
-    // Appeler le debugPrint original pour l'affichage console
-    _originalDebugPrint?.call(message, wrapWidth: wrapWidth);
+    // Console uniquement en mode DEBUG pour ne pas impacter les perfs en prod
+    if (kDebugMode) {
+      _originalDebugPrint?.call(message, wrapWidth: wrapWidth);
+    }
 
-    // Capturer dans les logs (sans await car debugPrint est synchrone)
+    // Capturer dans le fichier (toujours, pour diagnostic post-crash en prod)
     if (message != null && message.isNotEmpty) {
       _logToFile(message);
     }

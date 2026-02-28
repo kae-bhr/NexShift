@@ -35,6 +35,8 @@ class _PlanningPageState extends State<PlanningPage> {
   User? _currentUser;
   Map<String, Color> _teamColorById = {};
   Color? _userTeamColor;
+  bool _isLoading = false;
+  String? _lastLoadedUserId;
 
   // Variables pour l'infobulle de long press
   OverlayEntry? _tooltipOverlay;
@@ -54,7 +56,10 @@ class _PlanningPageState extends State<PlanningPage> {
   }
 
   void _onUserChanged() {
-    // Recharger si l'utilisateur change (ex: changement de caserne)
+    // Recharger uniquement si l'utilisateur a réellement changé
+    final u = userNotifier.value;
+    if (u == null) return;
+    if (_lastLoadedUserId == u.id) return;
     _loadUserAndPlanning();
   }
 
@@ -396,7 +401,11 @@ class _PlanningPageState extends State<PlanningPage> {
   }
 
   Future<void> _loadUserAndPlanning() async {
-    final user = await UserStorageHelper.loadUser();
+    if (_isLoading) return;
+    _isLoading = true;
+
+    // Lire depuis le notifier en priorité pour éviter de le re-déclencher
+    final user = userNotifier.value ?? await UserStorageHelper.loadUser();
     if (user != null) {
       // S'assurer que le SDIS Context est initialisé (filet de sécurité)
       await SDISContext().ensureInitialized();
@@ -480,14 +489,22 @@ class _PlanningPageState extends State<PlanningPage> {
       }
 
       debugPrint('📅 [PLANNING_PAGE] setState() - plannings: ${plannings.length}, subshifts: ${subshifts.length}, availabilities: ${availabilities.length}');
+      if (!mounted) {
+        _isLoading = false;
+        return;
+      }
       setState(() {
         _plannings = plannings;
         _subshifts = subshifts;
         _availabilities = availabilities;
         _currentUser = user;
         _userTeamColor = userTeamColor;
+        _isLoading = false;
+        _lastLoadedUserId = user.id;
       });
       debugPrint('📅 [PLANNING_PAGE] setState() completed - _subshifts in state: ${_subshifts.length}');
+    } else {
+      _isLoading = false;
     }
   }
 

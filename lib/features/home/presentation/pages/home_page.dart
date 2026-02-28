@@ -113,12 +113,16 @@ class _HomePageState extends State<HomePage> {
     debugPrint(
       '🏠 [HOME_PAGE] _onUserChanged() - user=${u != null ? '${u.firstName} ${u.lastName} (${u.id})' : 'NULL'}',
     );
-    // Only reload if the user actually changed
+    // Only reload if the user actually changed and no load is in progress
     if (u == null) {
       debugPrint('🏠 [HOME_PAGE] _onUserChanged() - user is null, returning');
       return;
     }
-    if (_lastUserId == u.id && !_isLoading) {
+    if (_isLoading) {
+      debugPrint('🏠 [HOME_PAGE] _onUserChanged() - already loading, skipping');
+      return;
+    }
+    if (_lastUserId == u.id) {
       debugPrint('🏠 [HOME_PAGE] _onUserChanged() - same user, not loading');
       return;
     }
