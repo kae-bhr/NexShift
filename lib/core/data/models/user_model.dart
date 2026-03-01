@@ -17,7 +17,7 @@ class User {
   final bool admin;
   final String team;
   final List<String> skills;
-  final String? positionId; // ID du poste occupé par l'agent
+  final List<String> positionIds; // IDs des postes occupés par l'agent
   final List<String> keySkills; // Compétences-clés critiques
 
   // Disponibilité opérationnelle (suspension d'engagement / arrêt maladie)
@@ -42,7 +42,7 @@ class User {
     this.admin = false,
     required this.team,
     required this.skills,
-    this.positionId,
+    this.positionIds = const [],
     this.keySkills = const [], // Par défaut : liste vide
     this.agentAvailabilityStatus = AgentAvailabilityStatus.active,
     this.suspensionStartDate,
@@ -64,7 +64,7 @@ class User {
     bool? admin,
     String? team,
     List<String>? skills,
-    String? positionId,
+    List<String>? positionIds,
     List<String>? keySkills,
     String? agentAvailabilityStatus,
     DateTime? suspensionStartDate,
@@ -84,7 +84,7 @@ class User {
       admin: admin ?? this.admin,
       team: team ?? this.team,
       skills: skills ?? this.skills,
-      positionId: positionId ?? this.positionId,
+      positionIds: positionIds ?? this.positionIds,
       keySkills: keySkills ?? this.keySkills,
       agentAvailabilityStatus:
           agentAvailabilityStatus ?? this.agentAvailabilityStatus,
@@ -110,7 +110,7 @@ class User {
     'admin': admin,
     'team': team,
     'skills': skills,
-    if (positionId != null) 'positionId': positionId,
+    if (positionIds.isNotEmpty) 'positionIds': positionIds,
     'keySkills': keySkills,
     'agentAvailabilityStatus': agentAvailabilityStatus,
     if (suspensionStartDate != null)
@@ -131,7 +131,7 @@ class User {
     'admin': admin,
     'team': team,
     'skills': skills,
-    if (positionId != null) 'positionId': positionId,
+    if (positionIds.isNotEmpty) 'positionIds': positionIds,
     'keySkills': keySkills,
     'agentAvailabilityStatus': agentAvailabilityStatus,
     if (suspensionStartDate != null)
@@ -152,7 +152,9 @@ class User {
     admin: json['admin'] ?? false,
     team: json['team'] ?? '',
     skills: json['skills'] != null ? List<String>.from(json['skills']) : [],
-    positionId: json['positionId'] as String?,
+    positionIds: json['positionIds'] != null
+        ? List<String>.from(json['positionIds'])
+        : (json['positionId'] != null ? [json['positionId'] as String] : []),
     keySkills: json['keySkills'] != null
         ? List<String>.from(json['keySkills'])
         : [],

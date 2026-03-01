@@ -58,7 +58,7 @@ void showVehicleDetailDialog({
   );
 }
 
-class _VehicleDetailDialog extends StatefulWidget {
+class _VehicleDetailDialog extends StatelessWidget {
   final Truck truck;
   final CrewResult crewResult;
   final String? fptMode;
@@ -81,33 +81,43 @@ class _VehicleDetailDialog extends StatefulWidget {
     required this.title,
   });
 
-  @override
-  State<_VehicleDetailDialog> createState() => _VehicleDetailDialogState();
-}
-
-class _VehicleDetailDialogState extends State<_VehicleDetailDialog> {
-  final Map<int, bool> _expandedTimeRanges = {};
+  bool get _canSearch =>
+      currentUser != null &&
+      onReplacementSearch != null &&
+      (currentUser!.admin ||
+          (currentUser!.status == KConstants.statusChief &&
+              currentUser!.team == currentPlanning?.team) ||
+          (currentUser!.status == KConstants.statusLeader));
 
   @override
   Widget build(BuildContext context) {
+    final problematicRanges = (timeRanges ?? [])
+        .where(
+          (tr) =>
+              tr.status == VehicleStatus.orange ||
+              tr.status == VehicleStatus.red,
+        )
+        .toList();
+
     return AlertDialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 16),
-      title: ListTile(
-        contentPadding: EdgeInsets.zero,
-        leading: BackButton(onPressed: () => Navigator.pop(context)),
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(widget.icon, size: 24),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                widget.title,
-                style: const TextStyle(fontWeight: FontWeight.bold),
+      titlePadding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      contentPadding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      title: Row(
+        children: [
+          BackButton(onPressed: () => Navigator.pop(context)),
+          Icon(icon, size: 22),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              title,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 17,
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
       content: SizedBox(
         width: double.maxFinite,
@@ -116,629 +126,319 @@ class _VehicleDetailDialogState extends State<_VehicleDetailDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildStatusBadge(widget.crewResult),
-              if (widget.timeRanges != null &&
-                  widget.timeRanges!.isNotEmpty) ...[
-                // MODE HOMEPAGE: Affiche les plages horaires avec postes vacants
+              _buildStatusPill(crewResult),
+              if (problematicRanges.isNotEmpty) ...[
                 const SizedBox(height: 16),
-                const Text(
-                  "Plages horaires problématiques",
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                Text(
+                  'Plages horaires problématiques',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                    color: Colors.grey[700],
+                    letterSpacing: 0.3,
+                  ),
                 ),
-                const SizedBox(height: 12),
-                _buildTimeRangesSection(widget.timeRanges!),
+                const SizedBox(height: 10),
+                ...problematicRanges.map(
+                  (range) => _buildRangeSection(range),
+                ),
               ] else ...[
-                // MODE PLANNING TEAM DETAILS: Affiche tous les postes avec couleurs
                 const SizedBox(height: 16),
                 _buildAllPositionsList(),
               ],
-              const SizedBox(height: 16),
-              _buildApprenticeBlock(widget.truck, widget.crewResult),
+              _buildApprenticeBlock(truck, crewResult),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildStatusPill(CrewResult result) {
+    final color = _statusToColor(result.status);
+    final icon = result.status == VehicleStatus.green
+        ? Icons.check_circle_rounded
+        : result.status == VehicleStatus.orange
+        ? Icons.warning_rounded
+        : Icons.error_rounded;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 6),
+          Text(
+            result.statusLabel,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRangeSection(TimeRangeStatus range) {
+    final color = _statusToColor(range.status);
+    final formatter = DateFormat('dd/MM HH:mm');
+    final totalMissing =
+        range.unfilledCrewPositions.length + range.missingForFull.length;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header de la plage
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                Icon(
+                  range.status == VehicleStatus.orange
+                      ? Icons.warning_rounded
+                      : Icons.error_rounded,
+                  size: 18,
+                  color: color,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '${formatter.format(range.start)} → ${formatter.format(range.end)}',
+                    style: TextStyle(
+                      color: color,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    '$totalMissing poste${totalMissing > 1 ? 's' : ''}',
+                    style: TextStyle(
+                      color: color,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Postes vacants (rouge/critique)
+          if (range.unfilledCrewPositions.isNotEmpty) ...[
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+              child: Column(
+                children: range.unfilledCrewPositions
+                    .map(
+                      (p) => _buildPositionTile(
+                        position: p,
+                        status: range.status,
+                        isMissingForFull: false,
+                      ),
+                    )
+                    .toList(),
+              ),
+            ),
+          ],
+          // Postes manquants pour équipage complet (orange)
+          if (range.missingForFull.isNotEmpty) ...[
+            if (range.unfilledCrewPositions.isEmpty) const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (range.unfilledCrewPositions.isNotEmpty) ...[
+                    Text(
+                      'Pour équipage complet :',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: KColors.medium,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                  ],
+                  ...range.missingForFull.map(
+                    (p) => _buildPositionTile(
+                      position: p,
+                      status: VehicleStatus.orange,
+                      isMissingForFull: true,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
 
   Widget _buildAllPositionsList() {
-    // Affiche TOUS les postes avec leurs couleurs (vert/orange/rouge)
-    final allPositions = widget.crewResult.positions;
+    final allPositions = crewResult.positions;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          "Équipage :",
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+        Text(
+          'Équipage',
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            fontSize: 14,
+            color: Colors.grey[700],
+            letterSpacing: 0.3,
+          ),
         ),
-        const SizedBox(height: 12),
-        // All positions (filled and unfilled)
-        ...allPositions.map((assignment) {
-          return _buildPositionBlockWithColors(
-            widget.truck,
-            widget.crewResult,
-            assignment,
-            widget.currentUser,
-            widget.currentPlanning,
-            widget.onReplacementSearch,
-          );
-        }).toList(),
-        // Missing positions for full crew (only if status is orange)
-        if (widget.crewResult.status == VehicleStatus.orange &&
-            widget.crewResult.missingForFull.isNotEmpty) ...[
-          const SizedBox(height: 8),
+        const SizedBox(height: 10),
+        ...allPositions.map(
+          (assignment) => _buildPositionTile(
+            position: assignment.position,
+            status: crewResult.status,
+            isMissingForFull: false,
+            isFilled: assignment.isFilled,
+            isFallback: assignment.isFallback,
+          ),
+        ),
+        if (crewResult.status == VehicleStatus.orange &&
+            crewResult.missingForFull.isNotEmpty) ...[
+          const SizedBox(height: 4),
           Text(
-            "Postes supplémentaires pour équipage complet :",
+            'Pour équipage complet :',
             style: TextStyle(
+              fontSize: 12,
               fontWeight: FontWeight.w600,
-              fontSize: 14,
               color: KColors.medium,
             ),
           ),
-          const SizedBox(height: 8),
-          ...widget.crewResult.missingForFull.map((position) {
-            return _buildMissingForFullBlock(
-              widget.truck,
-              position,
-              widget.currentUser,
-              widget.currentPlanning,
-              widget.onReplacementSearch,
-            );
-          }).toList(),
+          const SizedBox(height: 6),
+          ...crewResult.missingForFull.map(
+            (p) => _buildPositionTile(
+              position: p,
+              status: VehicleStatus.orange,
+              isMissingForFull: true,
+            ),
+          ),
         ],
       ],
     );
   }
 
-  Widget _buildPositionBlockWithColors(
-    Truck truck,
-    CrewResult crewResult,
-    PositionAssignment assignment,
-    User? currentUser,
-    Planning? currentPlanning,
-    Function(Truck, CrewPosition)? onReplacementSearch,
-  ) {
-    final isFilled = assignment.isFilled;
-
-    // Determine color based on status and whether position is filled
-    Color borderColor;
-    Color bgColor;
+  Widget _buildPositionTile({
+    required CrewPosition position,
+    required VehicleStatus status,
+    bool isMissingForFull = false,
+    bool isFilled = false,
+    bool isFallback = false,
+  }) {
+    final Color color;
+    final IconData leadingIcon;
 
     if (isFilled) {
-      borderColor = KColors.strong.withOpacity(0.3);
-      bgColor = KColors.strong.withOpacity(0.05);
+      color = KColors.strong;
+      leadingIcon = Icons.check_circle_rounded;
+    } else if (isMissingForFull) {
+      color = KColors.medium;
+      leadingIcon = Icons.person_add_rounded;
     } else {
-      // Empty position: color depends on vehicle status
-      if (crewResult.status == VehicleStatus.orange) {
-        borderColor = KColors.medium.withOpacity(0.5);
-        bgColor = KColors.medium.withOpacity(0.1);
-      } else {
-        // red or grey
-        borderColor = KColors.weak.withOpacity(0.5);
-        bgColor = KColors.weak.withOpacity(0.1);
-      }
+      color = status == VehicleStatus.orange ? KColors.medium : KColors.weak;
+      leadingIcon = Icons.person_search_rounded;
     }
 
-    // Check if user can click (chief of astreinte team or leader any team)
-    final canClick =
-        !isFilled &&
-        currentUser != null &&
-        onReplacementSearch != null &&
-        (currentUser.admin ||
-            (currentUser.status == KConstants.statusChief &&
-                currentUser.team == currentPlanning?.team) ||
-            (currentUser.status == KConstants.statusLeader));
-
-    return GestureDetector(
-      onTap: canClick
-          ? () => onReplacementSearch(truck, assignment.position)
-          : null,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: bgColor,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: borderColor),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+    return Container(
+      height: 44,
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        children: [
+          Icon(leadingIcon, size: 18, color: color),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(
-                  isFilled ? Icons.check_circle : Icons.radio_button_unchecked,
-                  size: 20,
-                  color: isFilled
-                      ? KColors.strong
-                      : (crewResult.status == VehicleStatus.orange
-                            ? KColors.medium
-                            : KColors.weak),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    assignment.position.label,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
+                Text(
+                  position.label,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: isFilled ? Colors.grey[800] : color,
                   ),
                 ),
-                // Afficher l'icône d'avertissement si le poste est en fallback
-                if (isFilled && assignment.isFallback)
-                  Tooltip(
-                    message: 'Poste pourvu par un équipier',
-                    child: InkWell(
-                      onTap: () {
-                        showDialog(
-                          context: context,
-                          builder: (context) => AlertDialog(
-                            icon: Icon(
-                              Icons.info_outline,
-                              color: Colors.orange.shade700,
-                              size: 32,
-                            ),
-                            title: const Text(
-                              'Information',
-                              style: TextStyle(fontSize: 18),
-                            ),
-                            content: const Text(
-                              'Ce poste de chef d\'équipe est pourvu par un équipier par manque de chef d\'équipe disponible.',
-                              textAlign: TextAlign.center,
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(context),
-                                child: const Text('OK'),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                      borderRadius: BorderRadius.circular(20),
-                      child: Padding(
-                        padding: const EdgeInsets.all(4.0),
-                        child: Icon(
-                          Icons.warning_amber,
-                          size: 20,
-                          color: Colors.orange.shade700,
-                        ),
-                      ),
-                    ),
+                if (position.requiredSkills.isNotEmpty)
+                  Text(
+                    position.requiredSkills.join(', '),
+                    style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                    overflow: TextOverflow.ellipsis,
                   ),
-                if (canClick)
-                  Icon(Icons.search, size: 18, color: Colors.grey[600]),
               ],
             ),
-            const SizedBox(height: 4),
-            Text(
-              "Compétences : ${assignment.position.requiredSkills.join(', ')}",
-              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-            ),
-            if (!isFilled) ...[
-              const SizedBox(height: 8),
-              Text(
-                "Poste vacant",
-                style: TextStyle(
-                  fontStyle: FontStyle.italic,
-                  fontSize: 12,
-                  color: Colors.grey[600],
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTimeRangesSection(List<TimeRangeStatus> timeRanges) {
-    debugPrint(
-      '_buildTimeRangesSection called with ${timeRanges.length} time ranges',
-    );
-    for (var i = 0; i < timeRanges.length; i++) {
-      final tr = timeRanges[i];
-      debugPrint(
-        '  Range $i: ${tr.start.hour}:${tr.start.minute.toString().padLeft(2, "0")} - ${tr.end.hour}:${tr.end.minute.toString().padLeft(2, "0")} (${tr.status})',
-      );
-    }
-
-    // Filter only orange and red ranges
-    final problematicRanges = timeRanges
-        .where(
-          (tr) =>
-              tr.status == VehicleStatus.orange ||
-              tr.status == VehicleStatus.red,
-        )
-        .toList();
-
-    debugPrint('Problematic ranges after filter: ${problematicRanges.length}');
-
-    if (problematicRanges.isEmpty) return const SizedBox.shrink();
-
-    return Column(
-      children: problematicRanges.asMap().entries.map((entry) {
-        final index = entry.key;
-        final range = entry.value;
-        final isExpanded = _expandedTimeRanges[index] ?? false;
-        final formatter = DateFormat('dd/MM HH:mm');
-        final startStr = formatter.format(range.start);
-        final endStr = formatter.format(range.end);
-        final color = _statusToColor(range.status);
-
-        debugPrint(
-          'Range $index has ${range.unfilledPositions.length} unfilled: ${range.unfilledPositions.join(", ")}',
-        );
-
-        return Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: color.withOpacity(0.5)),
           ),
-          child: Column(
-            children: [
-              InkWell(
-                onTap: () {
-                  setState(() {
-                    _expandedTimeRanges[index] = !isExpanded;
-                  });
-                },
-                borderRadius: BorderRadius.circular(8),
+          if (isFallback)
+            Tooltip(
+              message: 'Poste pourvu par un équipier',
+              child: InkWell(
+                onTap: () {},
+                borderRadius: BorderRadius.circular(20),
                 child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Row(
-                    children: [
-                      Icon(
-                        range.status == VehicleStatus.orange
-                            ? Icons.warning
-                            : Icons.error,
-                        size: 20,
-                        color: color,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          '$startStr - $endStr',
-                          style: TextStyle(
-                            color: color,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 15,
-                          ),
-                        ),
-                      ),
-                      Icon(
-                        isExpanded
-                            ? Icons.keyboard_arrow_up
-                            : Icons.keyboard_arrow_down,
-                        color: color,
-                      ),
-                    ],
+                  padding: const EdgeInsets.all(4),
+                  child: Icon(
+                    Icons.warning_amber_rounded,
+                    size: 16,
+                    color: Colors.orange.shade700,
                   ),
                 ),
               ),
-              if (isExpanded) ...[
-                const Divider(height: 1),
-                Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (range.unfilledCrewPositions.isEmpty &&
-                          range.missingForFull.isEmpty)
-                        const Text(
-                          "Aucun poste vacant",
-                          style: TextStyle(
-                            fontStyle: FontStyle.italic,
-                            color: Colors.grey,
-                          ),
-                        )
-                      else ...[
-                        // Unfilled positions (for red vehicles)
-                        if (range.unfilledCrewPositions.isNotEmpty) ...[
-                          ...range.unfilledCrewPositions.map((position) {
-                            return _buildPositionBlockFromCrewPosition(
-                              widget.truck,
-                              range.status,
-                              position,
-                              widget.currentUser,
-                              widget.currentPlanning,
-                              widget.onReplacementSearch,
-                            );
-                          }).toList(),
-                        ],
-                        // Missing positions for full crew (for orange vehicles)
-                        if (range.missingForFull.isNotEmpty) ...[
-                          if (range.unfilledCrewPositions.isNotEmpty)
-                            const SizedBox(height: 8),
-                          if (range.unfilledCrewPositions.isNotEmpty)
-                            Text(
-                              "Postes supplémentaires pour équipage complet :",
-                              style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 14,
-                                color: KColors.medium,
-                              ),
-                            ),
-                          if (range.unfilledCrewPositions.isNotEmpty)
-                            const SizedBox(height: 8),
-                          ...range.missingForFull.map((position) {
-                            return _buildMissingForFullBlockFromCrewPosition(
-                              widget.truck,
-                              position,
-                              widget.currentUser,
-                              widget.currentPlanning,
-                              widget.onReplacementSearch,
-                            );
-                          }).toList(),
-                        ],
-                      ],
-                    ],
-                  ),
-                ),
-              ],
-            ],
-          ),
-        );
-      }).toList(),
-    );
-  }
-
-  Widget _buildPositionBlock(
-    Truck truck,
-    CrewResult crewResult,
-    PositionAssignment assignment,
-    User? currentUser,
-    Planning? currentPlanning,
-    Function(Truck, CrewPosition)? onReplacementSearch,
-  ) {
-    // Determine color based on status
-    Color borderColor;
-    Color bgColor;
-
-    if (crewResult.status == VehicleStatus.orange) {
-      borderColor = KColors.medium.withOpacity(0.3);
-      bgColor = KColors.medium.withOpacity(0.05);
-    } else {
-      borderColor = KColors.weak.withOpacity(0.3);
-      bgColor = KColors.weak.withOpacity(0.05);
-    }
-
-    // Check if user can click
-    final canClick =
-        currentUser != null &&
-        onReplacementSearch != null &&
-        ((currentUser.status == KConstants.statusChief &&
-                currentUser.team == currentPlanning?.team) ||
-            (currentUser.status == KConstants.statusLeader));
-
-    return GestureDetector(
-      onTap: canClick
-          ? () => onReplacementSearch(truck, assignment.position)
-          : null,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: bgColor,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: borderColor),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.radio_button_unchecked,
-                  size: 18,
-                  color: crewResult.status == VehicleStatus.orange
-                      ? KColors.medium
-                      : KColors.weak,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    assignment.position.label,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                ),
-                if (canClick)
-                  Icon(Icons.search, size: 16, color: Colors.grey[600]),
-              ],
             ),
-            const SizedBox(height: 4),
-            Text(
-              "Compétences : ${assignment.position.requiredSkills.join(', ')}",
-              style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+          if (!isFilled && _canSearch)
+            TextButton.icon(
+              onPressed: () => onReplacementSearch!(truck, position),
+              icon: const Icon(Icons.search_rounded, size: 15),
+              label: const Text('Chercher', style: TextStyle(fontSize: 12)),
+              style: TextButton.styleFrom(
+                foregroundColor: color,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
             ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPositionBlockFromCrewPosition(
-    Truck truck,
-    VehicleStatus rangeStatus,
-    CrewPosition position,
-    User? currentUser,
-    Planning? currentPlanning,
-    Function(Truck, CrewPosition)? onReplacementSearch,
-  ) {
-    // Determine color based on range status
-    Color borderColor;
-    Color bgColor;
-
-    if (rangeStatus == VehicleStatus.orange) {
-      borderColor = KColors.medium.withOpacity(0.3);
-      bgColor = KColors.medium.withOpacity(0.05);
-    } else {
-      borderColor = KColors.weak.withOpacity(0.3);
-      bgColor = KColors.weak.withOpacity(0.05);
-    }
-
-    // Check if user can click
-    final canClick =
-        currentUser != null &&
-        onReplacementSearch != null &&
-        (currentUser.admin ||
-            (currentUser.status == KConstants.statusChief &&
-                currentUser.team == currentPlanning?.team) ||
-            (currentUser.status == KConstants.statusLeader));
-
-    return GestureDetector(
-      onTap: canClick ? () => onReplacementSearch(truck, position) : null,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: bgColor,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: borderColor),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.radio_button_unchecked,
-                  size: 18,
-                  color: rangeStatus == VehicleStatus.orange
-                      ? KColors.medium
-                      : KColors.weak,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    position.label,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                ),
-                if (canClick)
-                  Icon(Icons.search, size: 16, color: Colors.grey[600]),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              "Compétences : ${position.requiredSkills.join(', ')}",
-              style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMissingForFullBlock(
-    Truck truck,
-    CrewPosition position,
-    User? currentUser,
-    Planning? currentPlanning,
-    Function(Truck, CrewPosition)? onReplacementSearch,
-  ) {
-    final canClick =
-        currentUser != null &&
-        onReplacementSearch != null &&
-        (currentUser.admin ||
-            (currentUser.status == KConstants.statusChief &&
-                currentUser.team == currentPlanning?.team) ||
-            (currentUser.status == KConstants.statusLeader));
-
-    return GestureDetector(
-      onTap: canClick ? () => onReplacementSearch(truck, position) : null,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: KColors.medium.withOpacity(0.05),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: KColors.medium.withOpacity(0.3)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.add_circle_outline, size: 18, color: KColors.medium),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    position.label,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                ),
-                if (canClick)
-                  Icon(Icons.search, size: 16, color: Colors.grey[600]),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              "Compétences : ${position.requiredSkills.join(', ')}",
-              style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMissingForFullBlockFromCrewPosition(
-    Truck truck,
-    CrewPosition position,
-    User? currentUser,
-    Planning? currentPlanning,
-    Function(Truck, CrewPosition)? onReplacementSearch,
-  ) {
-    final canClick =
-        currentUser != null &&
-        onReplacementSearch != null &&
-        (currentUser.admin ||
-            (currentUser.status == KConstants.statusChief &&
-                currentUser.team == currentPlanning?.team) ||
-            (currentUser.status == KConstants.statusLeader));
-
-    return GestureDetector(
-      onTap: canClick ? () => onReplacementSearch(truck, position) : null,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: KColors.medium.withOpacity(0.05),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: KColors.medium.withOpacity(0.3)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.add_circle_outline, size: 18, color: KColors.medium),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    position.label,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                ),
-                if (canClick)
-                  Icon(Icons.search, size: 16, color: Colors.grey[600]),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              "Compétences : ${position.requiredSkills.join(', ')}",
-              style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-            ),
-          ],
-        ),
+        ],
       ),
     );
   }
 
   Widget _buildApprenticeBlock(Truck truck, CrewResult crewResult) {
-    // Map vehicle types to apprentice skills
     String? apprenticeSkill;
     if (truck.type == 'VSAV') {
       apprenticeSkill = KSkills.suapA;
@@ -750,7 +450,6 @@ class _VehicleDetailDialogState extends State<_VehicleDetailDialog> {
 
     if (apprenticeSkill == null) return const SizedBox.shrink();
 
-    // Hide apprentice block for degraded (orange) or incomplete (red) vehicles
     if (crewResult.status == VehicleStatus.orange ||
         crewResult.status == VehicleStatus.red) {
       return const SizedBox.shrink();
@@ -760,60 +459,26 @@ class _VehicleDetailDialogState extends State<_VehicleDetailDialog> {
       margin: const EdgeInsets.only(top: 12),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.grey[300],
+        color: Colors.grey[200],
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey[400]!),
+        border: Border.all(color: Colors.grey[300]!),
       ),
       child: Row(
         children: [
-          Icon(Icons.school, color: Colors.grey[700]),
+          Icon(Icons.school_rounded, size: 18, color: Colors.grey[600]),
           const SizedBox(width: 8),
           Text(
             apprenticeSkill.replaceAll(' A', ''),
             style: TextStyle(
               fontWeight: FontWeight.w600,
-              color: Colors.grey[800],
+              fontSize: 13,
+              color: Colors.grey[700],
             ),
           ),
         ],
       ),
     );
   }
-}
-
-Widget _buildStatusBadge(CrewResult crewResult) {
-  return Container(
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(
-      color: _statusToColor(crewResult.status).withOpacity(0.1),
-      borderRadius: BorderRadius.circular(8),
-      border: Border.all(
-        color: _statusToColor(crewResult.status).withOpacity(0.5),
-      ),
-    ),
-    child: Row(
-      children: [
-        Icon(
-          crewResult.status == VehicleStatus.green
-              ? Icons.check_circle
-              : crewResult.status == VehicleStatus.orange
-              ? Icons.warning
-              : Icons.error,
-          color: _statusToColor(crewResult.status),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            crewResult.statusLabel,
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: _statusToColor(crewResult.status),
-            ),
-          ),
-        ),
-      ],
-    ),
-  );
 }
 
 Color _statusToColor(VehicleStatus status) {

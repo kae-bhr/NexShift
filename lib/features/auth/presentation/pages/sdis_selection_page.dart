@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:nexshift_app/core/data/models/sdis_model.dart';
 import 'package:nexshift_app/core/repositories/sdis_repository.dart';
 import 'package:nexshift_app/core/services/preferences_service.dart';
+import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:nexshift_app/features/auth/presentation/pages/login_page.dart';
 import 'package:nexshift_app/core/presentation/widgets/hero_widget.dart';
 
@@ -139,6 +140,12 @@ class _SDISSelectionPageState extends State<SDISSelectionPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(
+        leading: BackButton(
+          onPressed: () => Navigator.pop(context),
+          color: KColors.appNameColor,
+        ),
+      ),
       body: Container(
         decoration: BoxDecoration(),
         child: SafeArea(
@@ -192,9 +199,7 @@ class _SDISSelectionPageState extends State<SDISSelectionPage> {
                       style: TextStyle(color: Colors.grey),
                     )
                   else
-                    Column(
-                      children: _buildSDISList(),
-                    ),
+                    Column(children: _buildSDISList()),
                 ],
               ),
             ),
@@ -280,9 +285,9 @@ class _SDISCard extends StatelessWidget {
                               vertical: 4,
                             ),
                             decoration: BoxDecoration(
-                              color: Theme.of(context)
-                                  .primaryColor
-                                  .withValues(alpha: 0.1),
+                              color: Theme.of(
+                                context,
+                              ).primaryColor.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(

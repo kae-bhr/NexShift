@@ -3,7 +3,6 @@ import 'package:flutter/foundation.dart';
 import 'package:nexshift_app/core/repositories/user_repository.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/data/models/station_model.dart';
-import 'package:nexshift_app/core/data/models/position_model.dart';
 import 'package:nexshift_app/core/data/models/availability_model.dart';
 import 'package:nexshift_app/core/data/models/subshift_model.dart';
 import 'package:nexshift_app/core/data/models/replacement_acceptance_model.dart';
@@ -69,6 +68,11 @@ class ReplacementRequest {
   // NOUVEAU CHAMP - Phase 6
   final bool isSOS; // Mode urgence (bypass validations)
 
+  // Répartition des agents par vague telle que calculée lors de l'envoi.
+  // Clé = numéro de vague (1-5), valeur = IDs des agents notifiés dans cette vague.
+  // Permet à l'UI d'afficher le statut exact sans recalculer les vagues.
+  final Map<int, List<String>> waveUserIds;
+
   ReplacementRequest({
     required this.id,
     required this.requesterId,
@@ -95,6 +99,7 @@ class ReplacementRequest {
     this.mode = ReplacementMode.similarity,
     this.wavesSuspended = false,
     this.isSOS = false,
+    this.waveUserIds = const {},
   });
 
   Map<String, dynamic> toJson() {
@@ -127,6 +132,10 @@ class ReplacementRequest {
       'mode': mode.toString().split('.').last,
       'wavesSuspended': wavesSuspended,
       'isSOS': isSOS,
+      if (waveUserIds.isNotEmpty)
+        'waveUserIds': {
+          for (final e in waveUserIds.entries) e.key.toString(): e.value,
+        },
     };
   }
 
@@ -188,7 +197,17 @@ class ReplacementRequest {
           : ReplacementMode.similarity,
       wavesSuspended: json['wavesSuspended'] as bool? ?? false,
       isSOS: json['isSOS'] as bool? ?? false,
+      waveUserIds: _parseWaveUserIds(json['waveUserIds']),
     );
+  }
+
+  static Map<int, List<String>> _parseWaveUserIds(dynamic raw) {
+    if (raw == null) return {};
+    final map = raw as Map<String, dynamic>;
+    return {
+      for (final e in map.entries)
+        int.tryParse(e.key) ?? 0: List<String>.from(e.value as List),
+    };
   }
 }
 
@@ -509,6 +528,7 @@ class ReplacementNotificationService {
         'currentWave': 1,
         'notifiedUserIds': targetUserIds,
         'lastWaveSentAt': FieldValue.serverTimestamp(),
+        'waveUserIds.1': targetUserIds,
       });
 
       // Créer un document de notification trigger pour la vague 1
@@ -739,6 +759,10 @@ class ReplacementNotificationService {
       await firestore.collection(requestsPath).doc(request.id).update({
         'notifiedUserIds': FieldValue.arrayUnion(allUsersToNotify),
         'lastWaveSentAt': FieldValue.serverTimestamp(),
+        // Stocker la répartition par vague pour affichage précis dans l'UI
+        for (int w = 1; w <= request.currentWave; w++)
+          if ((waveDistribution[w] ?? []).isNotEmpty)
+            'waveUserIds.$w': waveDistribution[w],
       });
 
       // Créer un document de notification trigger pour chaque vague
@@ -776,330 +800,6 @@ class ReplacementNotificationService {
     }
   }
 
-  /// Déclenche les notifications basées sur les postes hiérarchiques
-  ///
-  /// Logique:
-  /// - Vague 1: Agents avec le même poste (même ordre)
-  /// - Vague 2+: Agents avec postes supérieurs (ordre inférieur)
-  /// - Vagues finales (si allowUnderQualified): Agents avec postes inférieurs (ordre supérieur)
-  Future<void> _triggerPositionBasedNotifications(
-    ReplacementRequest request,
-    User requester,
-    List<User> allUsers,
-    List<String> agentsInPlanning,
-    String? planningTeam,
-    List<String>? excludedUserIds,
-  ) async {
-    try {
-      debugPrint('🎯 Using POSITION-BASED replacement mode');
-
-      // Récupérer la configuration de la station
-      final stationsPath = EnvironmentConfig.stationsCollectionPath;
-      final stationDoc = await firestore
-          .collection(stationsPath)
-          .doc(request.station)
-          .get();
-
-      if (!stationDoc.exists) {
-        debugPrint('⚠️ Station not found, falling back to similarity mode');
-        // Fallback sur le mode similarité
-        return;
-      }
-
-      final station = Station.fromJson({
-        'id': stationDoc.id,
-        ...stationDoc.data()!,
-      });
-
-      // Récupérer toutes les positions de la station
-      final positionsSnapshot = await firestore
-          .collection('positions')
-          .where('stationId', isEqualTo: request.station)
-          .orderBy('order')
-          .get();
-
-      if (positionsSnapshot.docs.isEmpty) {
-        debugPrint('⚠️ No positions configured, falling back to similarity mode');
-        return;
-      }
-
-      final positions = positionsSnapshot.docs
-          .map((doc) => Position.fromFirestore(doc))
-          .toList();
-
-      // Trouver le poste du demandeur
-      if (requester.positionId == null) {
-        debugPrint('⚠️ Requester has no position assigned, using team-based wave');
-        // Envoyer à toute l'équipe si pas de poste
-        await _sendWaveToTeam(
-          request,
-          requester,
-          allUsers,
-          agentsInPlanning,
-          planningTeam,
-          excludedUserIds,
-        );
-        return;
-      }
-
-      final requesterPosition = positions.firstWhere(
-        (p) => p.id == requester.positionId,
-        orElse: () => Position(
-          id: '',
-          name: 'Unknown',
-          stationId: request.station,
-          order: 999,
-        ),
-      );
-
-      if (requesterPosition.id.isEmpty) {
-        debugPrint('⚠️ Requester position not found, using team-based wave');
-        await _sendWaveToTeam(
-          request,
-          requester,
-          allUsers,
-          agentsInPlanning,
-          planningTeam,
-          excludedUserIds,
-        );
-        return;
-      }
-
-      debugPrint('📍 Requester position: ${requesterPosition.name} (order: ${requesterPosition.order})');
-
-      // Vague 1: Agents avec le même poste
-      final samePositionUsers = allUsers
-          .where(
-            (u) =>
-                u.station == request.station &&
-                u.positionId == requesterPosition.id &&
-                u.id != request.requesterId &&
-                !agentsInPlanning.contains(u.id) &&
-                !(excludedUserIds?.contains(u.id) ?? false),
-          )
-          .toList();
-
-      debugPrint('📨 Wave 1 (same position): Found ${samePositionUsers.length} agents');
-
-      if (samePositionUsers.isEmpty) {
-        // Passer directement à la vague suivante (postes supérieurs)
-        await _sendNextPositionWave(
-          request,
-          requester,
-          requesterPosition,
-          positions,
-          allUsers,
-          agentsInPlanning,
-          excludedUserIds,
-          station.allowUnderQualifiedAutoAcceptance,
-          1, // currentWave = 1 (on skip la vague 1)
-        );
-        return;
-      }
-
-      final targetUserIds = samePositionUsers.map((u) => u.id).toList();
-
-      // Mettre à jour la demande
-      final requestsPath = _getReplacementRequestsPath(request.station);
-      await firestore.collection(requestsPath).doc(request.id).update({
-        'currentWave': 1,
-        'notifiedUserIds': targetUserIds,
-        'lastWaveSentAt': FieldValue.serverTimestamp(),
-      });
-
-      // Créer le trigger de notification
-      final notificationData = {
-        'type': 'replacement_request',
-        'requestId': request.id,
-        'requesterId': request.requesterId,
-        'planningId': request.planningId,
-        'startTime': Timestamp.fromDate(request.startTime),
-        'endTime': Timestamp.fromDate(request.endTime),
-        'station': request.station,
-        'team': request.team,
-        'targetUserIds': targetUserIds,
-        'wave': 1,
-        'createdAt': FieldValue.serverTimestamp(),
-        'processed': false,
-      };
-
-      final triggersPath = _getNotificationTriggersPath(request.station);
-      await firestore.collection(triggersPath).add(notificationData);
-
-      debugPrint('✅ Position-based Wave 1 trigger created for ${targetUserIds.length} users');
-    } catch (e) {
-      debugPrint('❌ Error in position-based notifications: $e');
-    }
-  }
-
-  /// Envoie une vague à toute l'équipe (fallback si pas de poste)
-  Future<void> _sendWaveToTeam(
-    ReplacementRequest request,
-    User requester,
-    List<User> allUsers,
-    List<String> agentsInPlanning,
-    String? planningTeam,
-    List<String>? excludedUserIds,
-  ) async {
-    final teamUsers = allUsers
-        .where(
-          (u) =>
-              u.station == request.station &&
-              u.team == (planningTeam ?? request.team) &&
-              u.id != request.requesterId &&
-              !agentsInPlanning.contains(u.id) &&
-              !(excludedUserIds?.contains(u.id) ?? false),
-        )
-        .toList();
-
-    final requestsPath = _getReplacementRequestsPath(request.station);
-
-    if (teamUsers.isEmpty) {
-      debugPrint('⚠️ No team members available');
-      await firestore.collection(requestsPath).doc(request.id).update({
-        'currentWave': 1,
-        'notifiedUserIds': [],
-      });
-      return;
-    }
-
-    final targetUserIds = teamUsers.map((u) => u.id).toList();
-
-    await firestore.collection(requestsPath).doc(request.id).update({
-      'currentWave': 1,
-      'notifiedUserIds': targetUserIds,
-      'lastWaveSentAt': FieldValue.serverTimestamp(),
-    });
-
-    final notificationData = {
-      'type': 'replacement_request',
-      'requestId': request.id,
-      'requesterId': request.requesterId,
-      'planningId': request.planningId,
-      'startTime': Timestamp.fromDate(request.startTime),
-      'endTime': Timestamp.fromDate(request.endTime),
-      'station': request.station,
-      'team': request.team,
-      'targetUserIds': targetUserIds,
-      'wave': 1,
-      'createdAt': FieldValue.serverTimestamp(),
-      'processed': false,
-    };
-
-    final triggersPath = _getNotificationTriggersPath(request.station);
-    await firestore.collection(triggersPath).add(notificationData);
-    debugPrint('✅ Team-based wave created for ${targetUserIds.length} users');
-  }
-
-  /// Envoie la prochaine vague basée sur les postes supérieurs/inférieurs
-  Future<void> _sendNextPositionWave(
-    ReplacementRequest request,
-    User requester,
-    Position requesterPosition,
-    List<Position> allPositions,
-    List<User> allUsers,
-    List<String> agentsInPlanning,
-    List<String>? excludedUserIds,
-    bool allowUnderQualified,
-    int currentWave,
-  ) async {
-    debugPrint('🔄 Sending next position wave (current: $currentWave)');
-
-    // Trier les positions par ordre
-    final sortedPositions = List<Position>.from(allPositions)
-      ..sort((a, b) => a.order.compareTo(b.order));
-
-    // Identifier les postes supérieurs (ordre inférieur) et inférieurs (ordre supérieur)
-    final higherPositions = sortedPositions
-        .where((p) => p.order < requesterPosition.order)
-        .toList();
-    final lowerPositions = sortedPositions
-        .where((p) => p.order > requesterPosition.order)
-        .toList();
-
-    // Calculer quelle vague envoyer
-    final nextWave = currentWave + 1;
-    final higherWaveIndex = nextWave - 2; // Wave 2 = index 0, Wave 3 = index 1, etc.
-
-    List<User> targetUsers = [];
-    String waveDescription = '';
-
-    if (higherWaveIndex < higherPositions.length) {
-      // Encore des postes supérieurs à notifier
-      final targetPosition = higherPositions[higherWaveIndex];
-      waveDescription = 'higher position: ${targetPosition.name}';
-
-      targetUsers = allUsers
-          .where(
-            (u) =>
-                u.station == request.station &&
-                u.positionId == targetPosition.id &&
-                u.id != request.requesterId &&
-                !agentsInPlanning.contains(u.id) &&
-                !(excludedUserIds?.contains(u.id) ?? false),
-          )
-          .toList();
-    } else if (allowUnderQualified) {
-      // Plus de postes supérieurs, passer aux postes inférieurs si autorisé
-      final lowerWaveIndex = higherWaveIndex - higherPositions.length;
-
-      if (lowerWaveIndex < lowerPositions.length) {
-        final targetPosition = lowerPositions[lowerWaveIndex];
-        waveDescription = 'lower position: ${targetPosition.name}';
-
-        targetUsers = allUsers
-            .where(
-              (u) =>
-                  u.station == request.station &&
-                  u.positionId == targetPosition.id &&
-                  u.id != request.requesterId &&
-                  !agentsInPlanning.contains(u.id) &&
-                  !(excludedUserIds?.contains(u.id) ?? false),
-            )
-            .toList();
-      }
-    }
-
-    final requestsPath = _getReplacementRequestsPath(request.station);
-
-    if (targetUsers.isEmpty) {
-      debugPrint('⚠️ Wave $nextWave ($waveDescription): No users found, search complete');
-      await firestore.collection(requestsPath).doc(request.id).update({
-        'currentWave': nextWave,
-        'notifiedUserIds': [],
-      });
-      return;
-    }
-
-    debugPrint('📨 Wave $nextWave ($waveDescription): Found ${targetUsers.length} users');
-
-    final targetUserIds = targetUsers.map((u) => u.id).toList();
-
-    await firestore.collection(requestsPath).doc(request.id).update({
-      'currentWave': nextWave,
-      'notifiedUserIds': targetUserIds,
-      'lastWaveSentAt': FieldValue.serverTimestamp(),
-    });
-
-    final notificationData = {
-      'type': 'replacement_request',
-      'requestId': request.id,
-      'requesterId': request.requesterId,
-      'planningId': request.planningId,
-      'startTime': Timestamp.fromDate(request.startTime),
-      'endTime': Timestamp.fromDate(request.endTime),
-      'station': request.station,
-      'team': request.team,
-      'targetUserIds': targetUserIds,
-      'wave': nextWave,
-      'createdAt': FieldValue.serverTimestamp(),
-      'processed': false,
-    };
-
-    final triggersPath = _getNotificationTriggersPath(request.station);
-    await firestore.collection(triggersPath).add(notificationData);
-    debugPrint('✅ Position-based Wave $nextWave trigger created');
-  }
 
   /// Déclenche les notifications pour une demande de disponibilité
   /// Envoie uniquement aux agents "Disponibles" (catégorie 0) ou "Remplacement partiel" (catégorie 1)

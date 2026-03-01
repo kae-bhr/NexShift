@@ -27,7 +27,7 @@ class _SkillsPageState extends State<SkillsPage> {
   final LocalRepository _repository = LocalRepository();
   final PositionRepository _positionRepository = PositionRepository();
   User? _displayedUser;
-  Position? _userPosition;
+  List<Position> _userPositions = [];
   bool _isLoading = true;
   String? _errorMessage;
   bool _showAcquiredOnly = false;
@@ -77,23 +77,21 @@ class _SkillsPageState extends State<SkillsPage> {
   }
 
   Future<void> _loadPosition(User user) async {
-    if (user.positionId == null) {
-      _userPosition = null;
+    if (user.positionIds.isEmpty) {
+      setState(() => _userPositions = []);
       return;
     }
     try {
       final positions = await _positionRepository
           .getPositionsByStation(user.station)
           .first;
-      _userPosition = positions.firstWhere(
-        (p) => p.id == user.positionId,
-        orElse: () => Position(id: '', name: '', stationId: '', order: 0),
-      );
-      if (_userPosition?.id.isEmpty ?? true) {
-        _userPosition = null;
-      }
+      setState(() {
+        _userPositions = positions
+            .where((p) => user.positionIds.contains(p.id))
+            .toList();
+      });
     } catch (e) {
-      _userPosition = null;
+      setState(() => _userPositions = []);
     }
   }
 
@@ -270,10 +268,13 @@ class _SkillsPageState extends State<SkillsPage> {
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
           child: Column(
             children: [
-              // Poste
-              if (_userPosition != null) ...[
-                _PositionBanner(position: _userPosition!),
-                const SizedBox(height: 10),
+              // Postes
+              if (_userPositions.isNotEmpty) ...[
+                ..._userPositions.map((pos) => Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: _PositionBanner(position: pos),
+                )),
+                const SizedBox(height: 4),
               ],
 
               // Toggle filtre

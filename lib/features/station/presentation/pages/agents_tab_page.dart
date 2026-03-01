@@ -946,13 +946,10 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
   Widget _buildAgentCard(User user, Team? team) {
     final teamColor = team?.color ?? Colors.grey;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final position = user.positionId != null
-        ? widget.allPositions.firstWhere(
-            (p) => p.id == user.positionId,
-            orElse: () => Position(id: '', name: '', stationId: '', order: 0),
-          )
-        : null;
-    final hasPosition = position != null && position.id.isNotEmpty;
+    final userPositions = widget.allPositions
+        .where((p) => user.positionIds.contains(p.id))
+        .toList();
+    final hasPosition = userPositions.isNotEmpty;
     final subtitleColor = isDark ? Colors.grey[400] : Colors.grey[600];
     final isSuspended = user.isSuspended;
 
@@ -1079,25 +1076,30 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                     ),
                     if (hasPosition) ...[
                       const SizedBox(height: 2),
-                      Row(
-                        children: [
-                          if (position.iconName != null) ...[
-                            Icon(
-                              KSkills.positionIcons[position.iconName],
-                              size: 13,
-                              color: subtitleColor,
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 2,
+                        children: userPositions.map((pos) => Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (pos.iconName != null) ...[
+                              Icon(
+                                KSkills.positionIcons[pos.iconName],
+                                size: 13,
+                                color: subtitleColor,
+                              ),
+                              const SizedBox(width: 3),
+                            ],
+                            Text(
+                              pos.name,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontStyle: FontStyle.italic,
+                                color: subtitleColor,
+                              ),
                             ),
-                            const SizedBox(width: 4),
                           ],
-                          Text(
-                            position.name,
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontStyle: FontStyle.italic,
-                              color: subtitleColor,
-                            ),
-                          ),
-                        ],
+                        )).toList(),
                       ),
                     ],
                     if (user.skills.isNotEmpty) ...[
@@ -2244,9 +2246,12 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
 
     if (!mounted) return;
 
-    Future<void> updatePosition(String? positionId, String label) async {
+    // Sélection initiale = postes actuels de l'agent
+    final selectedIds = user.positionIds.toSet();
+
+    Future<void> updatePositions(Set<String> ids) async {
       try {
-        final updatedUser = user.copyWith(positionId: positionId);
+        final updatedUser = user.copyWith(positionIds: ids.toList());
         await userRepo.upsert(updatedUser);
 
         if (widget.currentUser?.id == user.id) {
@@ -2256,8 +2261,14 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
         navigator.pop();
         if (mounted) {
           widget.onDataChanged();
+          final label = ids.isEmpty
+              ? 'Aucun poste'
+              : positions
+                  .where((p) => ids.contains(p.id))
+                  .map((p) => p.name)
+                  .join(', ');
           scaffoldMessenger.showSnackBar(
-            SnackBar(content: Text('Poste mis à jour: $label')),
+            SnackBar(content: Text('Postes mis à jour: $label')),
           );
         }
       } catch (e) {
@@ -2272,104 +2283,131 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
 
     showDialog(
       context: context,
-      builder: (dialogContext) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Header
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: colorScheme.primaryContainer,
-                      borderRadius: BorderRadius.circular(12),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Header
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: colorScheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        Icons.work_outline,
+                        color: colorScheme.onPrimaryContainer,
+                        size: 28,
+                      ),
                     ),
-                    child: Icon(
-                      Icons.work_outline,
-                      color: colorScheme.onPrimaryContainer,
-                      size: 28,
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Définir les postes',
+                            style: Theme.of(context).textTheme.titleLarge
+                                ?.copyWith(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            user.displayName,
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(color: Colors.grey[600]),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Définir le poste',
-                          style: Theme.of(context).textTheme.titleLarge
-                              ?.copyWith(fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          user.displayName,
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(color: Colors.grey[600]),
-                        ),
-                      ],
+                  ],
+                ),
+                const SizedBox(height: 24),
+                // Position options
+                if (positions.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 20),
+                    child: Text(
+                      'Aucun poste configuré.\nVeuillez créer des postes dans les paramètres.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.grey[600]),
+                    ),
+                  )
+                else
+                  ...positions.map((position) {
+                    final icon = position.iconName != null
+                        ? KSkills.positionIcons[position.iconName]
+                        : null;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _buildPositionCard(
+                        icon: icon ?? Icons.work_outline,
+                        iconColor: KColors.appNameColor,
+                        title: position.name,
+                        description: position.description ?? '',
+                        isSelected: selectedIds.contains(position.id),
+                        onTap: () {
+                          setDialogState(() {
+                            if (selectedIds.contains(position.id)) {
+                              selectedIds.remove(position.id);
+                            } else {
+                              selectedIds.add(position.id);
+                            }
+                          });
+                        },
+                      ),
+                    );
+                  }),
+                if (positions.isNotEmpty && selectedIds.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      onPressed: () => setDialogState(() => selectedIds.clear()),
+                      icon: const Icon(Icons.clear, size: 16),
+                      label: const Text('Tout désélectionner'),
+                      style: TextButton.styleFrom(foregroundColor: Colors.grey),
                     ),
                   ),
                 ],
-              ),
-              const SizedBox(height: 24),
-              // Position options
-              if (positions.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 20),
-                  child: Text(
-                    'Aucun poste configuré.\nVeuillez créer des postes dans les paramètres.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey[600]),
-                  ),
-                )
-              else
-                ...positions.map((position) {
-                  final icon = position.iconName != null
-                      ? KSkills.positionIcons[position.iconName]
-                      : null;
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: _buildPositionCard(
-                      icon: icon ?? Icons.work_outline,
-                      iconColor: KColors.appNameColor,
-                      title: position.name,
-                      description: position.description ?? '',
-                      isSelected: user.positionId == position.id,
-                      onTap: () => updatePosition(position.id, position.name),
+                const SizedBox(height: 16),
+                // Boutons Annuler / Valider
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => navigator.pop(),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Text('Annuler'),
+                      ),
                     ),
-                  );
-                }),
-              if (positions.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                _buildPositionCard(
-                  icon: Icons.clear,
-                  iconColor: Colors.grey,
-                  title: 'Aucun poste',
-                  description: 'Retirer l\'assignation de poste',
-                  isSelected: user.positionId == null,
-                  onTap: () => updatePosition(null, 'Aucun'),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: () => updatePositions(selectedIds),
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Text('Valider'),
+                      ),
+                    ),
+                  ],
                 ),
               ],
-              const SizedBox(height: 24),
-              // Cancel button
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton(
-                  onPressed: () => navigator.pop(),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: const Text('Annuler'),
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),

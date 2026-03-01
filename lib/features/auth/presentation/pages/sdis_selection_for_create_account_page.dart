@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:nexshift_app/core/data/models/sdis_model.dart';
 import 'package:nexshift_app/core/repositories/sdis_repository.dart';
 import 'package:nexshift_app/core/presentation/widgets/hero_widget.dart';
+import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:nexshift_app/features/auth/presentation/pages/create_account_page.dart';
 
 /// Page de sélection du SDIS pour la création de compte
@@ -62,6 +63,10 @@ class _SDISSelectionForCreateAccountPageState
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        leading: BackButton(
+          onPressed: () => Navigator.pop(context),
+          color: KColors.appNameColor,
+        ),
         title: const Text('Sélection du SDIS'),
       ),
       body: SafeArea(
@@ -144,18 +149,13 @@ class _SDISCard extends StatelessWidget {
   final SDIS sdis;
   final VoidCallback onTap;
 
-  const _SDISCard({
-    required this.sdis,
-    required this.onTap,
-  });
+  const _SDISCard({required this.sdis, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     return Card(
       elevation: 4,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),

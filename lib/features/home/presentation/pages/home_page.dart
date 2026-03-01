@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/data/models/trucks_model.dart';
 import 'package:nexshift_app/core/repositories/local_repositories.dart';
 import 'package:nexshift_app/core/repositories/subshift_repositories.dart';
 import 'package:nexshift_app/core/repositories/user_repository.dart';
@@ -14,10 +13,6 @@ import 'package:nexshift_app/core/repositories/truck_repository.dart';
 import 'package:nexshift_app/core/repositories/team_repository.dart';
 import 'package:nexshift_app/features/replacement/services/crew_allocator.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
-import 'package:nexshift_app/core/repositories/vehicle_rules_repository.dart';
-import 'package:nexshift_app/core/utils/default_vehicle_rules.dart';
-import 'package:nexshift_app/core/data/models/vehicle_rule_set_model.dart';
-import 'package:nexshift_app/core/data/models/crew_mode_model.dart';
 import 'package:nexshift_app/features/replacement/presentation/pages/replacement_page.dart';
 import 'package:nexshift_app/features/subshift/presentation/widgets/subshift_item.dart';
 import 'package:nexshift_app/features/planning/presentation/widgets/planning_header_widget.dart';
@@ -320,15 +315,11 @@ class _HomePageState extends State<HomePage> {
 
   Future<List<Map<String, dynamic>>> _buildVehicleIconSpecs(
     Planning planning,
-    List<Subshift> subList,
   ) async {
     final trucks = await TruckRepository().getByStation(planning.station);
     if (trucks.isEmpty) return [];
 
-    // Base crew from planning
-    final baseAgents = _allUsers
-        .where((u) => planning.agentsId.contains(u.id))
-        .toList();
+    // (Crew is computed per time point directly from planning.agents — see loop below)
 
     VehicleStatus worst(VehicleStatus a, VehicleStatus b) {
       int s(VehicleStatus x) => x == VehicleStatus.red
@@ -339,17 +330,16 @@ class _HomePageState extends State<HomePage> {
       return s(a) >= s(b) ? a : b;
     }
 
-    // Build list of critical time points to evaluate:
-    // - Planning start and end
-    // - Start and end of each subshift
+    // Build critical time points from planning.agents window boundaries
+    // (more reliable than Subshift collection — planning.agents is the source of truth)
     final criticalTimes = <DateTime>{
       planning.startTime,
       planning.endTime.subtract(const Duration(seconds: 1)),
     };
 
-    for (final s in subList) {
-      criticalTimes.add(s.start);
-      criticalTimes.add(s.end.subtract(const Duration(seconds: 1)));
+    for (final a in planning.agents) {
+      criticalTimes.add(a.start);
+      criticalTimes.add(a.end.subtract(const Duration(seconds: 1)));
     }
 
     final samplePoints = criticalTimes.toList()..sort();
@@ -375,24 +365,43 @@ class _HomePageState extends State<HomePage> {
         continue;
       }
 
-      // Build effective crew at this time point
-      final effectiveAgents = List<User>.from(baseAgents);
+      // Build effective crew at this time point directly from planning.agents
+      // (mirrors planning_team_details_page logic — planning.agents is the source of truth)
 
-      // Apply active replacements at this specific time
-      for (final s in subList) {
-        final start = s.start.toUtc();
-        final end = s.end.toUtc();
-        if ((start.isBefore(sampleUtc) || start.isAtSameMomentAs(sampleUtc)) &&
-            end.isAfter(sampleUtc)) {
-          final idx = effectiveAgents.indexWhere((u) => u.id == s.replacedId);
-          if (idx != -1) {
-            final replacer = _allUsers.firstWhere(
-              (u) => u.id == s.replacerId,
-              orElse: () => effectiveAgents[idx],
-            );
-            effectiveAgents[idx] = replacer;
-          }
+      // 1. Find active base agents at sampleUtc
+      final activeBaseIds = <String>{};
+      for (final a in planning.agents) {
+        if (a.replacedAgentId != null) continue;
+        final aStart = a.start.toUtc();
+        final aEnd = a.end.toUtc();
+        if ((aStart.isBefore(sampleUtc) || aStart.isAtSameMomentAs(sampleUtc)) &&
+            aEnd.isAfter(sampleUtc)) {
+          activeBaseIds.add(a.agentId);
         }
+      }
+
+      // 2. Find active replacements at sampleUtc (replacedId → replacerId)
+      final activeReplacementMap = <String, String>{};
+      for (final a in planning.agents) {
+        if (a.replacedAgentId == null) continue;
+        final aStart = a.start.toUtc();
+        final aEnd = a.end.toUtc();
+        if ((aStart.isBefore(sampleUtc) || aStart.isAtSameMomentAs(sampleUtc)) &&
+            aEnd.isAfter(sampleUtc)) {
+          activeReplacementMap[a.replacedAgentId!] = a.agentId;
+          activeBaseIds.add(a.replacedAgentId!); // ensure the replaced slot is included
+        }
+      }
+
+      // 3. Resolve effective agents: use replacer if available, else base agent
+      final effectiveAgents = <User>[];
+      for (final baseId in activeBaseIds) {
+        final resolvedId = activeReplacementMap[baseId] ?? baseId;
+        final user = _allUsers.firstWhere(
+          (u) => u.id == resolvedId,
+          orElse: () => noneUser,
+        );
+        if (user.id.isNotEmpty) effectiveAgents.add(user);
       }
 
       // Add agents in availability at this specific time (if they match the planning)
@@ -421,80 +430,35 @@ class _HomePageState extends State<HomePage> {
         }
       }
 
-      // Build agent pools per vehicle type (like PlanningTeamDetailsPage)
-      final Map<String, List<User>> poolsByType = {};
-      for (final truckType in KTrucks.vehicleTypeOrder) {
-        poolsByType[truckType] = List<User>.from(effectiveAgents);
-      }
-
-      // Separate FPT from other trucks
-      final fptTrucks = trucks.where((t) => t.type == KTrucks.fpt).toList();
-      final otherTrucks = trucks.where((t) => t.type != KTrucks.fpt).toList();
-
-      // Prefetch rule sets for all truck types present (station-specific first)
-      final rulesRepo = VehicleRulesRepository();
-      final types = trucks.map((t) => t.type).toSet().toList();
-      final fetched = await Future.wait(
-        types.map((type) async {
-          final rs = await rulesRepo.getRules(
-            vehicleType: type,
-            stationId: planning.station,
-          );
-          return MapEntry(
-            type,
-            rs ?? KDefaultVehicleRules.getDefaultRuleSet(type),
-          );
-        }),
+      // Allocation unifiée — identique à planning_team_details_page
+      final allResults = await CrewAllocator.allocateAllVehicles(
+        effectiveAgents: effectiveAgents,
+        trucks: trucks,
+        stationId: planning.station,
       );
-      final Map<String, VehicleRuleSet?> ruleSets = {
-        for (final e in fetched) e.key: e.value,
-      };
 
-      // Allocate standard trucks (non-FPT) with per-mode handling, sharing crew between modes of the SAME truck
-      for (final truck in otherTrucks) {
-        final pool = poolsByType[truck.type]!;
-        final ruleSet = ruleSets[truck.type];
-        if (ruleSet == null) continue;
+      // Les clés de allResults sont de la forme "FPT1_6H" (displayName_suffix)
+      // Les vehicleKey internes utilisent '${type}_${id}_${suffix}' pour les timeRanges
+      for (final truck in trucks) {
+        // Récupérer les modes définis pour ce type via les résultats obtenus
+        // On retrouve toutes les entrées dont la clé commence par truck.displayName
+        final truckPrefix = truck.displayName; // ex: "FPT1", "VSAV1"
+        final truckEntries = allResults.entries.where(
+          (e) => e.key == truckPrefix || e.key.startsWith('${truckPrefix}_'),
+        );
 
-        // Determine modes to evaluate for this truck
-        final List<CrewMode> modes;
-        if (truck.modeId != null) {
-          final m = ruleSet.getModeById(truck.modeId!);
-          modes = m != null ? [m] : [];
-        } else {
-          modes = List<CrewMode>.from(ruleSet.modes);
-        }
+        for (final entry in truckEntries) {
+          final r = entry.value;
+          // Extraire le suffix du mode depuis la clé : "FPT1_6H" → "6H", "VSAV1" → null
+          final suffix = entry.key.startsWith('${truckPrefix}_')
+              ? entry.key.substring(truckPrefix.length + 1)
+              : null;
 
-        // Keep track of used agents across all modes for this truck
-        final allUsedIds = <String>{};
+          final vehicleKey = suffix != null
+              ? '${truck.type}_${truck.id}_$suffix'
+              : '${truck.type}_${truck.id}_DEF';
 
-        for (final mode in modes) {
-          // Snapshot pool so modes of the same truck can reuse agents
-          final thisModePool = List<User>.from(pool);
-          final r = await CrewAllocator.allocateVehicleCrew(
-            agents: thisModePool,
-            truck: Truck(
-              id: truck.id,
-              displayNumber: truck.displayNumber,
-              type: truck.type,
-              station: truck.station,
-              modeId: mode.id,
-            ),
-            stationId: planning.station,
-          );
-
-          // Collect used agents for removal after all modes processed
-          for (final used in r.crew) {
-            allUsedIds.add(used.id);
-          }
-
-          final displayKeySuffix = mode.displaySuffix.isNotEmpty
-              ? mode.displaySuffix
-              : 'DEF';
-          final vehicleKey = '${truck.type}_${truck.id}_$displayKeySuffix';
-
-          if (r.status == VehicleStatus.orange ||
-              r.status == VehicleStatus.red) {
+          if (r.status == VehicleStatus.orange || r.status == VehicleStatus.red) {
             timeRangesByVehicle.putIfAbsent(vehicleKey, () => []);
             timeRangesByVehicle[vehicleKey]!.add({
               'start': sampleTime,
@@ -503,13 +467,11 @@ class _HomePageState extends State<HomePage> {
             });
           }
 
-          // Find existing spec (by type, id, and period suffix)
           final existingIndex = specs.indexWhere(
             (s) =>
                 s['type'] == truck.type &&
                 s['id'] == truck.id &&
-                s['period'] ==
-                    (mode.displaySuffix.isNotEmpty ? mode.displaySuffix : null),
+                s['period'] == suffix,
           );
 
           if (existingIndex != -1) {
@@ -528,103 +490,12 @@ class _HomePageState extends State<HomePage> {
               'type': truck.type,
               'id': truck.id,
               'displayNumber': truck.displayNumber,
-              'period': mode.displaySuffix.isNotEmpty
-                  ? mode.displaySuffix
-                  : null,
+              'period': suffix,
               'color': _statusToColor(r.status),
               'vehicleKey': vehicleKey,
             });
           }
         }
-
-        // After evaluating all modes for this truck, remove used agents once
-        pool.removeWhere((a) => allUsedIds.contains(a.id));
-      }
-
-      // Allocate FPT trucks using the same generic multi-mode handling
-      for (final truck in fptTrucks) {
-        final pool = poolsByType[truck.type]!;
-        final ruleSet = ruleSets[truck.type];
-        if (ruleSet == null) continue;
-
-        // Determine modes to evaluate for this truck
-        final List<CrewMode> modes;
-        if (truck.modeId != null) {
-          final m = ruleSet.getModeById(truck.modeId!);
-          modes = m != null ? [m] : [];
-        } else {
-          modes = List<CrewMode>.from(ruleSet.modes);
-        }
-
-        final allUsedIds = <String>{};
-
-        for (final mode in modes) {
-          final thisModePool = List<User>.from(pool);
-          final r = await CrewAllocator.allocateVehicleCrew(
-            agents: thisModePool,
-            truck: Truck(
-              id: truck.id,
-              displayNumber: truck.displayNumber,
-              type: truck.type,
-              station: truck.station,
-              modeId: mode.id,
-            ),
-            stationId: planning.station,
-          );
-
-          for (final used in r.crew) {
-            allUsedIds.add(used.id);
-          }
-
-          final displayKeySuffix = mode.displaySuffix.isNotEmpty
-              ? mode.displaySuffix
-              : 'DEF';
-          final vehicleKey = '${truck.type}_${truck.id}_$displayKeySuffix';
-
-          if (r.status == VehicleStatus.orange ||
-              r.status == VehicleStatus.red) {
-            timeRangesByVehicle.putIfAbsent(vehicleKey, () => []);
-            timeRangesByVehicle[vehicleKey]!.add({
-              'start': sampleTime,
-              'end': rangeEnd,
-              'status': r.status,
-            });
-          }
-
-          final existingIndex = specs.indexWhere(
-            (s) =>
-                s['type'] == truck.type &&
-                s['id'] == truck.id &&
-                s['period'] ==
-                    (mode.displaySuffix.isNotEmpty ? mode.displaySuffix : null),
-          );
-
-          if (existingIndex != -1) {
-            final currentStatusColor = specs[existingIndex]['color'];
-            final currentStatus =
-                currentStatusColor == _statusToColor(VehicleStatus.red)
-                ? VehicleStatus.red
-                : currentStatusColor == _statusToColor(VehicleStatus.orange)
-                ? VehicleStatus.orange
-                : VehicleStatus.green;
-            final newWorst = worst(currentStatus, r.status);
-            specs[existingIndex]['color'] = _statusToColor(newWorst);
-          } else if (r.status == VehicleStatus.orange ||
-              r.status == VehicleStatus.red) {
-            specs.add({
-              'type': truck.type,
-              'id': truck.id,
-              'displayNumber': truck.displayNumber,
-              'period': mode.displaySuffix.isNotEmpty
-                  ? mode.displaySuffix
-                  : null,
-              'color': _statusToColor(r.status),
-              'vehicleKey': vehicleKey,
-            });
-          }
-        }
-
-        pool.removeWhere((a) => allUsedIds.contains(a.id));
       }
     }
 
@@ -2690,7 +2561,6 @@ class _HomePageState extends State<HomePage> {
                                   FutureBuilder<List<Map<String, dynamic>>>(
                                     future: _buildVehicleIconSpecs(
                                       planning,
-                                      subList,
                                     ),
                                     builder: (context, snapshotIcons) {
                                       final specs =

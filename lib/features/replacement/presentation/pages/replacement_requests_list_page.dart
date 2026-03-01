@@ -151,13 +151,17 @@ class _ReplacementRequestsListPageState
   /// Retourne le chemin de collection pour les demandes de remplacement automatiques
   String _getCollectionPath() {
     return EnvironmentConfig.getCollectionPath(
-        'replacements/automatic/replacementRequests', _currentStationId);
+      'replacements/automatic/replacementRequests',
+      _currentStationId,
+    );
   }
 
   /// Retourne le chemin de collection pour les propositions de remplacement manuel
   String _getManualReplacementProposalsPath(String stationId) {
     return EnvironmentConfig.getCollectionPath(
-        'replacements/manual/proposals', stationId);
+      'replacements/manual/proposals',
+      stationId,
+    );
   }
 
   String _formatDateTime(DateTime dt) {
@@ -579,8 +583,9 @@ class _ReplacementRequestsListPageState
 
   Widget _buildAgentQueriesContent() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final agentQuerySelectedColor =
-        isDark ? Colors.white : KColors.appNameColor;
+    final agentQuerySelectedColor = isDark
+        ? Colors.white
+        : KColors.appNameColor;
     final agentQueryUnselectedColor = isDark
         ? Colors.white70
         : KColors.appNameColor.withValues(alpha: 0.6);
@@ -866,7 +871,17 @@ class _ReplacementRequestsListPageState
         query.planningId,
         stationId: _currentStationId,
       );
-      planningAgentIds = planning?.agentsId ?? [];
+      if (planning != null) {
+        // Agents couvrant TOTALEMENT la période de la query (start ≤ query.start ET end ≥ query.end)
+        planningAgentIds = planning.agents
+            .where((a) => a.replacedAgentId == null)
+            .where((a) =>
+                !a.start.isAfter(query.startTime) &&
+                !a.end.isBefore(query.endTime))
+            .map((a) => a.agentId)
+            .toSet()
+            .toList();
+      }
     } catch (_) {}
 
     List<User> allStationUsers = [];
@@ -938,23 +953,30 @@ class _ReplacementRequestsListPageState
 
     // Sous-catégorie 3 : En arrêt maladie
     final sickLeaveEntries = nonNotifiedUsers
-        .where((u) =>
-            u.agentAvailabilityStatus == AgentAvailabilityStatus.sickLeave)
-        .map((u) => AgentStatusEntry(
-              name: u.displayName,
-              status: AgentNotifiedStatus.notNotified,
-            ))
+        .where(
+          (u) => u.agentAvailabilityStatus == AgentAvailabilityStatus.sickLeave,
+        )
+        .map(
+          (u) => AgentStatusEntry(
+            name: u.displayName,
+            status: AgentNotifiedStatus.notNotified,
+          ),
+        )
         .toList();
 
     // Sous-catégorie 4 : Suspendus d'engagement
     final suspendedEntries = nonNotifiedUsers
-        .where((u) =>
-            u.agentAvailabilityStatus ==
-            AgentAvailabilityStatus.suspendedFromDuty)
-        .map((u) => AgentStatusEntry(
-              name: u.displayName,
-              status: AgentNotifiedStatus.notNotified,
-            ))
+        .where(
+          (u) =>
+              u.agentAvailabilityStatus ==
+              AgentAvailabilityStatus.suspendedFromDuty,
+        )
+        .map(
+          (u) => AgentStatusEntry(
+            name: u.displayName,
+            status: AgentNotifiedStatus.notNotified,
+          ),
+        )
         .toList();
 
     // 4. Construire les groupes — non-notifiés en premier, notifiés ensuite
@@ -963,9 +985,15 @@ class _ReplacementRequestsListPageState
       if (onDutyEntries.isNotEmpty)
         AgentSubGroup(label: 'Agents en astreinte', agents: onDutyEntries),
       if (underQualifiedEntries.isNotEmpty)
-        AgentSubGroup(label: 'Agents sous-qualifiés', agents: underQualifiedEntries),
+        AgentSubGroup(
+          label: 'Agents sous-qualifiés',
+          agents: underQualifiedEntries,
+        ),
       if (sickLeaveEntries.isNotEmpty)
-        AgentSubGroup(label: 'Agents en arrêt maladie', agents: sickLeaveEntries),
+        AgentSubGroup(
+          label: 'Agents en arrêt maladie',
+          agents: sickLeaveEntries,
+        ),
       if (suspendedEntries.isNotEmpty)
         AgentSubGroup(label: 'Agents suspendus', agents: suspendedEntries),
     ];
@@ -2593,8 +2621,9 @@ class _ReplacementRequestsListPageState
       if (currentUser == null) return false;
 
       final declinesPath = EnvironmentConfig.getCollectionPath(
-          'replacements/automatic/replacementRequestDeclines',
-          currentUser.station);
+        'replacements/automatic/replacementRequestDeclines',
+        currentUser.station,
+      );
 
       final snapshot = await FirebaseFirestore.instance
           .collection(declinesPath)
@@ -2617,10 +2646,13 @@ class _ReplacementRequestsListPageState
 
     try {
       final declinesPath = EnvironmentConfig.getCollectionPath(
-          'replacements/automatic/replacementRequestDeclines',
-          _currentStationId);
+        'replacements/automatic/replacementRequestDeclines',
+        _currentStationId,
+      );
       final requestsPath = EnvironmentConfig.getCollectionPath(
-          'replacements/automatic/replacementRequests', _currentStationId);
+        'replacements/automatic/replacementRequests',
+        _currentStationId,
+      );
 
       // 1. Enregistrer le refus dans la collection des declines
       await FirebaseFirestore.instance.collection(declinesPath).add({
@@ -2671,7 +2703,9 @@ class _ReplacementRequestsListPageState
       if (currentUser == null) return false;
 
       final acceptancesPath = EnvironmentConfig.getCollectionPath(
-          'replacements/automatic/replacementAcceptances', currentUser.station);
+        'replacements/automatic/replacementAcceptances',
+        currentUser.station,
+      );
 
       debugPrint(
         '🔍 [PENDING_ACCEPTANCE] Checking for user $_currentUserId on request $requestId at path: $acceptancesPath',
@@ -2790,8 +2824,29 @@ class _ReplacementRequestsListPageState
       String planningTeam = request.team ?? '';
       if (planningDoc.exists) {
         final data = planningDoc.data();
-        agentsInPlanning.addAll(List<String>.from(data?['agentsId'] ?? []));
         planningTeam = data?['team'] as String? ?? request.team ?? '';
+
+        // Utiliser le format 'agents' avec horaires pour identifier les agents
+        // couvrant TOTALEMENT la période de recherche (start ≤ request.start ET end ≥ request.end).
+        // Un agent présent partiellement n'est pas "en astreinte" au sens de la vague 0.
+        final rawAgents = data?['agents'] as List<dynamic>?;
+        if (rawAgents != null) {
+          for (final raw in rawAgents) {
+            final map = raw as Map<String, dynamic>;
+            if (map['replacedAgentId'] != null) continue; // exclure les remplaçants
+            final agentId = map['agentId'] as String?;
+            if (agentId == null) continue;
+            final agentStart = (map['start'] as Timestamp).toDate();
+            final agentEnd = (map['end'] as Timestamp).toDate();
+            if (!agentStart.isAfter(request.startTime) &&
+                !agentEnd.isBefore(request.endTime)) {
+              agentsInPlanning.add(agentId);
+            }
+          }
+        } else {
+          // Fallback ancien format (agentsId plat) — pas de filtrage horaire possible
+          agentsInPlanning.addAll(List<String>.from(data?['agentsId'] ?? []));
+        }
       }
 
       // Récupérer la configuration de la station pour déterminer le mode
@@ -2803,8 +2858,9 @@ class _ReplacementRequestsListPageState
 
       ReplacementMode replacementMode = ReplacementMode.similarity;
       bool allowUnderQualified = false;
+      Station? station;
       if (stationDoc.exists) {
-        final station = Station.fromJson({
+        station = Station.fromJson({
           'id': stationDoc.id,
           ...stationDoc.data()!,
         });
@@ -2869,6 +2925,7 @@ class _ReplacementRequestsListPageState
           requester: requester,
           planningTeam: planningTeam,
           agentsInPlanning: agentsInPlanning,
+          station: station,
         ),
       );
     } catch (e) {
@@ -3499,6 +3556,7 @@ class _WaveDetailsDialog extends StatefulWidget {
   final User requester;
   final String planningTeam;
   final List<String> agentsInPlanning;
+  final Station? station;
 
   const _WaveDetailsDialog({
     required this.request,
@@ -3509,6 +3567,7 @@ class _WaveDetailsDialog extends StatefulWidget {
     required this.requester,
     required this.planningTeam,
     required this.agentsInPlanning,
+    this.station,
   });
 
   @override
@@ -3533,8 +3592,9 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
       if (currentUser == null) return;
 
       final declinesPath = EnvironmentConfig.getCollectionPath(
-          'replacements/automatic/replacementRequestDeclines',
-          currentUser.station);
+        'replacements/automatic/replacementRequestDeclines',
+        currentUser.station,
+      );
 
       final snapshot = await FirebaseFirestore.instance
           .collection(declinesPath)
@@ -3559,7 +3619,9 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
       if (currentUser == null) return;
 
       final acceptancesPath = EnvironmentConfig.getCollectionPath(
-          'replacements/automatic/replacementAcceptances', currentUser.station);
+        'replacements/automatic/replacementAcceptances',
+        currentUser.station,
+      );
 
       final acceptancesSnapshot = await FirebaseFirestore.instance
           .collection(acceptancesPath)
@@ -3666,15 +3728,13 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
     }
   }
 
-  String _getWaveTimingInfo(int wave) {
+  String _getWaveTimingInfo(int wave, Station? station) {
     final currentWave = widget.request.currentWave;
     final lastWaveSentAt = widget.request.lastWaveSentAt;
 
     if (wave < currentWave) {
-      // Vague déjà envoyée
       return "Déjà notifiés";
     } else if (wave == currentWave) {
-      // Vague en cours
       if (lastWaveSentAt != null) {
         final elapsed = DateTime.now().difference(lastWaveSentAt);
         if (elapsed.inMinutes < 60) {
@@ -3687,27 +3747,64 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
       }
       return "En cours d'envoi";
     } else {
-      // Vague future
-      if (lastWaveSentAt != null) {
-        // Calculer le temps restant (délai par défaut: 30 min)
-        const delayMinutes = 30;
-        final nextWaveTime = lastWaveSentAt.add(
-          const Duration(minutes: delayMinutes),
-        );
-        final remaining = nextWaveTime.difference(DateTime.now());
+      if (lastWaveSentAt == null) return "Non encore planifié";
 
-        if (remaining.isNegative) {
-          return "En attente d'envoi";
-        } else if (remaining.inMinutes < 60) {
-          return "Dans ${remaining.inMinutes} min";
-        } else if (remaining.inHours < 24) {
-          return "Dans ${remaining.inHours}h";
-        } else {
-          return "Dans ${remaining.inDays}j";
-        }
+      final delayMinutes = station?.notificationWaveDelayMinutes ?? 30;
+      // Simuler l'heure d'envoi estimée en ajoutant un délai par étape,
+      // en sautant la plage de pause nocturne à chaque fois
+      final stepsAhead = wave - currentWave;
+      var estimatedTime = lastWaveSentAt;
+      for (int i = 0; i < stepsAhead; i++) {
+        estimatedTime = _addDelaySkippingNightPause(
+          estimatedTime,
+          delayMinutes,
+          station,
+        );
       }
-      return "Non encore envoyé";
+
+      final remaining = estimatedTime.difference(DateTime.now());
+      if (remaining.isNegative) {
+        return "En attente d'envoi";
+      } else if (remaining.inMinutes < 60) {
+        return "Dans ${remaining.inMinutes} min";
+      } else if (remaining.inHours < 24) {
+        final h = remaining.inHours;
+        final m = remaining.inMinutes.remainder(60);
+        return "Dans $h h ${m.toString().padLeft(2, '0')} min";
+      } else {
+        return "Dans ${remaining.inDays}j";
+      }
     }
+  }
+
+  /// Ajoute [delayMinutes] à [from] en décalant après la pause nocturne si besoin.
+  DateTime _addDelaySkippingNightPause(
+    DateTime from,
+    int delayMinutes,
+    Station? station,
+  ) {
+    var result = from.add(Duration(minutes: delayMinutes));
+    if (station == null || !station.nightPauseEnabled) return result;
+
+    final pauseStart = _parseTimeOnDay(station.nightPauseStart, result);
+    var pauseEnd = _parseTimeOnDay(station.nightPauseEnd, result);
+    // Si pause nocturne chevauche minuit, pauseEnd est le lendemain
+    if (!pauseEnd.isAfter(pauseStart)) {
+      pauseEnd = pauseEnd.add(const Duration(days: 1));
+    }
+    // Si result tombe dans la pause, décaler à la fin de la pause
+    if (!result.isBefore(pauseStart) && result.isBefore(pauseEnd)) {
+      result = pauseEnd;
+    }
+    return result;
+  }
+
+  /// Parse "HH:mm" en DateTime du même jour que [reference].
+  DateTime _parseTimeOnDay(String hhmm, DateTime reference) {
+    final parts = hhmm.split(':');
+    final h = int.tryParse(parts[0]) ?? 0;
+    final m = parts.length > 1 ? (int.tryParse(parts[1]) ?? 0) : 0;
+    return DateTime(reference.year, reference.month, reference.day, h, m);
   }
 
   Color _getWaveColor(int wave) {
@@ -3791,7 +3888,7 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
                     final users = widget.waveGroups[wave]!;
                     final isExpanded = _expandedWaves.contains(wave);
                     final waveColor = _getWaveColor(wave);
-                    final timingInfo = _getWaveTimingInfo(wave);
+                    final timingInfo = _getWaveTimingInfo(wave, widget.station);
 
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -3889,8 +3986,15 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
                                   ),
                                   child: Column(
                                     children: users.map((user) {
-                                      final isNotified = widget.notifiedUserIds
-                                          .contains(user.id);
+                                      // Utiliser waveUserIds si disponible (stocké lors de l'envoi)
+                                      // pour éviter le désalignement dû au recalcul côté UI.
+                                      // Fallback sur notifiedUserIds pour les demandes legacy.
+                                      final waveSpecificIds =
+                                          widget.request.waveUserIds[wave];
+                                      final isNotified = waveSpecificIds != null
+                                          ? waveSpecificIds.contains(user.id)
+                                          : widget.notifiedUserIds
+                                              .contains(user.id);
                                       final hasDeclined = _declinedUserIds
                                           .contains(user.id);
                                       final hasSeen = widget

@@ -30,6 +30,7 @@ class _AdminPageState extends State<AdminPage> {
   bool _isLoading = true;
   int _pendingRequestsCount = 0;
   List<OnCallLevel> _onCallLevels = [];
+  List<Position> _positions = [];
 
   @override
   void initState() {
@@ -56,6 +57,14 @@ class _AdminPageState extends State<AdminPage> {
           if (mounted) setState(() { _onCallLevels = levels; });
         } catch (e) {
           debugPrint('⚠️ [ADMIN] Error loading on-call levels: $e');
+        }
+        try {
+          final positions = await _positionRepository
+              .getPositionsByStation(user.station)
+              .first;
+          if (mounted) setState(() { _positions = positions; });
+        } catch (e) {
+          debugPrint('⚠️ [ADMIN] Error loading positions: $e');
         }
       } else {
         // Charger le nom de la station depuis le cache
@@ -1064,53 +1073,58 @@ class _AdminPageState extends State<AdminPage> {
     final user = userNotifier.value;
     if (user == null) return const SizedBox.shrink();
 
-    return StreamBuilder<List<Position>>(
-      stream: _positionRepository.getPositionsByStation(user.station),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Card(
-            child: ListTile(
-              leading: const Icon(Icons.error, color: Colors.red),
-              title: const Text('Erreur de chargement'),
-              subtitle: Text(snapshot.error.toString()),
+    return Card(
+      child: Column(
+        children: [
+          ListTile(
+            leading: const Icon(Icons.list),
+            title: const Text('Liste des postes'),
+            subtitle: Text('${_positions.length} poste(s) configuré(s)'),
+            trailing: IconButton(
+              icon: const Icon(Icons.add),
+              onPressed: () async {
+                await _addPosition(context);
+                if (mounted) {
+                  final positions = await _positionRepository
+                      .getPositionsByStation(user.station)
+                      .first;
+                  setState(() => _positions = positions);
+                }
+              },
             ),
-          );
-        }
-
-        if (!snapshot.hasData) {
-          return const Card(
-            child: Padding(
-              padding: EdgeInsets.all(16.0),
-              child: Center(child: CircularProgressIndicator()),
-            ),
-          );
-        }
-
-        final positions = snapshot.data!;
-
-        return Card(
-          child: Column(
-            children: [
-              ListTile(
-                leading: const Icon(Icons.list),
-                title: const Text('Liste des postes'),
-                subtitle: Text('${positions.length} poste(s) configuré(s)'),
-                trailing: IconButton(
-                  icon: const Icon(Icons.add),
-                  onPressed: () => _addPosition(context),
-                ),
-              ),
-              if (positions.isNotEmpty) ...[
-                const Divider(height: 1),
-                ...positions.map(
-                  (position) => _buildPositionTile(context, position),
-                ),
-              ],
-            ],
           ),
-        );
-      },
+          if (_positions.isNotEmpty) ...[
+            const Divider(height: 1),
+            ReorderableListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _positions.length,
+              onReorder: (oldIndex, newIndex) =>
+                  _reorderPositions(oldIndex, newIndex, user.station),
+              itemBuilder: (context, index) {
+                final position = _positions[index];
+                return KeyedSubtree(
+                  key: ValueKey(position.id),
+                  child: _buildPositionTile(context, position),
+                );
+              },
+            ),
+          ],
+        ],
+      ),
     );
+  }
+
+  void _reorderPositions(int oldIndex, int newIndex, String stationId) {
+    if (newIndex > oldIndex) newIndex--;
+    setState(() {
+      final item = _positions.removeAt(oldIndex);
+      _positions.insert(newIndex, item);
+      for (int i = 0; i < _positions.length; i++) {
+        _positions[i] = _positions[i].copyWith(order: i);
+      }
+    });
+    _positionRepository.reorderPositions(stationId, _positions);
   }
 
   Widget _buildPositionTile(BuildContext context, Position position) {
@@ -1516,6 +1530,13 @@ class _AdminPageState extends State<AdminPage> {
         await _positionRepository.updatePosition(updatedPosition);
 
         if (mounted) {
+          final user = userNotifier.value;
+          if (user != null) {
+            final positions = await _positionRepository
+                .getPositionsByStation(user.station)
+                .first;
+            setState(() => _positions = positions);
+          }
           messenger.showSnackBar(
             const SnackBar(content: Text('Poste modifié avec succès')),
           );
@@ -1564,6 +1585,13 @@ class _AdminPageState extends State<AdminPage> {
         );
 
         if (mounted) {
+          final user = userNotifier.value;
+          if (user != null) {
+            final positions = await _positionRepository
+                .getPositionsByStation(user.station)
+                .first;
+            setState(() => _positions = positions);
+          }
           messenger.showSnackBar(
             const SnackBar(content: Text('Poste supprimé avec succès')),
           );

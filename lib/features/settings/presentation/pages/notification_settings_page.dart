@@ -53,7 +53,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
     return Scaffold(
       appBar: CustomAppBar(
         title: 'Notifications',
-        bottomColor: const Color.fromARGB(255, 5, 5, 5),
+        bottomColor: KColors.appNameColor,
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -235,9 +235,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
             const Divider(height: 1),
             SwitchListTile(
               title: const Text('Adhésions caserne'),
-              subtitle: const Text(
-                'Demandes d\'adhésion à votre caserne',
-              ),
+              subtitle: const Text('Demandes d\'adhésion à votre caserne'),
               value: user.membershipAlertEnabled,
               activeThumbColor: KColors.appNameColor,
               activeTrackColor: KColors.appNameColor.withValues(alpha: 0.5),

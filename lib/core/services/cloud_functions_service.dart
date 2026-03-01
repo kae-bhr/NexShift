@@ -456,7 +456,8 @@ class CloudFunctionsService {
         keySkills: (userMap['keySkills'] as List<dynamic>?)?.cast<String>() ?? [],
         personalAlertEnabled: userMap['personalAlertEnabled'] as bool? ?? false,
         personalAlertHour: userMap['personalAlertHour'] as int? ?? 18,
-        positionId: userMap['positionId'] as String?,
+        positionIds: (userMap['positionIds'] as List<dynamic>?)?.cast<String>() ??
+            (userMap['positionId'] != null ? [userMap['positionId'] as String] : []),
       );
 
       debugPrint('✅ User loaded: ${user.firstName} ${user.lastName}');
@@ -504,7 +505,8 @@ class CloudFunctionsService {
           keySkills: (userMap['keySkills'] as List<dynamic>?)?.cast<String>() ?? [],
           personalAlertEnabled: userMap['personalAlertEnabled'] as bool? ?? false,
           personalAlertHour: userMap['personalAlertHour'] as int? ?? 18,
-          positionId: userMap['positionId'] as String?,
+          positionIds: (userMap['positionIds'] as List<dynamic>?)?.cast<String>() ??
+              (userMap['positionId'] != null ? [userMap['positionId'] as String] : []),
           agentAvailabilityStatus: userMap['agentAvailabilityStatus'] as String? ?? AgentAvailabilityStatus.active,
           suspensionStartDate: userMap['suspensionStartDate'] != null
               ? DateTime.tryParse(userMap['suspensionStartDate'] as String)

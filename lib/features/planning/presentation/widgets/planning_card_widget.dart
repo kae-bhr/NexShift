@@ -3,13 +3,13 @@ import 'package:nexshift_app/core/data/models/planning_model.dart';
 import 'package:nexshift_app/core/data/models/team_model.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/data/models/trucks_model.dart';
-import 'package:nexshift_app/core/data/models/subshift_model.dart';
 import 'package:nexshift_app/core/data/models/crew_position_model.dart';
 import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 import 'package:nexshift_app/core/data/datasources/notifiers.dart';
 import 'package:nexshift_app/core/repositories/team_repository.dart';
 import 'package:nexshift_app/core/repositories/truck_repository.dart';
 import 'package:nexshift_app/core/repositories/local_repositories.dart';
+import 'package:nexshift_app/core/repositories/user_repository.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:nexshift_app/features/planning/presentation/pages/planning_team_details_page.dart';
 import 'package:nexshift_app/features/planning/presentation/widgets/vehicle_detail_dialog.dart';
@@ -1046,19 +1046,8 @@ class _VehicleIcon extends StatelessWidget {
       orElse: () => trucks.first,
     );
 
-    // Get all users and subshifts
-    final repo = LocalRepository();
-    final allUsers = await repo.getAllUsers();
-    final allSubshifts = await repo.getSubshifts(stationId: planning.station);
-
-    final baseAgents = allUsers
-        .where((u) => planning.agentsId.contains(u.id))
-        .toList();
-
-    // Filter subshifts for this planning
-    final subshifts = allSubshifts
-        .where((s) => s.planningId == planning.id)
-        .toList();
+    // Get all users via Cloud Functions (déchiffrés, avec skills) — même source que planning_team_details_page
+    final allUsers = await UserRepository().getByStation(planning.station);
 
     // Recalculate time ranges taking replacements into account
     // Build a truck clone tagged with a specific modeId if this icon represents a sub-mode.
@@ -1096,41 +1085,39 @@ class _VehicleIcon extends StatelessWidget {
     final timeRanges = await _calculateTimeRangesForVehicle(
       truck: effectiveTruck,
       period: period,
-      baseAgents: baseAgents,
       allUsers: allUsers,
-      subshifts: subshifts,
       planning: planning,
     );
 
-    // Get effective agents at the first problematic time (or planning start)
-    final evaluationTime = timeRanges.isNotEmpty
-        ? timeRanges.first.start
-        : planning.startTime;
-    final evaluationUtc = evaluationTime.toUtc();
-
-    final effectiveAgents = List<User>.from(baseAgents);
-    for (final s in subshifts) {
-      final start = s.start.toUtc();
-      final end = s.end.toUtc();
-      if ((start.isBefore(evaluationUtc) ||
-              start.isAtSameMomentAs(evaluationUtc)) &&
-          end.isAfter(evaluationUtc)) {
-        final idx = effectiveAgents.indexWhere((u) => u.id == s.replacedId);
-        if (idx != -1) {
-          final replacer = allUsers.firstWhere(
-            (u) => u.id == s.replacerId,
-            orElse: () => effectiveAgents[idx],
-          );
-          effectiveAgents[idx] = replacer;
-        }
+    // Si aucun problème trouvé lors du recalcul séquentiel, ne pas ouvrir le dialog
+    if (timeRanges.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Aucun problème détecté sur ce véhicule'),
+          duration: Duration(seconds: 2),
+        ));
       }
+      return;
     }
 
-    // Calculate the actual CrewResult with positions
-    final crewResult = await CrewAllocator.allocateVehicleCrew(
-      agents: effectiveAgents,
+    // Dériver le crewResult de la pire plage (cohérent avec le calcul séquentiel)
+    final worstRange = timeRanges.reduce((a, b) =>
+        b.status == VehicleStatus.red
+            ? b
+            : a.status == VehicleStatus.red
+            ? a
+            : b);
+    final crewResult = CrewResult(
       truck: effectiveTruck,
-      stationId: planning.station,
+      crew: const [],
+      positions: worstRange.unfilledCrewPositions
+          .map((p) => PositionAssignment(position: p))
+          .toList(),
+      missingForFull: worstRange.missingForFull,
+      status: worstRange.status,
+      statusLabel: worstRange.status == VehicleStatus.red
+          ? 'Équipage incomplet'
+          : 'Prompt secours',
     );
 
     if (context.mounted) {
@@ -1163,9 +1150,7 @@ class _VehicleIcon extends StatelessWidget {
   Future<List<TimeRangeStatus>> _calculateTimeRangesForVehicle({
     required Truck truck,
     required String? period,
-    required List<User> baseAgents,
     required List<User> allUsers,
-    required List<Subshift> subshifts,
     required Planning planning,
   }) async {
     debugPrint(
@@ -1176,17 +1161,18 @@ class _VehicleIcon extends StatelessWidget {
     final allTrucks = await TruckRepository().getByStation(planning.station);
     if (allTrucks.isEmpty) return [];
 
-    // Build critical time points: planning start/end + subshift boundaries
+    // Build critical time points from planning.agents window boundaries
+    // (planning.agents is the source of truth — more reliable than Subshift collection)
     final criticalTimes = <DateTime>{
       planning.startTime,
       planning.endTime.subtract(const Duration(seconds: 1)),
     };
 
-    for (final s in subshifts) {
-      criticalTimes.add(s.start);
-      criticalTimes.add(s.end);
+    for (final a in planning.agents) {
+      criticalTimes.add(a.start);
+      criticalTimes.add(a.end.subtract(const Duration(seconds: 1)));
       debugPrint(
-        'Subshift: ${s.start} to ${s.end} (replacedId: ${s.replacedId}, replacerId: ${s.replacerId})',
+        'PlanningAgent: ${a.start} to ${a.end} (agentId: ${a.agentId}, replacedAgentId: ${a.replacedAgentId})',
       );
     }
 
@@ -1219,145 +1205,64 @@ class _VehicleIcon extends StatelessWidget {
         '\n--- Evaluating at ${sampleTime.hour}:${sampleTime.minute.toString().padLeft(2, "0")} ---',
       );
 
-      // Apply replacements at this time
-      final effectiveAgents = List<User>.from(baseAgents);
-      int replacementsApplied = 0;
-      for (final s in subshifts) {
-        final start = s.start.toUtc();
-        final end = s.end.toUtc();
-        if ((start.isBefore(sampleUtc) || start.isAtSameMomentAs(sampleUtc)) &&
-            end.isAfter(sampleUtc)) {
-          final idx = effectiveAgents.indexWhere((u) => u.id == s.replacedId);
-          if (idx != -1) {
-            final replacer = allUsers.firstWhere(
-              (u) => u.id == s.replacerId,
-              orElse: () => effectiveAgents[idx],
-            );
-            effectiveAgents[idx] = replacer;
-            replacementsApplied++;
-          }
-        }
-      }
-      debugPrint('Replacements applied: $replacementsApplied');
+      // Build effective crew at this time point directly from planning.agents
+      // (mirrors planning_team_details_page — planning.agents is the source of truth)
 
-      // SEQUENTIAL ALLOCATION: Build agent pools per vehicle type
-      final Map<String, List<User>> poolsByType = {};
-      for (final truckType in KTrucks.vehicleTypeOrder) {
-        poolsByType[truckType] = List<User>.from(effectiveAgents);
-      }
-
-      // Separate FPT from other trucks
-      final fptTrucks = allTrucks.where((t) => t.type == KTrucks.fpt).toList();
-      final otherTrucks = allTrucks
-          .where((t) => t.type != KTrucks.fpt)
-          .toList();
-
-      debugPrint('Allocating trucks in order:');
-      for (final t in otherTrucks) {
-        debugPrint('  - ${t.type}${t.id}');
-      }
-
-      VehicleStatus? targetStatus;
-      CrewResult? targetResult;
-
-      // Allocate standard trucks (non-FPT) sequentially until we reach our target
-      for (final t in otherTrucks) {
-        final pool = poolsByType[t.type]!;
-        debugPrint(
-          '  Allocating ${t.type}${t.id} with pool of ${pool.length} agents (type ${t.type})',
-        );
-        // If this is the target vehicle and a specific mode was requested (effectiveTruck.modeId set),
-        // allocate using that mode. Otherwise allocate default/configured mode.
-        final bool isTarget = (t.type == truck.type && t.id == truck.id);
-        final Truck truckForAlloc = isTarget && truck.modeId != null
-            ? Truck(
-                id: t.id,
-                displayNumber: t.displayNumber,
-                type: t.type,
-                station: t.station,
-                modeId: truck.modeId,
-              )
-            : t;
-        final r = await CrewAllocator.allocateVehicleCrew(
-          agents: pool,
-          truck: truckForAlloc,
-          stationId: planning.station,
-        );
-        debugPrint('    Result: ${r.status}, crew size: ${r.crew.length}');
-
-        // Remove used agents from the pool
-        for (final used in r.crew) {
-          pool.removeWhere((a) => a.id == used.id);
-        }
-        debugPrint('    Pool after allocation: ${pool.length} agents');
-
-        // Check if this is our target vehicle (period may be null or a suffix)
-        if (isTarget) {
-          targetStatus = r.status;
-          targetResult = r;
-          debugPrint('Target vehicle ${t.type}${t.id}: status = ${r.status}');
-          debugPrint('  Unfilled positions:');
-          for (final assignment in r.positions.where((a) => !a.isFilled)) {
-            debugPrint('    - ${assignment.position.label}');
-          }
-          break; // Stop after finding our vehicle
+      // 1. Find active base agent IDs at sampleUtc
+      final activeBaseIds = <String>{};
+      for (final a in planning.agents) {
+        if (a.replacedAgentId != null) continue;
+        final aStart = a.start.toUtc();
+        final aEnd = a.end.toUtc();
+        if ((aStart.isBefore(sampleUtc) || aStart.isAtSameMomentAs(sampleUtc)) &&
+            aEnd.isAfter(sampleUtc)) {
+          activeBaseIds.add(a.agentId);
         }
       }
 
-      // If target is FPT, handle FPT allocation with shared pool (supports any station-defined modes)
-      if (truck.type == KTrucks.fpt && period != null) {
-        final fptPool = poolsByType[KTrucks.fpt];
-        if (fptPool != null) {
-          // Sort FPT trucks by ID to ensure consistent allocation order
-          fptTrucks.sort((a, b) => a.id.compareTo(b.id));
-
-          for (final fpt in fptTrucks) {
-            // Create a pool snapshot for this specific FPT (modes share crew)
-            final thisFptPool = List<User>.from(fptPool);
-
-            // Fetch rule set to iterate all defined modes
-            final rulesRepo = VehicleRulesRepository();
-            final ruleSet = await rulesRepo.getRules(
-              vehicleType: KTrucks.fpt,
-              stationId: planning.station,
-            );
-            final modes = ruleSet?.modes ?? const [];
-            final allUsedIds = <String>{};
-
-            for (final mode in modes) {
-              final res = await CrewAllocator.allocateVehicleCrew(
-                agents: thisFptPool,
-                truck: Truck(
-                  id: fpt.id,
-                  displayNumber: fpt.displayNumber,
-                  type: fpt.type,
-                  station: fpt.station,
-                  modeId: mode.id,
-                ),
-                stationId: planning.station,
-              );
-
-              for (final used in res.crew) {
-                allUsedIds.add(used.id);
-              }
-
-              if (fpt.id == truck.id && period == mode.displaySuffix) {
-                targetStatus = res.status;
-                targetResult = res;
-                debugPrint(
-                  'Target FPT${fpt.id} ${mode.displaySuffix}: status = ${res.status}',
-                );
-                break;
-              }
-            }
-
-            if (targetResult != null) break;
-
-            // Remove from global pool the union of all used in modes for this FPT
-            fptPool.removeWhere((a) => allUsedIds.contains(a.id));
-          }
+      // 2. Find active replacements at sampleUtc (replacedId → replacerId)
+      final activeReplacementMap = <String, String>{};
+      for (final a in planning.agents) {
+        if (a.replacedAgentId == null) continue;
+        final aStart = a.start.toUtc();
+        final aEnd = a.end.toUtc();
+        if ((aStart.isBefore(sampleUtc) || aStart.isAtSameMomentAs(sampleUtc)) &&
+            aEnd.isAfter(sampleUtc)) {
+          activeReplacementMap[a.replacedAgentId!] = a.agentId;
+          activeBaseIds.add(a.replacedAgentId!); // ensure replaced slot is included
         }
       }
+
+      // 3. Resolve effective agents: use replacer if available, else base agent
+      final effectiveAgents = <User>[];
+      for (final baseId in activeBaseIds) {
+        final resolvedId = activeReplacementMap[baseId] ?? baseId;
+        final user = allUsers.where((u) => u.id == resolvedId).firstOrNull;
+        if (user != null) effectiveAgents.add(user);
+      }
+      debugPrint('Effective agents: ${effectiveAgents.length} (replacements applied: ${activeReplacementMap.length})');
+
+      // Allocation unifiée — identique à planning_team_details_page
+      final allResults = await CrewAllocator.allocateAllVehicles(
+        effectiveAgents: effectiveAgents,
+        trucks: allTrucks,
+        stationId: planning.station,
+      );
+
+      // Clé identique à celle construite dans allocateAllVehicles :
+      // truck.displayName = "${type}${displayNumber}", ex : "FPT1"
+      // + "_${period}" si le mode a un suffix, ex : "FPT1_6H"
+      final targetKey = (period != null && period.isNotEmpty)
+          ? '${truck.displayName}_$period'
+          : truck.displayName;
+
+      final targetResult = allResults[targetKey];
+      final targetStatus = targetResult?.status;
+
+      debugPrint('allocateAllVehicles → $targetKey: ${targetResult?.status}');
+      debugPrint(
+        '  Unfilled: ${targetResult?.positions.where((p) => !p.isFilled).map((p) => p.position.label).join(", ")}',
+      );
 
       // Only track problematic ranges (orange or red) with their unfilled positions
       if (targetStatus != null &&

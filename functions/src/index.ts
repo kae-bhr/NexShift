@@ -377,18 +377,19 @@ async function getAllStationPaths(): Promise<
   const db = getFirestore();
   const result: Array<{sdisId: string; stationId: string; stationPath: string}> = [];
 
-  const sdisSnapshot = await db.collection("sdis").get();
-  for (const sdisDoc of sdisSnapshot.docs) {
-    const sdisId = sdisDoc.id;
-    const stationsSnapshot = await db
-      .collection(`sdis/${sdisId}/stations`)
-      .get();
-
-    for (const stationDoc of stationsSnapshot.docs) {
+  // collectionGroup("stations") trouve toutes les sous-collections "stations"
+  // même si le document parent sdis/<id> n'existe pas en tant que document Firestore
+  const stationsSnapshot = await db.collectionGroup("stations").get();
+  for (const stationDoc of stationsSnapshot.docs) {
+    const ref = stationDoc.ref;
+    // chemin attendu : sdis/{sdisId}/stations/{stationId}
+    // ref.parent = collection "stations", ref.parent.parent = doc "sdis/{sdisId}"
+    const sdisDocRef = ref.parent.parent;
+    if (sdisDocRef && sdisDocRef.parent.id === "sdis") {
       result.push({
-        sdisId,
+        sdisId: sdisDocRef.id,
         stationId: stationDoc.id,
-        stationPath: `sdis/${sdisId}/stations/${stationDoc.id}`,
+        stationPath: `sdis/${sdisDocRef.id}/stations/${stationDoc.id}`,
       });
     }
   }
@@ -442,6 +443,14 @@ export const sendReplacementNotificationsV2 = onDocumentCreated(
         if (!userDoc.exists) return "";
         const {firstName, lastName} = decryptPII(userDoc.data() || {}, key);
         return `${firstName || ""} ${lastName || ""}`.trim();
+      };
+
+      // Helper : charge un doc équipe et retourne son nom complet
+      const resolveTeamName = async (teamId: string): Promise<string> => {
+        if (!teamId) return "";
+        const teamDoc = await db.collection(`${stationPath}/teams`).doc(teamId).get();
+        if (!teamDoc.exists) return teamId;
+        return (teamDoc.data()?.name as string) || teamId;
       };
 
       // Récupérer les tokens FCM des utilisateurs cibles
@@ -503,10 +512,12 @@ export const sendReplacementNotificationsV2 = onDocumentCreated(
       case "replacement_request": {
         const requesterName = await resolveUserName(trigger.requesterId);
         const isSOS = trigger.isSOS === true;
+        const teamName1 = await resolveTeamName(trigger.team || "");
         const replacementBody =
           `${requesterName} propose un remplacement du ` +
           `${formatShort(trigger.startTime.toDate())} au ` +
-          `${formatShort(trigger.endTime.toDate())}, ${trigger.team || ""}`;
+          `${formatShort(trigger.endTime.toDate())}` +
+          (teamName1 ? `, ${teamName1}` : "");
         notification = {
           title: isSOS ? "🚨 URGENT : Recherche de remplaçant" : "🔔 Recherche de remplaçant",
           body: isSOS ? `URGENT : ${replacementBody}` : replacementBody,
@@ -621,13 +632,14 @@ export const sendReplacementNotificationsV2 = onDocumentCreated(
 
       case "manual_replacement_proposal": {
         const proposerNameM = await resolveUserName(trigger.proposerId);
+        const teamNameM = await resolveTeamName(trigger.team || "");
         notification = {
           title: "🔄 Proposition de remplacement",
           body:
               `${proposerNameM} vous propose un remplacement du ` +
               `${formatShort(trigger.startTime.toDate())} au ` +
               `${formatShort(trigger.endTime.toDate())}` +
-              (trigger.team ? `, ${trigger.team}` : ""),
+              (teamNameM ? `, ${teamNameM}` : ""),
         };
         data = {
           type: "manual_replacement_proposal",
@@ -642,7 +654,8 @@ export const sendReplacementNotificationsV2 = onDocumentCreated(
       case "shift_exchange_proposal_received": {
         const proposerIdEx = trigger.data?.proposerId || "";
         const proposerNameEx = proposerIdEx ? await resolveUserName(proposerIdEx) : "";
-        const proposerTeamEx = trigger.data?.proposerTeam || "";
+        const proposerTeamIdEx = trigger.data?.proposerTeam || "";
+        const proposerTeamEx = proposerTeamIdEx ? await resolveTeamName(proposerTeamIdEx) : "";
         notification = {
           title: "💬 Proposition d'échange reçue",
           body: proposerNameEx
@@ -742,7 +755,11 @@ export const sendReplacementNotificationsV2 = onDocumentCreated(
           team: string;
         }>) || [];
 
-        const lines = plannings.map((p) => {
+        const resolvedPlanningTeamNames = await Promise.all(
+          plannings.map((p) => resolveTeamName(p.team))
+        );
+
+        const lines = plannings.map((p, idx) => {
           const start = new Date(p.startDate);
           const end = new Date(p.endDate);
           const parisStart = new Date(
@@ -759,7 +776,7 @@ export const sendReplacementNotificationsV2 = onDocumentCreated(
           const endMM = String(parisEnd.getMinutes()).padStart(2, "0");
           const startStr = startMM !== "00" ? `${startHH}h${startMM}` : `${startHH}h`;
           const endStr = endMM !== "00" ? `${endHH}h${endMM}` : `${endHH}h`;
-          return `- ${day}/${month} de ${startStr} à ${endStr}, ${p.team}`;
+          return `- ${day}/${month} de ${startStr} à ${endStr}, ${resolvedPlanningTeamNames[idx]}`;
         });
 
         notification = {
@@ -775,7 +792,7 @@ export const sendReplacementNotificationsV2 = onDocumentCreated(
       }
 
       case "agent_query_request": {
-        const queryTeam = trigger.team || "";
+        const queryTeam = trigger.team ? await resolveTeamName(trigger.team) : "";
         notification = {
           title: "🔎 Recherche d'agent",
           body: `Recherche d'un agent avec vos compétences` +
@@ -1625,7 +1642,28 @@ async function sendNextWaveV2(
     const agentsInPlanning: string[] = [];
     if (planningDoc.exists) {
       const planningData = planningDoc.data();
-      agentsInPlanning.push(...(planningData?.agentsId || []));
+      const requestStart = request.startTime.toDate().getTime();
+      const requestEnd = request.endTime.toDate().getTime();
+
+      const agents = planningData?.agents as Array<{
+        agentId: string;
+        start: {toDate: () => Date};
+        end: {toDate: () => Date};
+      }> | undefined;
+
+      if (agents) {
+        for (const a of agents) {
+          if (
+            a.start.toDate().getTime() < requestEnd &&
+            a.end.toDate().getTime() > requestStart
+          ) {
+            agentsInPlanning.push(a.agentId);
+          }
+        }
+      } else {
+        // Fallback ancien format
+        agentsInPlanning.push(...(planningData?.agentsId || []));
+      }
     }
 
     console.log(
@@ -1735,6 +1773,7 @@ async function sendNextWaveV2(
         currentWave: nextWave,
         notifiedUserIds: newNotifiedUserIds,
         lastWaveSentAt: Timestamp.now(),
+        [`waveUserIds.${nextWave}`]: waveUsers.map((u) => u.id),
       });
 
     // requesterName résolu par sendReplacementNotificationsV2 via decryptPII

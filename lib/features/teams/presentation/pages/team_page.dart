@@ -375,7 +375,13 @@ class _TeamPageState extends State<TeamPage> {
   Widget _buildPositionsView(BuildContext context) {
     final usersByPosition = <String?, List<User>>{};
     for (final user in _filteredUsers) {
-      usersByPosition.putIfAbsent(user.positionId, () => []).add(user);
+      if (user.positionIds.isEmpty) {
+        usersByPosition.putIfAbsent(null, () => []).add(user);
+      } else {
+        for (final posId in user.positionIds) {
+          usersByPosition.putIfAbsent(posId, () => []).add(user);
+        }
+      }
     }
     for (final users in usersByPosition.values) {
       users.sort((a, b) => a.lastName.compareTo(b.lastName));

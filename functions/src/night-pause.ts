@@ -64,7 +64,7 @@ export const sendPendingWavesAfterNightPause = onSchedule(
 
           // Récupérer les demandes en attente pour cette station
           const pendingRequests = await db
-            .collection(`${stationPath}/replacementRequests`)
+            .collection(`${stationPath}/replacements/automatic/replacementRequests`)
             .where("status", "==", "pending")
             .get();
 

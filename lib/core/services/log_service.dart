@@ -184,6 +184,14 @@ class LogService {
     }
   }
 
+  /// Filtre les lignes [DEBUG] pour n'afficher que les logs significatifs
+  String _filterDebugLines(String content) {
+    return content
+        .split('\n')
+        .where((line) => !line.contains('[DEBUG]'))
+        .join('\n');
+  }
+
   /// Récupère le contenu des logs de la session courante
   Future<String?> getCurrentSessionLogs() async {
     try {
@@ -191,7 +199,8 @@ class LogService {
       if (_currentLogFile == null || !await _currentLogFile!.exists()) {
         return null;
       }
-      return await _currentLogFile!.readAsString();
+      final content = await _currentLogFile!.readAsString();
+      return _filterDebugLines(content);
     } catch (e) {
       debugPrint('❌ Error reading current session logs: $e');
       return null;
@@ -204,7 +213,8 @@ class LogService {
       if (_previousLogFile == null || !await _previousLogFile!.exists()) {
         return null;
       }
-      return await _previousLogFile!.readAsString();
+      final content = await _previousLogFile!.readAsString();
+      return _filterDebugLines(content);
     } catch (e) {
       debugPrint('❌ Error reading previous session logs: $e');
       return null;

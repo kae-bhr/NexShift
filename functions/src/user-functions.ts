@@ -42,7 +42,7 @@ interface StationUser {
   skills: string[];
   keySkills: string[];
   personalAlertEnabled: boolean;
-  positionId?: string;
+  positionIds?: string[];
   agentAvailabilityStatus?: string;
   suspensionStartDate?: string;
 }
@@ -196,7 +196,7 @@ export const getStationUsers = onCall(
         skills: userData.skills || [],
         keySkills: userData.keySkills || [],
         personalAlertEnabled: userData.personalAlertEnabled ?? true,
-        positionId: userData.positionId,
+        positionIds: userData.positionIds || [],
         agentAvailabilityStatus: userData.agentAvailabilityStatus || "active",
         suspensionStartDate: userData.suspensionStartDate
           ? (typeof userData.suspensionStartDate === "string"
@@ -584,7 +584,7 @@ export const getUserByAuthUidForStation = onCall(
         skills: userData.skills || [],
         keySkills: userData.keySkills || [],
         personalAlertEnabled: userData.personalAlertEnabled ?? true,
-        positionId: userData.positionId,
+        positionIds: userData.positionIds || [],
       };
 
       return {user};
@@ -748,7 +748,7 @@ export const getUsersByStation = onCall(
           skills: userData.skills || [],
           keySkills: userData.keySkills || [],
           personalAlertEnabled: userData.personalAlertEnabled ?? true,
-          positionId: userData.positionId,
+          positionIds: userData.positionIds || [],
           agentAvailabilityStatus: userData.agentAvailabilityStatus || "active",
           suspensionStartDate: userData.suspensionStartDate
             ? (typeof userData.suspensionStartDate === "string"

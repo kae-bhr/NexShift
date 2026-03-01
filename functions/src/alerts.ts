@@ -63,31 +63,40 @@ export const sendDailyShiftReminder = onSchedule(
       let remindersSent = 0;
 
       for (const {stationPath} of stationPaths) {
-        // Utilisateurs avec rappel quotidien activé à l'heure courante
+        // Utilisateurs avec rappel quotidien activé
         const usersSnapshot = await db
           .collection(`${stationPath}/users`)
           .where("personalAlertEnabled", "==", true)
-          .where("personalAlertHour", "==", currentHour)
           .get();
 
         if (usersSnapshot.empty) continue;
 
-        for (const userDoc of usersSnapshot.docs) {
+        // Filtrer en mémoire sur l'heure (gère les documents anciens sans personalAlertHour)
+        const eligibleUsers = usersSnapshot.docs.filter((doc) => {
+          const hour = doc.data().personalAlertHour;
+          const effectiveHour = (hour === undefined || hour === null) ? 18 : hour;
+          return effectiveHour === currentHour;
+        });
+
+        for (const userDoc of eligibleUsers) {
           const userId = userDoc.id;
 
-          // Plannings où l'agent est présent et dont la fin est après maintenant
-          // (filtre complémentaire en mémoire : début avant maintenant+24h)
+          // Plannings où l'agent est présent (filtre temporel entièrement en mémoire
+          // pour éviter l'index composite array-contains + range)
           const planningsSnapshot = await db
             .collection(`${stationPath}/plannings`)
             .where("agentsId", "array-contains", userId)
-            .where("endTime", ">", Timestamp.fromDate(windowStart))
             .get();
 
           const overlapping = planningsSnapshot.docs.filter((doc) => {
             const data = doc.data();
             const startDate: Date =
               data.startTime?.toDate?.() ?? data.startDate?.toDate?.();
-            return startDate && startDate < windowEnd;
+            const endDate: Date =
+              data.endTime?.toDate?.() ?? data.endDate?.toDate?.();
+            return startDate && endDate &&
+              startDate < windowEnd &&
+              endDate > windowStart;
           });
 
           if (overlapping.length === 0) continue;
