@@ -18,6 +18,8 @@ import 'package:nexshift_app/features/app_shell/presentation/widgets/absence_men
 import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:nexshift_app/core/config/environment_config.dart';
 import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
+import 'package:nexshift_app/core/data/models/team_model.dart';
+import 'package:nexshift_app/features/planning/presentation/widgets/view_mode.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class PlanningPage extends StatefulWidget {
@@ -28,15 +30,19 @@ class PlanningPage extends StatefulWidget {
 }
 
 class _PlanningPageState extends State<PlanningPage> {
-  DateTime _currentWeekStart = _getStartOfWeek(DateTime.now());
   List<Planning> _plannings = [];
   List<Subshift> _subshifts = [];
   List<Availability> _availabilities = [];
   User? _currentUser;
   Map<String, Color> _teamColorById = {};
+  List<Team> _availableTeams = [];
   Color? _userTeamColor;
   bool _isLoading = false;
   String? _lastLoadedUserId;
+
+  // Vue mensuelle
+  List<Planning> _monthPlannings = [];
+  bool _isMonthLoading = false;
 
   // Variables pour l'infobulle de long press
   OverlayEntry? _tooltipOverlay;
@@ -53,6 +59,9 @@ class _PlanningPageState extends State<PlanningPage> {
     stationViewNotifier.addListener(_onStationViewChanged);
     teamDataChangedNotifier.addListener(_onTeamDataChanged);
     userNotifier.addListener(_onUserChanged);
+    viewModeNotifier.addListener(_onViewModeChanged);
+    currentMonthNotifier.addListener(_onCurrentMonthChanged);
+    selectedTeamNotifier.addListener(_onSelectedTeamChanged);
   }
 
   void _onUserChanged() {
@@ -69,11 +78,31 @@ class _PlanningPageState extends State<PlanningPage> {
     stationViewNotifier.removeListener(_onStationViewChanged);
     teamDataChangedNotifier.removeListener(_onTeamDataChanged);
     userNotifier.removeListener(_onUserChanged);
+    viewModeNotifier.removeListener(_onViewModeChanged);
+    currentMonthNotifier.removeListener(_onCurrentMonthChanged);
+    selectedTeamNotifier.removeListener(_onSelectedTeamChanged);
     super.dispose();
   }
 
+  void _onViewModeChanged() {
+    if (viewModeNotifier.value == ViewMode.month && _monthPlannings.isEmpty) {
+      _reloadPlanningsForMonth(currentMonthNotifier.value);
+    } else {
+      setState(() {});
+    }
+  }
+
+  void _onCurrentMonthChanged() {
+    setState(() => _monthPlannings = []);
+    _reloadPlanningsForMonth(currentMonthNotifier.value);
+  }
+
+  void _onSelectedTeamChanged() => setState(() {});
+
   void _onStationViewChanged() {
     // when the toggle changes, reload plannings to reflect personal/centre view
+    setState(() => _monthPlannings = []);
+    selectedTeamNotifier.value = null;
     _loadUserAndPlanning();
   }
 
@@ -422,8 +451,11 @@ class _PlanningPageState extends State<PlanningPage> {
       debugPrint('📅 [PLANNING_PAGE] _loadUserAndPlanning() - After cascade resolution: ${subshifts.length} subshifts');
       // Load teams to colorize bars by team in station view
       Color? userTeamColor;
+      List<Team> availableTeams = [];
       try {
         final teams = await TeamRepository().getByStation(user.station);
+        teams.sort((a, b) => a.order.compareTo(b.order));
+        availableTeams = teams;
         _teamColorById = {for (final t in teams) t.id: t.color};
         // Récupérer la couleur de l'équipe de l'utilisateur
         final userTeam = teams.firstWhere(
@@ -435,7 +467,7 @@ class _PlanningPageState extends State<PlanningPage> {
         _teamColorById = {};
         userTeamColor = null;
       }
-      final weekStart = _currentWeekStart;
+      final weekStart = currentWeekStartNotifier.value;
       final weekEnd = weekStart.add(const Duration(days: 7));
 
       List<Planning> plannings;
@@ -499,18 +531,53 @@ class _PlanningPageState extends State<PlanningPage> {
         _availabilities = availabilities;
         _currentUser = user;
         _userTeamColor = userTeamColor;
+        _availableTeams = availableTeams;
         _isLoading = false;
         _lastLoadedUserId = user.id;
       });
       debugPrint('📅 [PLANNING_PAGE] setState() completed - _subshifts in state: ${_subshifts.length}');
+      // Si on arrive en mode mois, charger maintenant que _currentUser est initialisé
+      if (viewModeNotifier.value == ViewMode.month && _monthPlannings.isEmpty) {
+        _reloadPlanningsForMonth(currentMonthNotifier.value);
+      }
     } else {
       _isLoading = false;
     }
   }
 
-  static DateTime _getStartOfWeek(DateTime date) {
-    final monday = date.subtract(Duration(days: date.weekday - 1));
-    return DateTime(monday.year, monday.month, monday.day);
+
+  Future<void> _reloadPlanningsForMonth(DateTime month) async {
+    setState(() => _isMonthLoading = true);
+    final user = _currentUser;
+    if (user == null) {
+      setState(() => _isMonthLoading = false);
+      return;
+    }
+    final repo = LocalRepository();
+    final isStationView = stationViewNotifier.value;
+    final monthStart = DateTime(month.year, month.month, 1);
+    final monthEnd = DateTime(month.year, month.month + 1, 0, 23, 59, 59);
+
+    List<Planning> plannings;
+    if (isStationView) {
+      plannings = await repo.getPlanningsByStationInRange(
+        user.station,
+        monthStart,
+        monthEnd,
+      );
+    } else {
+      plannings = await repo.getPlanningsForUserInRange(
+        user,
+        true,
+        monthStart,
+        monthEnd,
+      );
+    }
+    if (!mounted) return;
+    setState(() {
+      _monthPlannings = plannings;
+      _isMonthLoading = false;
+    });
   }
 
   // Week navigation is handled by [PlanningHeader]; PlanningPage keeps
@@ -598,6 +665,11 @@ class _PlanningPageState extends State<PlanningPage> {
             });
           }
         }
+      }
+      // Appliquer le filtre équipe si actif
+      if (selectedTeamNotifier.value != null) {
+        bars.removeWhere((b) =>
+            (b['planning'] as Planning?)?.team != selectedTeamNotifier.value);
       }
     } else {
       // Mode utilisateur
@@ -867,7 +939,7 @@ class _PlanningPageState extends State<PlanningPage> {
   Widget build(BuildContext context) {
     final daysOfWeek = List.generate(
       7,
-      (i) => _currentWeekStart.add(Duration(days: i)),
+      (i) => currentWeekStartNotifier.value.add(Duration(days: i)),
     );
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final now = DateTime.now();
@@ -879,12 +951,15 @@ class _PlanningPageState extends State<PlanningPage> {
           return Column(
             children: [
               PlanningHeader(
-                currentWeekStart: _currentWeekStart,
                 onWeekChanged: (dt) {
-                  setState(() => _currentWeekStart = dt);
+                  currentWeekStartNotifier.value = dt;
                   _loadUserAndPlanning();
                 },
+                availableTeams: _availableTeams,
               ),
+              if (viewModeNotifier.value == ViewMode.month)
+                _buildMonthView(stationView, isDark)
+              else ...[
               const SizedBox(height: 8),
               // Time legend at top
               Padding(
@@ -1067,12 +1142,458 @@ class _PlanningPageState extends State<PlanningPage> {
                   ),
                 ),
               ),
+              ], // fin else (vue semaine)
             ],
           );
         },
       ),
     );
   }
+
+  // ─────────────────────────────────────────────────────────
+  // VUE MENSUELLE (grille calendrier)
+  // ─────────────────────────────────────────────────────────
+
+  Widget _buildMonthView(bool stationView, bool isDark) {
+    if (_isMonthLoading) {
+      return Expanded(
+        child: Center(
+          child: SizedBox(
+            width: 36,
+            height: 36,
+            child: CircularProgressIndicator(
+              strokeWidth: 3,
+              color: KColors.appNameColor,
+            ),
+          ),
+        ),
+      );
+    }
+
+    final month = currentMonthNotifier.value;
+
+    // Filtrer les plannings du mois selon le mode et le filtre équipe
+    List<Planning> plannings = _monthPlannings;
+    if (stationView && selectedTeamNotifier.value != null) {
+      plannings = plannings
+          .where((p) => p.team == selectedTeamNotifier.value)
+          .toList();
+    } else if (!stationView && _currentUser != null) {
+      plannings = plannings.where((p) {
+        final isAgent = p.agentsId.contains(_currentUser!.id);
+        return isAgent ||
+            _subshifts.any(
+              (s) => s.planningId == p.id && s.replacerId == _currentUser!.id,
+            );
+      }).toList();
+    }
+
+    return Expanded(
+      child: _buildMonthGrid(month, plannings, isDark),
+    );
+  }
+
+  Widget _buildMonthGrid(
+      DateTime month, List<Planning> plannings, bool isDark) {
+    final firstDay = DateTime(month.year, month.month, 1);
+    final startOffset = firstDay.weekday - 1; // lundi = 0
+    final daysInMonth = DateTime(month.year, month.month + 1, 0).day;
+    final totalCells = startOffset + daysInMonth;
+    final rowCount = (totalCells / 7).ceil();
+    final now = DateTime.now();
+    const dayHeaders = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+
+    return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.only(left: 12, right: 12, top: 4, bottom: 80),
+      child: Column(
+        children: [
+          // Header jours de la semaine
+          Row(
+            children: dayHeaders
+                .map((h) => Expanded(
+                      child: Center(
+                        child: Text(
+                          h,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade500,
+                          ),
+                        ),
+                      ),
+                    ))
+                .toList(),
+          ),
+          const SizedBox(height: 4),
+          // Grille des jours
+          for (int row = 0; row < rowCount; row++)
+            Row(
+              children: List.generate(7, (col) {
+                final cellIndex = row * 7 + col;
+                final dayNumber = cellIndex - startOffset + 1;
+                if (dayNumber < 1 || dayNumber > daysInMonth) {
+                  return const Expanded(child: SizedBox(height: 56));
+                }
+                final day = DateTime(month.year, month.month, dayNumber);
+                final dayStart = DateTime(day.year, day.month, day.day);
+                final dayEnd = DateTime(day.year, day.month, day.day + 1);
+                final dayPlannings = plannings
+                    .where((p) =>
+                        p.endTime.isAfter(dayStart) &&
+                        p.startTime.isBefore(dayEnd))
+                    .toList();
+                final isToday = day.year == now.year &&
+                    day.month == now.month &&
+                    day.day == now.day;
+                return Expanded(
+                  child: _buildMonthDayCell(
+                      day, dayPlannings, isToday, isDark),
+                );
+              }),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMonthDayCell(
+    DateTime day,
+    List<Planning> dayPlannings,
+    bool isToday,
+    bool isDark,
+  ) {
+    final dots = dayPlannings.take(3).map((p) {
+      final color = _teamColorById[p.team] ?? Colors.grey.shade400;
+      return Container(
+        width: 6,
+        height: 6,
+        margin: const EdgeInsets.symmetric(horizontal: 1),
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      );
+    }).toList();
+
+    return GestureDetector(
+      onTap: dayPlannings.isEmpty
+          ? null
+          : () => _showDayPlannings(day, dayPlannings, isDark),
+      child: Container(
+        margin: const EdgeInsets.all(2),
+        height: 56,
+        decoration: BoxDecoration(
+          color: isToday
+              ? KColors.appNameColor.withValues(alpha: 0.1)
+              : (dayPlannings.isNotEmpty
+                  ? (isDark
+                      ? Colors.white.withValues(alpha: 0.04)
+                      : Colors.grey.shade50)
+                  : Colors.transparent),
+          borderRadius: BorderRadius.circular(8),
+          border: isToday
+              ? Border.all(color: KColors.appNameColor.withValues(alpha: 0.4))
+              : null,
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              day.day.toString(),
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: isToday ? FontWeight.w700 : FontWeight.w500,
+                color: isToday
+                    ? KColors.appNameColor
+                    : (dayPlannings.isEmpty
+                        ? (isDark
+                            ? Colors.grey.shade600
+                            : Colors.grey.shade400)
+                        : null),
+              ),
+            ),
+            if (dots.isNotEmpty) ...[
+              const SizedBox(height: 3),
+              Row(mainAxisAlignment: MainAxisAlignment.center, children: dots),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showDayPlannings(
+      DateTime day, List<Planning> dayPlannings, bool isDark) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: Container(
+            margin: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E1E2E) : Colors.white,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Drag handle
+                Padding(
+                  padding: const EdgeInsets.only(top: 10, bottom: 4),
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? Colors.white.withValues(alpha: 0.2)
+                          : Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+
+                // En-tête avec date
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: KColors.appNameColor.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Center(
+                          child: Text(
+                            day.day.toString(),
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              color: KColors.appNameColor,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _capitalizeFirst(
+                                DateFormat('EEEE', 'fr_FR').format(day)),
+                            style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w700,
+                              color: isDark ? Colors.white : Colors.black87,
+                              letterSpacing: -0.3,
+                            ),
+                          ),
+                          Text(
+                            DateFormat('d MMMM yyyy', 'fr_FR').format(day),
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: isDark
+                                  ? Colors.grey.shade500
+                                  : Colors.grey.shade500,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? Colors.white.withValues(alpha: 0.06)
+                              : Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          '${dayPlannings.length} astreinte${dayPlannings.length > 1 ? 's' : ''}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: isDark
+                                ? Colors.grey.shade400
+                                : Colors.grey.shade600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                Divider(
+                  height: 1,
+                  color: isDark
+                      ? Colors.white.withValues(alpha: 0.06)
+                      : Colors.grey.shade100,
+                ),
+
+                // Liste des plannings
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                  child: Column(
+                    children: dayPlannings.map((p) {
+                      final teamColor =
+                          _teamColorById[p.team] ?? Colors.grey.shade400;
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Material(
+                          color: Colors.transparent,
+                          borderRadius: BorderRadius.circular(14),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(14),
+                            onTap: () {
+                              Navigator.pop(ctx);
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      PlanningTeamDetailsPage(at: p.startTime),
+                                ),
+                              );
+                            },
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: isDark
+                                    ? Colors.white.withValues(alpha: 0.04)
+                                    : Colors.grey.shade50,
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: isDark
+                                      ? Colors.white.withValues(alpha: 0.06)
+                                      : Colors.grey.shade200,
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  // Barre de couleur latérale
+                                  Container(
+                                    width: 4,
+                                    height: 72,
+                                    decoration: BoxDecoration(
+                                      color: teamColor,
+                                      borderRadius: const BorderRadius.only(
+                                        topLeft: Radius.circular(14),
+                                        bottomLeft: Radius.circular(14),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 14),
+                                  // Contenu
+                                  Expanded(
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 12),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'Équipe ${p.team}',
+                                            style: TextStyle(
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w600,
+                                              color: teamColor,
+                                              letterSpacing: -0.2,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 6),
+                                          // Badge horaire style _DateTimeChip
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 8, vertical: 5),
+                                            decoration: BoxDecoration(
+                                              color: isDark
+                                                  ? Colors.white
+                                                      .withValues(alpha: 0.06)
+                                                  : Colors.grey.shade100,
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  Icons.schedule_rounded,
+                                                  size: 13,
+                                                  color: isDark
+                                                      ? Colors.grey.shade400
+                                                      : Colors.grey.shade500,
+                                                ),
+                                                const SizedBox(width: 5),
+                                                Text(
+                                                  _fmtDateTime(p.startTime),
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.w500,
+                                                    color: isDark
+                                                        ? Colors.grey.shade300
+                                                        : Colors.grey.shade700,
+                                                  ),
+                                                ),
+                                                Padding(
+                                                  padding: const EdgeInsets
+                                                      .symmetric(horizontal: 5),
+                                                  child: Icon(
+                                                    Icons.arrow_forward_rounded,
+                                                    size: 11,
+                                                    color: isDark
+                                                        ? Colors.grey.shade500
+                                                        : Colors.grey.shade400,
+                                                  ),
+                                                ),
+                                                Text(
+                                                  _fmtDateTime(p.endTime),
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.w500,
+                                                    color: isDark
+                                                        ? Colors.grey.shade300
+                                                        : Colors.grey.shade700,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  // Flèche de navigation
+                                  Padding(
+                                    padding: const EdgeInsets.only(right: 14),
+                                    child: Icon(
+                                      Icons.chevron_right_rounded,
+                                      size: 20,
+                                      color: isDark
+                                          ? Colors.grey.shade600
+                                          : Colors.grey.shade400,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  String _fmtDateTime(DateTime dt) =>
+      "${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
 
   String _capitalizeFirst(String s) {
     if (s.isEmpty) return s;

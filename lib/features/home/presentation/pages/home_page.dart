@@ -38,6 +38,8 @@ import 'package:nexshift_app/core/presentation/widgets/unified_request_tile/unif
 import 'package:nexshift_app/core/data/models/agent_query_model.dart';
 import 'package:nexshift_app/core/repositories/agent_query_repository.dart';
 import 'package:nexshift_app/core/services/agent_query_service.dart';
+import 'package:nexshift_app/core/data/models/team_model.dart';
+import 'package:nexshift_app/features/planning/presentation/widgets/view_mode.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -62,8 +64,14 @@ class _HomePageState extends State<HomePage> {
   List<OnCallLevel> _onCallLevels = [];
   Station? _station;
   final Map<String, bool> _expanded = {};
-  DateTime _currentWeekStart = _getStartOfWeek(DateTime.now());
   Color? _userTeamColor;
+
+  // Vue mensuelle
+  List<Planning> _allMonthPlannings = [];
+  bool _isMonthLoading = false;
+
+  // Filtre équipe (mode Centre)
+  List<Team> _availableTeams = [];
 
   final noneUser = User(
     id: "",
@@ -75,11 +83,6 @@ class _HomePageState extends State<HomePage> {
     skills: [],
   );
 
-  static DateTime _getStartOfWeek(DateTime date) {
-    final monday = date.subtract(Duration(days: date.weekday - 1));
-    // Normalize to 00:00 for deterministic week boundaries
-    return DateTime(monday.year, monday.month, monday.day, 0, 0, 0);
-  }
 
   @override
   void initState() {
@@ -87,6 +90,9 @@ class _HomePageState extends State<HomePage> {
     debugPrint('🏠 [HOME_PAGE] initState() called');
     _loadData();
     stationViewNotifier.addListener(_onStationViewChanged);
+    viewModeNotifier.addListener(_onViewModeChanged);
+    currentMonthNotifier.addListener(_onCurrentMonthChanged);
+    selectedTeamNotifier.addListener(_onSelectedTeamChanged);
     // Reload when the connected user changes
     userNotifier.addListener(_onUserChanged);
   }
@@ -94,14 +100,36 @@ class _HomePageState extends State<HomePage> {
   @override
   void dispose() {
     stationViewNotifier.removeListener(_onStationViewChanged);
+    viewModeNotifier.removeListener(_onViewModeChanged);
+    currentMonthNotifier.removeListener(_onCurrentMonthChanged);
+    selectedTeamNotifier.removeListener(_onSelectedTeamChanged);
     userNotifier.removeListener(_onUserChanged);
     super.dispose();
   }
 
   void _onStationViewChanged() {
-    // reload data when the global station/personnel toggle changes
-    _loadData();
+    selectedTeamNotifier.value = null;
+    if (viewModeNotifier.value == ViewMode.month) {
+      setState(() => _allMonthPlannings = []);
+      _reloadPlanningsForMonth(currentMonthNotifier.value);
+    } else {
+      _reloadPlanningsForWeek(currentWeekStartNotifier.value);
+    }
   }
+
+  void _onViewModeChanged() {
+    if (viewModeNotifier.value == ViewMode.month && _allMonthPlannings.isEmpty) {
+      _reloadPlanningsForMonth(currentMonthNotifier.value);
+    } else {
+      setState(() {});
+    }
+  }
+
+  void _onCurrentMonthChanged() {
+    _reloadPlanningsForMonth(currentMonthNotifier.value);
+  }
+
+  void _onSelectedTeamChanged() => setState(() {});
 
   void _onUserChanged() {
     final u = userNotifier.value;
@@ -143,11 +171,11 @@ class _HomePageState extends State<HomePage> {
 
       final repo = LocalRepository();
       // Charger les plannings de la semaine courante (on filtrera ensuite côté client)
-      final weekEnd = _currentWeekStart.add(const Duration(days: 7));
+      final weekEnd = currentWeekStartNotifier.value.add(const Duration(days: 7));
 
       final allPlannings = await repo.getPlanningsByStationInRange(
         user.station,
-        _currentWeekStart,
+        currentWeekStartNotifier.value,
         weekEnd,
       );
 
@@ -158,14 +186,18 @@ class _HomePageState extends State<HomePage> {
         stationId: user.station,
       );
 
-      // Charger la couleur de l'équipe de l'utilisateur
+      // Charger les équipes (couleur utilisateur + liste pour filtre)
       Color? teamColor;
+      List<Team> availableTeams = [];
       try {
-        final team = await TeamRepository().getById(
-          user.team,
-          stationId: user.station,
+        final teams = await TeamRepository().getByStation(user.station);
+        teams.sort((a, b) => a.order.compareTo(b.order));
+        availableTeams = teams;
+        final userTeam = teams.firstWhere(
+          (t) => t.id == user.team,
+          orElse: () => teams.isNotEmpty ? teams.first : Team(id: '', name: '', stationId: '', color: Colors.grey, order: 0),
         );
-        teamColor = team?.color;
+        teamColor = userTeam.id.isNotEmpty ? userTeam.color : null;
       } catch (_) {
         teamColor = null;
       }
@@ -259,17 +291,20 @@ class _HomePageState extends State<HomePage> {
         _station = station;
         _user = user;
         _userTeamColor = teamColor;
+        _availableTeams = availableTeams;
         _lastUserId = user.id;
         _isLoading = false;
       });
+      // Si on arrive en mode mois, charger les plannings du mois maintenant
+      // que _user est initialisé (l'appel depuis initState était trop tôt)
+      if (viewModeNotifier.value == ViewMode.month && _allMonthPlannings.isEmpty) {
+        _reloadPlanningsForMonth(currentMonthNotifier.value);
+      }
     }
   }
 
   void _onWeekChanged(DateTime newWeekStart) {
-    setState(() {
-      _currentWeekStart = newWeekStart;
-    });
-    // Recharger uniquement les plannings pour la semaine sélectionnée
+    currentWeekStartNotifier.value = newWeekStart;
     _reloadPlanningsForWeek(newWeekStart);
   }
 
@@ -299,6 +334,33 @@ class _HomePageState extends State<HomePage> {
       _allAvailabilities = availabilities;
     });
   }
+
+  Future<void> _reloadPlanningsForMonth(DateTime month) async {
+    final user = userNotifier.value;
+    if (user == null) {
+      // Pas encore de user disponible — _loadData() relancera après son setState
+      return;
+    }
+    setState(() => _isMonthLoading = true);
+    final repo = LocalRepository();
+    final monthStart = DateTime(month.year, month.month, 1);
+    final monthEnd = DateTime(month.year, month.month + 1, 0, 23, 59, 59);
+    final plannings = await repo.getPlanningsByStationInRange(
+      user.station,
+      monthStart,
+      monthEnd,
+    );
+    final availabilities = await repo.getAvailabilities(
+      stationId: user.station,
+    );
+    if (!mounted) return;
+    setState(() {
+      _allMonthPlannings = plannings;
+      _allAvailabilities = availabilities;
+      _isMonthLoading = false;
+    });
+  }
+
 
   Color _statusToColor(VehicleStatus status) {
     switch (status) {
@@ -566,13 +628,13 @@ class _HomePageState extends State<HomePage> {
   }
 
   List<Planning> _getFilteredPlannings() {
-    final weekEnd = _currentWeekStart.add(const Duration(days: 7));
+    final weekEnd = currentWeekStartNotifier.value.add(const Duration(days: 7));
     final stationView = stationViewNotifier.value;
 
     // Filtrer par semaine
     final planningsInWeek = _allPlannings.where((p) {
       // Une planning est dans la semaine si elle chevauche la semaine courante
-      return p.endTime.isAfter(_currentWeekStart) &&
+      return p.endTime.isAfter(currentWeekStartNotifier.value) &&
           p.startTime.isBefore(weekEnd);
     }).toList();
 
@@ -609,10 +671,54 @@ class _HomePageState extends State<HomePage> {
     }
 
     // Mode centre : toutes les plannings de la semaine du centre de l'utilisateur
-    final stationPlannings = planningsInWeek
+    var stationPlannings = planningsInWeek
         .where((p) => p.station == _user.station)
         .toList();
+    // Filtre équipe si sélectionné
+    if (selectedTeamNotifier.value != null) {
+      stationPlannings = stationPlannings
+          .where((p) => p.team == selectedTeamNotifier.value)
+          .toList();
+    }
     // Trier par ordre chronologique (startTime)
+    stationPlannings.sort((a, b) => a.startTime.compareTo(b.startTime));
+    return stationPlannings;
+  }
+
+  List<Planning> _getFilteredPlanningsForMonth() {
+    final monthStart = DateTime(currentMonthNotifier.value.year, currentMonthNotifier.value.month, 1);
+    final monthEnd = DateTime(currentMonthNotifier.value.year, currentMonthNotifier.value.month + 1, 0, 23, 59, 59);
+    final stationView = stationViewNotifier.value;
+
+    final planningsInMonth = _allMonthPlannings.where((p) {
+      return p.endTime.isAfter(monthStart) && p.startTime.isBefore(monthEnd);
+    }).toList();
+
+    if (!stationView) {
+      final userPlannings = planningsInMonth.where((planning) {
+        final isAgent = planning.agentsId.contains(_user.id);
+        final isReplacedEntirely = _isUserReplacedEntirely(planning, _user.id);
+        if (isAgent && !isReplacedEntirely) return true;
+        return _allSubshifts.any(
+          (s) =>
+              s.planningId == planning.id &&
+              s.replacerId == _user.id &&
+              s.end.isAfter(planning.startTime) &&
+              s.start.isBefore(planning.endTime),
+        );
+      }).toList();
+      userPlannings.sort((a, b) => a.startTime.compareTo(b.startTime));
+      return userPlannings;
+    }
+
+    var stationPlannings = planningsInMonth
+        .where((p) => p.station == _user.station)
+        .toList();
+    if (selectedTeamNotifier.value != null) {
+      stationPlannings = stationPlannings
+          .where((p) => p.team == selectedTeamNotifier.value)
+          .toList();
+    }
     stationPlannings.sort((a, b) => a.startTime.compareTo(b.startTime));
     return stationPlannings;
   }
@@ -621,7 +727,7 @@ class _HomePageState extends State<HomePage> {
     // Filtrer les disponibilités de l'utilisateur dans la semaine
     final userAvailabilities = _allAvailabilities.where((a) {
       return a.agentId == _user.id &&
-          a.end.isAfter(_currentWeekStart) &&
+          a.end.isAfter(currentWeekStartNotifier.value) &&
           a.start.isBefore(weekEnd);
     }).toList();
 
@@ -2442,14 +2548,19 @@ class _HomePageState extends State<HomePage> {
       body: ValueListenableBuilder<bool>(
         valueListenable: stationViewNotifier,
         builder: (context, stationView, _) {
-          final filteredPlannings = _getFilteredPlannings();
+          final filteredPlannings = viewModeNotifier.value == ViewMode.week
+              ? _getFilteredPlannings()
+              : <Planning>[];
 
           return Column(
             children: [
               PlanningHeader(
-                currentWeekStart: _currentWeekStart,
                 onWeekChanged: _onWeekChanged,
+                availableTeams: _availableTeams,
               ),
+              if (viewModeNotifier.value == ViewMode.month)
+                _buildMonthView(stationView, isDark)
+              else
               Expanded(
                 child: RefreshIndicator(
                   color: KColors.appNameColor,
@@ -2879,6 +2990,362 @@ class _HomePageState extends State<HomePage> {
       ),
     );
   }
+
+  // ─────────────────────────────────────────────────────────
+  // VUE MENSUELLE
+  // ─────────────────────────────────────────────────────────
+
+  Widget _buildMonthView(bool stationView, bool isDark) {
+    if (_isMonthLoading) {
+      return Expanded(
+        child: Center(
+          child: SizedBox(
+            width: 36,
+            height: 36,
+            child: CircularProgressIndicator(
+              strokeWidth: 3,
+              color: KColors.appNameColor,
+            ),
+          ),
+        ),
+      );
+    }
+
+    final plannings = _getFilteredPlanningsForMonth();
+
+    if (plannings.isEmpty) {
+      return Expanded(
+        child: RefreshIndicator(
+          color: KColors.appNameColor,
+          onRefresh: () => _reloadPlanningsForMonth(currentMonthNotifier.value),
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.only(bottom: 16),
+            children: [
+              const SizedBox(height: 80),
+              Center(
+                child: Column(
+                  children: [
+                    Container(
+                      width: 72,
+                      height: 72,
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 0.06)
+                            : Colors.grey.shade50,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.event_available_rounded,
+                        size: 32,
+                        color: isDark
+                            ? Colors.grey.shade500
+                            : Colors.grey.shade400,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      "Aucune astreinte",
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w600,
+                        color: isDark
+                            ? Colors.grey.shade400
+                            : Colors.grey.shade600,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      "Aucune astreinte prévue ce mois.",
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: isDark
+                            ? Colors.grey.shade500
+                            : Colors.grey.shade400,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Expanded(
+      child: RefreshIndicator(
+        color: KColors.appNameColor,
+        onRefresh: () => _reloadPlanningsForMonth(currentMonthNotifier.value),
+        child: ListView.builder(
+          physics: const AlwaysScrollableScrollPhysics(),
+          key: ValueKey(plannings.length),
+          padding: const EdgeInsets.only(
+            left: 12,
+            right: 12,
+            top: 4,
+            bottom: 16,
+          ),
+          itemCount: plannings.length,
+          itemBuilder: (context, i) {
+            final planning = plannings[i];
+            final id = "${planning.team}_${planning.startTime}";
+            final isExpanded = _expanded[id] ?? false;
+
+            final subList = _allSubshifts
+                .where(
+                  (s) =>
+                      s.planningId == planning.id &&
+                      s.end.isAfter(planning.startTime) &&
+                      s.start.isBefore(planning.endTime),
+                )
+                .toList()
+              ..sort((a, b) => a.start.compareTo(b.start));
+
+            final isAvailability = planning.id.startsWith('availability_');
+            final isOnGuard = planning.agentsId.contains(_user.id);
+            final isReplacedFully = _isUserReplacedEntirely(planning, _user.id);
+
+            Subshift? replacerSubshift;
+            for (final s in subList) {
+              if (s.replacerId == _user.id) {
+                replacerSubshift = s;
+                break;
+              }
+            }
+
+            return AnimatedSize(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeInOut,
+              alignment: Alignment.topCenter,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  FutureBuilder<List<Map<String, dynamic>>>(
+                    future: _buildVehicleIconSpecs(planning),
+                    builder: (context, snapshotIcons) {
+                      final specs = snapshotIcons.data ?? const [];
+                      int? agentCountMin;
+                      int? agentCountMax;
+                      List<AgentCountIssue> agentCountIssues = [];
+                      if (_onCallLevels.isNotEmpty) {
+                        final countResult =
+                            OnCallDispositionService.computeAgentCount(
+                              planning: planning,
+                            );
+                        agentCountMin = countResult.min;
+                        agentCountMax = countResult.max;
+                        agentCountIssues = countResult.issues;
+                      }
+
+                      bool allChecked = false;
+                      if (_onCallLevels.isNotEmpty) {
+                        allChecked = planning.agents.isNotEmpty &&
+                            planning.agents.every((a) => a.checkedByChief);
+                      } else {
+                        allChecked = subList.isNotEmpty &&
+                            subList.every((s) => s.checkedByChief);
+                      }
+
+                      return PlanningCard(
+                        planning: planning,
+                        onTap: () => _toggleExpanded(id),
+                        isExpanded: isExpanded,
+                        replacementCount: subList.length,
+                        pendingRequestCount: _getPendingRequestCount(planning),
+                        vehicleIconSpecs: specs,
+                        availabilityColor: _userTeamColor,
+                        allReplacementsChecked: allChecked,
+                        agentCountMin: agentCountMin,
+                        agentCountMax: agentCountMax,
+                        agentCountIssues: agentCountIssues,
+                      );
+                    },
+                  ),
+                  // Expanded content
+                  if (!isAvailability && isExpanded)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                      child: Container(
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? Colors.white.withValues(alpha: 0.04)
+                              : Colors.grey.shade50,
+                          borderRadius: const BorderRadius.only(
+                            bottomLeft: Radius.circular(16),
+                            bottomRight: Radius.circular(16),
+                          ),
+                          border: Border.all(
+                            color: isDark
+                                ? Colors.white.withValues(alpha: 0.06)
+                                : Colors.grey.shade200,
+                          ),
+                        ),
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (!isAvailability &&
+                                ((isOnGuard && !isReplacedFully) ||
+                                    replacerSubshift != null))
+                              _AbsenceMenuButton(
+                                planning: planning,
+                                user: _user,
+                                replacerSubshift: replacerSubshift,
+                              )
+                            else if (!isAvailability &&
+                                stationView &&
+                                (!isOnGuard || isReplacedFully) &&
+                                (_user.admin ||
+                                    _user.status == KConstants.statusLeader ||
+                                    (_user.status == KConstants.statusChief &&
+                                        _user.team.toLowerCase() ==
+                                            planning.team.toLowerCase())))
+                              _AdminReplaceButton(
+                                planning: planning,
+                                user: _user,
+                              ),
+                            const SizedBox(height: 12),
+                            // Section présence par niveau d'astreinte
+                            if (!isAvailability &&
+                                _station != null &&
+                                _onCallLevels.isNotEmpty)
+                              OnCallPresenceSection(
+                                planning: planning,
+                                levels: _onCallLevels,
+                                station: _station!,
+                                allUsers: _allUsers,
+                                currentUser: _user,
+                                canManage: _user.admin ||
+                                    _user.status == KConstants.statusLeader ||
+                                    (_user.status == KConstants.statusChief &&
+                                        _user.team.toLowerCase() ==
+                                            planning.team.toLowerCase()),
+                                onToggleCheck: (entry) async {
+                                  await _toggleAgentCheck(planning, entry);
+                                },
+                                onRemoveEntry: (entry) async {
+                                  await _removeEntryFromPlanning(
+                                      planning, entry);
+                                },
+                                onEditEntry: (entry) async {
+                                  await _showEditPresenceDialog(
+                                      planning, entry);
+                                },
+                                onAddAgent: () =>
+                                    _showAddAgentDialog(planning),
+                              )
+                            // Fallback si pas de niveaux configurés : afficher les remplacements classiques
+                            else if (!isAvailability && _onCallLevels.isEmpty)
+                              ...subList.mapIndexed((index, s) {
+                                final isFirst = index == 0;
+                                final isLast = index == subList.length - 1;
+                                final canDelete = _user.id == s.replacedId ||
+                                    _user.admin ||
+                                    _user.status == KConstants.statusLeader ||
+                                    ((_user.status == KConstants.statusChief) &&
+                                        _user.team == planning.team);
+                                final canSeeCheck = _user.admin ||
+                                    _user.status == KConstants.statusLeader ||
+                                    ((_user.status == KConstants.statusChief) &&
+                                        _user.team == planning.team);
+                                final item = Padding(
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 4.0),
+                                  child: SubShiftItem(
+                                    subShift: s,
+                                    planning: planning,
+                                    allUsers: _allUsers,
+                                    noneUser: noneUser,
+                                    isFirst: isFirst,
+                                    isLast: isLast,
+                                    highlight: s.replacerId == _user.id ||
+                                        s.replacedId == _user.id,
+                                    showCheckIcon: canSeeCheck,
+                                    onCheckTap: canSeeCheck
+                                        ? () async {
+                                            final subRepo = SubshiftRepository();
+                                            final newChecked =
+                                                !s.checkedByChief;
+                                            await subRepo.toggleCheck(
+                                              s.id,
+                                              checked: newChecked,
+                                              checkedBy: _user.id,
+                                              stationId: _user.station,
+                                            );
+                                            if (!mounted) return;
+                                            setState(() {
+                                              final idx =
+                                                  _allSubshifts.indexWhere(
+                                                (x) => x.id == s.id,
+                                              );
+                                              if (idx != -1) {
+                                                _allSubshifts[idx] =
+                                                    s.copyWith(
+                                                  checkedByChief: newChecked,
+                                                );
+                                              }
+                                            });
+                                          }
+                                        : null,
+                                  ),
+                                );
+
+                                if (canDelete) {
+                                  return Dismissible(
+                                    key: ValueKey(s.id),
+                                    direction: DismissDirection.endToStart,
+                                    background: Container(
+                                      alignment: Alignment.centerRight,
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 20),
+                                      decoration: BoxDecoration(
+                                        color: Colors.red.shade400,
+                                        borderRadius:
+                                            BorderRadius.circular(8),
+                                      ),
+                                      child: const Icon(
+                                        Icons.delete_outline_rounded,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                    confirmDismiss: (_) async {
+                                      await SubshiftRepository().delete(
+                                        s.id,
+                                        stationId: _user.station,
+                                      );
+                                      if (mounted) {
+                                        setState(() {
+                                          _allSubshifts.removeWhere(
+                                              (x) => x.id == s.id);
+                                        });
+                                      }
+                                      return false;
+                                    },
+                                    child: item,
+                                  );
+                                } else {
+                                  return item;
+                                }
+                              }),
+                            ..._buildPendingRequestsSection(planning),
+                          ],
+                        ),
+                      ),
+                    ),
+                  if (!isAvailability && isExpanded)
+                    const SizedBox(height: 40),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
 }
 
 /// Widget pour le bouton "Je souhaite m'absenter" avec menu déroulant
