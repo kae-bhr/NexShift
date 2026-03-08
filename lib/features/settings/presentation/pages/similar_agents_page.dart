@@ -663,7 +663,7 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
                               ),
                             ),
                             const SizedBox(width: 8),
-                            Icon(Icons.workspace_premium_rounded,
+                            Icon(Icons.verified_rounded,
                                 size: 11,
                                 color: isDark
                                     ? Colors.grey.shade500

@@ -110,7 +110,7 @@ class User {
     'admin': admin,
     'team': team,
     'skills': skills,
-    if (positionIds.isNotEmpty) 'positionIds': positionIds,
+    'positionIds': positionIds,
     'keySkills': keySkills,
     'agentAvailabilityStatus': agentAvailabilityStatus,
     if (suspensionStartDate != null)
@@ -131,7 +131,7 @@ class User {
     'admin': admin,
     'team': team,
     'skills': skills,
-    if (positionIds.isNotEmpty) 'positionIds': positionIds,
+    'positionIds': positionIds,
     'keySkills': keySkills,
     'agentAvailabilityStatus': agentAvailabilityStatus,
     if (suspensionStartDate != null)

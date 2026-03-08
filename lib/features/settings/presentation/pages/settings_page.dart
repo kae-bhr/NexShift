@@ -180,7 +180,7 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
               const Divider(height: 1),
               ListTile(
-                leading: const Icon(Icons.workspace_premium),
+                leading: const Icon(Icons.verified_outlined),
                 title: const Text('Mes compétences'),
                 subtitle: Text('${user.skills.length} compétence(s)'),
                 trailing: const Icon(Icons.arrow_forward_ios, size: 16),

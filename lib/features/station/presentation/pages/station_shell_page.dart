@@ -53,6 +53,7 @@ class _StationShellPageState extends State<StationShellPage>
 
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
+    UserRepository.invalidateCache();
     try {
       final teamRepo = TeamRepository();
       final truckRepo = TruckRepository();

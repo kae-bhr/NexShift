@@ -23,7 +23,7 @@ class TeamPage extends StatefulWidget {
   State<TeamPage> createState() => _TeamPageState();
 }
 
-enum TeamViewMode { rolesBased, positionsBased }
+enum TeamViewMode { rolesBased, positionsBased, skillsBased }
 
 class _TeamPageState extends State<TeamPage> {
   final PositionRepository _positionRepo = PositionRepository();
@@ -40,6 +40,44 @@ class _TeamPageState extends State<TeamPage> {
   TeamViewMode _viewMode = TeamViewMode.rolesBased;
   bool _showAllStaff = false;
   Map<String, Color> _teamColors = {};
+
+  // Collapse / expand state
+  Map<String, bool> _expandedSections = {};
+
+  bool get _allExpanded =>
+      _expandedSections.isEmpty || _expandedSections.values.every((v) => v);
+
+  void _toggleAllExpanded() {
+    final expand = !_allExpanded;
+    setState(() {
+      for (final key in _expandedSections.keys) {
+        _expandedSections[key] = expand;
+      }
+    });
+  }
+
+  void _initSectionsForView(TeamViewMode mode) {
+    final Map<String, bool> sections = {};
+    switch (mode) {
+      case TeamViewMode.rolesBased:
+        sections['leaders'] = true;
+        sections['agents'] = true;
+      case TeamViewMode.positionsBased:
+        for (final p in _positions) {
+          sections[p.id] = true;
+        }
+        sections['no_position'] = true;
+      case TeamViewMode.skillsBased:
+        for (final cat in KSkills.skillCategoryOrder) {
+          sections[cat] = false;
+          final levels = KSkills.skillLevels[cat] ?? [];
+          for (final skill in levels) {
+            if (skill.isNotEmpty) sections['$cat::$skill'] = false;
+          }
+        }
+    }
+    _expandedSections = sections;
+  }
 
   @override
   void initState() {
@@ -99,19 +137,22 @@ class _TeamPageState extends State<TeamPage> {
           ? null
           : await TeamRepository().getById(_teamId, stationId: stationId);
 
-      final positions =
-          await _positionRepo.getPositionsByStation(stationId).first;
+      final positions = await _positionRepo
+          .getPositionsByStation(stationId)
+          .first;
 
       setState(() {
         _teamUsers = filtered;
         _filteredUsers = filtered;
         _positions = positions;
         _teamColors = colorsMap;
-        _teamName =
-            _showAllStaff ? 'Effectif complet' : (team?.name ?? 'Équipe $_teamId');
+        _teamName = _showAllStaff
+            ? 'Effectif complet'
+            : (team?.name ?? 'Équipe $_teamId');
         _teamColor = _showAllStaff ? KColors.appNameColor : team?.color;
         _loading = false;
       });
+      _initSectionsForView(_viewMode);
       _applySearch();
     } catch (e) {
       setState(() {
@@ -138,6 +179,7 @@ class _TeamPageState extends State<TeamPage> {
     return bg.computeLuminance() > 0.5 ? Colors.black : Colors.white;
   }
 
+
   @override
   Widget build(BuildContext context) {
     final accent = _teamColor ?? Theme.of(context).colorScheme.primary;
@@ -148,22 +190,14 @@ class _TeamPageState extends State<TeamPage> {
         onTitleTap: () => _showTeamPicker(context),
         bottomColor: accent,
         actions: [
-          IconButton(
-            icon: Icon(
-              _viewMode == TeamViewMode.rolesBased
-                  ? Icons.work_outline
-                  : Icons.shield_moon,
-              color: accent,
-            ),
-            tooltip: _viewMode == TeamViewMode.rolesBased
-                ? 'Vue par postes'
-                : 'Vue par rôles',
-            onPressed: () {
+          _ViewModeButton(
+            currentMode: _viewMode,
+            accent: accent,
+            onModeChanged: (mode) {
               HapticFeedback.lightImpact();
               setState(() {
-                _viewMode = _viewMode == TeamViewMode.rolesBased
-                    ? TeamViewMode.positionsBased
-                    : TeamViewMode.rolesBased;
+                _viewMode = mode;
+                _initSectionsForView(mode);
               });
             },
           ),
@@ -178,9 +212,14 @@ class _TeamPageState extends State<TeamPage> {
   }
 
   Widget _buildBody(BuildContext context) {
-    return _viewMode == TeamViewMode.rolesBased
-        ? _buildRolesView(context)
-        : _buildPositionsView(context);
+    switch (_viewMode) {
+      case TeamViewMode.rolesBased:
+        return _buildRolesView(context);
+      case TeamViewMode.positionsBased:
+        return _buildPositionsView(context);
+      case TeamViewMode.skillsBased:
+        return _buildSkillsView(context);
+    }
   }
 
   // ── Barre de recherche commune ──────────────────────────────────────────────
@@ -202,9 +241,11 @@ class _TeamPageState extends State<TeamPage> {
       ),
       child: Row(
         children: [
-          Icon(Icons.search_rounded,
-              size: 18,
-              color: isDark ? Colors.grey.shade500 : Colors.grey.shade500),
+          Icon(
+            Icons.search_rounded,
+            size: 18,
+            color: isDark ? Colors.grey.shade500 : Colors.grey.shade500,
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: TextField(
@@ -235,9 +276,11 @@ class _TeamPageState extends State<TeamPage> {
                 setState(() => _searchQuery = '');
                 _applySearch();
               },
-              child: Icon(Icons.close_rounded,
-                  size: 16,
-                  color: isDark ? Colors.grey.shade500 : Colors.grey.shade400),
+              child: Icon(
+                Icons.close_rounded,
+                size: 16,
+                color: isDark ? Colors.grey.shade500 : Colors.grey.shade400,
+              ),
             ),
         ],
       ),
@@ -246,7 +289,11 @@ class _TeamPageState extends State<TeamPage> {
 
   // ── Stats badge ─────────────────────────────────────────────────────────────
   Widget _buildStatsBadge(
-      BuildContext context, int total, int leaders, int agents) {
+    BuildContext context, {
+    required _StatData col1,
+    required _StatData col2,
+    _StatData? col3,
+  }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final accent = _teamColor ?? Theme.of(context).colorScheme.primary;
 
@@ -257,76 +304,203 @@ class _TeamPageState extends State<TeamPage> {
         color: accent.withValues(alpha: isDark ? 0.10 : 0.06),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-            color: accent.withValues(alpha: isDark ? 0.25 : 0.18)),
+          color: accent.withValues(alpha: isDark ? 0.25 : 0.18),
+        ),
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _StatItem(icon: Icons.groups_rounded, value: '$total', label: 'Total', color: accent),
-          Container(width: 1, height: 28, color: accent.withValues(alpha: 0.20)),
-          _StatItem(icon: Icons.shield_moon_rounded, value: '$leaders', label: 'Chefs', color: accent),
-          Container(width: 1, height: 28, color: accent.withValues(alpha: 0.20)),
-          _StatItem(icon: Icons.person_rounded, value: '$agents', label: 'Agents', color: accent),
+          Expanded(
+            child: _StatItem(
+              icon: col1.icon,
+              value: col1.value,
+              label: col1.label,
+              color: accent,
+            ),
+          ),
+          Container(
+            width: 1,
+            height: 28,
+            color: accent.withValues(alpha: 0.20),
+          ),
+          Expanded(
+            child: _StatItem(
+              icon: col2.icon,
+              value: col2.value,
+              label: col2.label,
+              color: accent,
+            ),
+          ),
+          if (col3 != null) ...[
+            Container(
+              width: 1,
+              height: 28,
+              color: accent.withValues(alpha: 0.20),
+            ),
+            Expanded(
+              child: _StatItem(
+                icon: col3.icon,
+                value: col3.value,
+                label: col3.label,
+                color: accent,
+              ),
+            ),
+          ],
         ],
       ),
     );
   }
 
-  // ── Section header ──────────────────────────────────────────────────────────
-  Widget _buildSectionHeader(BuildContext context, String label,
-      {IconData? icon}) {
+  // ── Header collapse/expand ──────────────────────────────────────────────────
+  Widget _buildCollapseHeader(BuildContext context, String countLabel) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final accent = _teamColor ?? Theme.of(context).colorScheme.primary;
-    final textColor = isDark ? Colors.grey.shade400 : Colors.grey.shade600;
-
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+      padding: const EdgeInsets.fromLTRB(20, 12, 12, 0),
       child: Row(
         children: [
-          if (icon != null) ...[
-            Icon(icon, size: 14, color: textColor),
-            const SizedBox(width: 6),
-          ],
-          Text(
-            label.toUpperCase(),
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.6,
-              color: textColor,
+          Expanded(
+            child: Text(
+              countLabel,
+              style: TextStyle(
+                fontSize: 12,
+                color: isDark ? Colors.grey[400] : Colors.grey[600],
+              ),
             ),
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Container(
-              height: 1,
-              color: accent.withValues(alpha: 0.20),
+          TextButton.icon(
+            onPressed: _toggleAllExpanded,
+            icon: Icon(
+              _allExpanded
+                  ? Icons.unfold_less_rounded
+                  : Icons.unfold_more_rounded,
+              size: 16,
+            ),
+            label: Text(
+              _allExpanded ? 'Tout réduire' : 'Tout déplier',
+              style: const TextStyle(fontSize: 12),
+            ),
+            style: TextButton.styleFrom(
+              foregroundColor: KColors.appNameColor,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  // ── Section header collapsible ───────────────────────────────────────────────
+  Widget _buildCollapsibleSectionHeader(
+    BuildContext context,
+    String label,
+    IconData icon,
+    int count,
+    bool isExpanded,
+    VoidCallback onTap,
+  ) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final accent = _teamColor ?? Theme.of(context).colorScheme.primary;
+    final textColor = isDark ? Colors.grey.shade300 : Colors.grey.shade700;
+
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 12, 8),
+        child: Row(
+          children: [
+            Icon(icon, size: 14, color: accent.withValues(alpha: 0.7)),
+            const SizedBox(width: 6),
+            Text(
+              label.toUpperCase(),
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.6,
+                color: textColor,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+              decoration: BoxDecoration(
+                color: accent.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                '$count',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: accent,
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Container(
+                height: 1,
+                color: accent.withValues(alpha: 0.15),
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(
+              isExpanded
+                  ? Icons.expand_less_rounded
+                  : Icons.expand_more_rounded,
+              size: 18,
+              color: isDark ? Colors.grey.shade500 : Colors.grey.shade400,
+            ),
+          ],
+        ),
       ),
     );
   }
 
   // ── Vue par rôles ───────────────────────────────────────────────────────────
   Widget _buildRolesView(BuildContext context) {
-    final leaders = _filteredUsers
-        .where((u) =>
-            u.status == KConstants.statusLeader ||
-            u.status == KConstants.statusChief)
-        .toList()
-      ..sort((a, b) => a.lastName.compareTo(b.lastName));
-    final agents = _filteredUsers
-        .where((u) => u.status == KConstants.statusAgent)
-        .toList()
-      ..sort((a, b) => a.lastName.compareTo(b.lastName));
+    final leaders =
+        _filteredUsers
+            .where(
+              (u) =>
+                  u.status == KConstants.statusLeader ||
+                  u.status == KConstants.statusChief,
+            )
+            .toList()
+          ..sort((a, b) => a.lastName.compareTo(b.lastName));
+    final agents =
+        _filteredUsers.where((u) => u.status == KConstants.statusAgent).toList()
+          ..sort((a, b) => a.lastName.compareTo(b.lastName));
+
+    final isLeadersExpanded = _expandedSections['leaders'] ?? true;
+    final isAgentsExpanded = _expandedSections['agents'] ?? true;
+
+    final total = _filteredUsers.length;
+    final countLabel =
+        '${leaders.length} chef${leaders.length > 1 ? 's' : ''} · ${agents.length} agent${agents.length > 1 ? 's' : ''}';
 
     return Column(
       children: [
         _buildSearchBar(context),
         if (_searchQuery.isEmpty)
           _buildStatsBadge(
-              context, _filteredUsers.length, leaders.length, agents.length),
+            context,
+            col1: _StatData(
+              icon: Icons.groups_rounded,
+              value: '$total',
+              label: 'Total',
+            ),
+            col2: _StatData(
+              icon: Icons.shield_moon_rounded,
+              value: '${leaders.length}',
+              label: 'Chefs',
+            ),
+            col3: _StatData(
+              icon: Icons.person_rounded,
+              value: '${agents.length}',
+              label: 'Agents',
+            ),
+          ),
+        _buildCollapseHeader(context, countLabel),
         Expanded(
           child: _filteredUsers.isEmpty
               ? custom.EmptyStateWidget(
@@ -340,28 +514,53 @@ class _TeamPageState extends State<TeamPage> {
               : ListView(
                   children: [
                     if (leaders.isNotEmpty) ...[
-                      _buildSectionHeader(context, 'Chef de garde',
-                          icon: Icons.shield_moon_rounded),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Column(
-                          children: leaders
-                              .map((u) => _buildUserTile(context, u, isLeader: true))
-                              .toList(),
+                      _buildCollapsibleSectionHeader(
+                        context,
+                        'Chef de garde',
+                        Icons.shield_moon_rounded,
+                        leaders.length,
+                        isLeadersExpanded,
+                        () => setState(
+                          () =>
+                              _expandedSections['leaders'] = !isLeadersExpanded,
                         ),
                       ),
+                      if (isLeadersExpanded)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Column(
+                            children: leaders
+                                .map(
+                                  (u) => _buildUserTile(
+                                    context,
+                                    u,
+                                    isLeader: true,
+                                  ),
+                                )
+                                .toList(),
+                          ),
+                        ),
                     ],
                     if (agents.isNotEmpty) ...[
-                      _buildSectionHeader(context, 'Agents',
-                          icon: Icons.groups_rounded),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Column(
-                          children: agents
-                              .map((u) => _buildUserTile(context, u))
-                              .toList(),
+                      _buildCollapsibleSectionHeader(
+                        context,
+                        'Agents',
+                        Icons.groups_rounded,
+                        agents.length,
+                        isAgentsExpanded,
+                        () => setState(
+                          () => _expandedSections['agents'] = !isAgentsExpanded,
                         ),
                       ),
+                      if (isAgentsExpanded)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Column(
+                            children: agents
+                                .map((u) => _buildUserTile(context, u))
+                                .toList(),
+                          ),
+                        ),
                     ],
                     const SizedBox(height: 24),
                   ],
@@ -387,11 +586,45 @@ class _TeamPageState extends State<TeamPage> {
       users.sort((a, b) => a.lastName.compareTo(b.lastName));
     }
 
+    final withPosition = _filteredUsers
+        .where((u) => u.positionIds.isNotEmpty)
+        .length;
+    final withoutPosition = _filteredUsers
+        .where((u) => u.positionIds.isEmpty)
+        .length;
+
+    // Section count for label
+    final occupiedCount = _positions
+        .where((p) => (usersByPosition[p.id]?.isNotEmpty ?? false))
+        .length;
+    final countLabel =
+        '$occupiedCount poste${occupiedCount > 1 ? 's' : ''} occupé${occupiedCount > 1 ? 's' : ''}';
+
+    final isNoPosExpanded = _expandedSections['no_position'] ?? true;
+
     return Column(
       children: [
         _buildSearchBar(context),
         if (_searchQuery.isEmpty)
-          _buildStatsBadge(context, _filteredUsers.length, 0, 0),
+          _buildStatsBadge(
+            context,
+            col1: _StatData(
+              icon: Icons.groups_rounded,
+              value: '${_filteredUsers.length}',
+              label: 'Total',
+            ),
+            col2: _StatData(
+              icon: Icons.work_outline,
+              value: '$withPosition',
+              label: 'Avec poste',
+            ),
+            col3: _StatData(
+              icon: Icons.work_off_outlined,
+              value: '$withoutPosition',
+              label: 'Sans poste',
+            ),
+          ),
+        _buildCollapseHeader(context, countLabel),
         Expanded(
           child: _filteredUsers.isEmpty
               ? custom.EmptyStateWidget(
@@ -407,39 +640,59 @@ class _TeamPageState extends State<TeamPage> {
                     ..._positions.map((position) {
                       final users = usersByPosition[position.id] ?? [];
                       if (users.isEmpty) return const SizedBox.shrink();
+                      final isExpanded = _expandedSections[position.id] ?? true;
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          _buildSectionHeader(
+                          _buildCollapsibleSectionHeader(
                             context,
                             position.name,
-                            icon: position.iconName != null
-                                ? KSkills.positionIcons[position.iconName]
+                            position.iconName != null
+                                ? KSkills.positionIcons[position.iconName] ??
+                                      Icons.work_outline
                                 : Icons.work_outline,
-                          ),
-                          Padding(
-                            padding:
-                                const EdgeInsets.symmetric(horizontal: 16),
-                            child: Column(
-                              children: users
-                                  .map((u) => _buildUserTile(context, u))
-                                  .toList(),
+                            users.length,
+                            isExpanded,
+                            () => setState(
+                              () =>
+                                  _expandedSections[position.id] = !isExpanded,
                             ),
                           ),
+                          if (isExpanded)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                              ),
+                              child: Column(
+                                children: users
+                                    .map((u) => _buildUserTile(context, u))
+                                    .toList(),
+                              ),
+                            ),
                         ],
                       );
                     }),
                     if (usersByPosition[null]?.isNotEmpty ?? false) ...[
-                      _buildSectionHeader(context, 'Sans poste défini',
-                          icon: Icons.person_outline),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Column(
-                          children: usersByPosition[null]!
-                              .map((u) => _buildUserTile(context, u))
-                              .toList(),
+                      _buildCollapsibleSectionHeader(
+                        context,
+                        'Sans poste défini',
+                        Icons.person_outline,
+                        usersByPosition[null]!.length,
+                        isNoPosExpanded,
+                        () => setState(
+                          () => _expandedSections['no_position'] =
+                              !isNoPosExpanded,
                         ),
                       ),
+                      if (isNoPosExpanded)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Column(
+                            children: usersByPosition[null]!
+                                .map((u) => _buildUserTile(context, u))
+                                .toList(),
+                          ),
+                        ),
                     ],
                     const SizedBox(height: 24),
                   ],
@@ -449,9 +702,273 @@ class _TeamPageState extends State<TeamPage> {
     );
   }
 
+  // ── Vue par compétences ─────────────────────────────────────────────────────
+  Widget _buildSkillsView(BuildContext context) {
+    // Calculer les counts par skill pour le badge stats
+    final Map<String, int> skillCounts = {};
+    for (final skill in KSkills.listSkills) {
+      if (skill.isEmpty) continue;
+      final count = _filteredUsers
+          .where((u) => u.skills.contains(skill))
+          .length;
+      if (count > 0) skillCounts[skill] = count;
+    }
+
+    _StatData? col2;
+    _StatData? col3;
+    if (skillCounts.isNotEmpty) {
+      final mostEntry = skillCounts.entries.reduce(
+        (a, b) => a.value >= b.value ? a : b,
+      );
+      final leastEntry = skillCounts.entries.reduce(
+        (a, b) => a.value <= b.value ? a : b,
+      );
+      col2 = _StatData(
+        icon: Icons.trending_up_rounded,
+        value: '${mostEntry.value}',
+        label: _shortSkillLabel(mostEntry.key),
+      );
+      // Only show col3 if it differs from col2
+      if (leastEntry.key != mostEntry.key) {
+        col3 = _StatData(
+          icon: Icons.trending_down_rounded,
+          value: '${leastEntry.value}',
+          label: _shortSkillLabel(leastEntry.key),
+        );
+      }
+    }
+
+    final totalLabel =
+        '${_filteredUsers.length} agent${_filteredUsers.length > 1 ? 's' : ''}';
+
+    return Column(
+      children: [
+        _buildSearchBar(context),
+        if (_searchQuery.isEmpty && col2 != null)
+          _buildStatsBadge(
+            context,
+            col1: _StatData(
+              icon: Icons.groups_rounded,
+              value: '${_filteredUsers.length}',
+              label: 'Total',
+            ),
+            col2: col2,
+            col3: col3,
+          ),
+        _buildCollapseHeader(context, totalLabel),
+        Expanded(
+          child: _filteredUsers.isEmpty
+              ? custom.EmptyStateWidget(
+                  message: _searchQuery.isEmpty
+                      ? 'Aucun membre dans cette équipe'
+                      : 'Aucun résultat pour "$_searchQuery"',
+                  icon: _searchQuery.isEmpty
+                      ? Icons.group_off
+                      : Icons.search_off,
+                )
+              : ListView(
+                  children: [
+                    ...KSkills.skillCategoryOrder.map((cat) {
+                      final icon =
+                          KSkills.skillCategoryIcons[cat] ??
+                          Icons.verified_outlined;
+                      final levels = (KSkills.skillLevels[cat] ?? [])
+                          .where((s) => s.isNotEmpty)
+                          .toList()
+                          .reversed
+                          .toList();
+
+                      final usersInCat =
+                          _filteredUsers
+                              .where(
+                                (u) => levels.any(
+                                  (skill) => u.skills.contains(skill),
+                                ),
+                              )
+                              .toList()
+                            ..sort((a, b) => a.lastName.compareTo(b.lastName));
+
+                      if (usersInCat.isEmpty) return const SizedBox.shrink();
+
+                      final isExpanded = _expandedSections[cat] ?? false;
+
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildCollapsibleSectionHeader(
+                            context,
+                            cat,
+                            icon,
+                            usersInCat.length,
+                            isExpanded,
+                            () => setState(
+                              () => _expandedSections[cat] = !isExpanded,
+                            ),
+                          ),
+                          if (isExpanded) ...[
+                            ...levels.map((skill) {
+                              final usersWithSkill =
+                                  _filteredUsers
+                                      .where((u) => u.skills.contains(skill))
+                                      .toList()
+                                    ..sort(
+                                      (a, b) =>
+                                          a.lastName.compareTo(b.lastName),
+                                    );
+                              if (usersWithSkill.isEmpty) {
+                                return const SizedBox.shrink();
+                              }
+                              final subKey = '$cat::$skill';
+                              final isSubExpanded =
+                                  _expandedSections[subKey] ?? false;
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _buildSkillLevelCollapsibleHeader(
+                                    context,
+                                    skill,
+                                    usersWithSkill.length,
+                                    isSubExpanded,
+                                    () => setState(
+                                      () => _expandedSections[subKey] =
+                                          !isSubExpanded,
+                                    ),
+                                  ),
+                                  if (isSubExpanded)
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                      ),
+                                      child: Column(
+                                        children: usersWithSkill
+                                            .map(
+                                              (u) => _buildUserTile(
+                                                context,
+                                                u,
+                                                keySkillName: skill,
+                                              ),
+                                            )
+                                            .toList(),
+                                      ),
+                                    ),
+                                ],
+                              );
+                            }),
+                          ],
+                        ],
+                      );
+                    }),
+                    const SizedBox(height: 24),
+                  ],
+                ),
+        ),
+      ],
+    );
+  }
+
+  // ── Sous-header collapsible niveau de compétence ────────────────────────────
+  Widget _buildSkillLevelCollapsibleHeader(
+    BuildContext context,
+    String skill,
+    int count,
+    bool isExpanded,
+    VoidCallback onTap,
+  ) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final levelColor = KSkills.skillColors[skill];
+    final accent = _teamColor ?? Theme.of(context).colorScheme.primary;
+    final Color dotColor = levelColor != null
+        ? KSkills.getColorForSkillLevel(levelColor, context)
+        : accent;
+    final textColor = isDark ? Colors.grey.shade400 : Colors.grey.shade600;
+
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(28, 10, 12, 4),
+        child: Row(
+          children: [
+            Container(
+              width: 7,
+              height: 7,
+              decoration: BoxDecoration(
+                color: dotColor.withValues(alpha: 0.7),
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              skill,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: textColor,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+              decoration: BoxDecoration(
+                color: dotColor.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                '$count',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: dotColor,
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Container(
+                height: 1,
+                color: dotColor.withValues(alpha: 0.12),
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(
+              isExpanded
+                  ? Icons.expand_less_rounded
+                  : Icons.expand_more_rounded,
+              size: 16,
+              color: isDark ? Colors.grey.shade600 : Colors.grey.shade400,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Label court pour une compétence (badge stats) ───────────────────────────
+  String _shortSkillLabel(String skill) {
+    // Truncate long skill names for the badge
+    if (skill.length <= 10) return skill;
+    // Abbreviate known patterns
+    if (skill.startsWith('Chef d\'agrès')) {
+      final cat = skill.replaceFirst('Chef d\'agrès ', '');
+      return 'CA $cat';
+    }
+    if (skill.startsWith('Chef d\'équipe')) {
+      final cat = skill.replaceFirst('Chef d\'équipe ', '');
+      return 'CE $cat';
+    }
+    if (skill.startsWith('Apprenant')) {
+      final cat = skill.replaceFirst('Apprenant ', '');
+      return 'App. $cat';
+    }
+    return skill.substring(0, 10);
+  }
+
   // ── Tuile utilisateur ───────────────────────────────────────────────────────
-  Widget _buildUserTile(BuildContext context, User user,
-      {bool isLeader = false}) {
+  Widget _buildUserTile(
+    BuildContext context,
+    User user, {
+    bool isLeader = false,
+    String? keySkillName,
+  }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final accent = _showAllStaff
         ? (_teamColors[user.team] ?? Theme.of(context).colorScheme.primary)
@@ -459,16 +976,12 @@ class _TeamPageState extends State<TeamPage> {
 
     final avatarTextColor = _getTextColorForBackground(accent);
 
-    // En mode "Effectif complet", afficher un point coloré de l'équipe
     final teamDot = _showAllStaff
         ? Container(
             width: 8,
             height: 8,
             margin: const EdgeInsets.only(right: 6),
-            decoration: BoxDecoration(
-              color: accent,
-              shape: BoxShape.circle,
-            ),
+            decoration: BoxDecoration(color: accent, shape: BoxShape.circle),
           )
         : const SizedBox.shrink();
 
@@ -499,8 +1012,9 @@ class _TeamPageState extends State<TeamPage> {
                 tag: 'avatar_${user.id}',
                 child: CircleAvatar(
                   radius: 18,
-                  backgroundColor:
-                      accent.withValues(alpha: isLeader ? 0.25 : 0.15),
+                  backgroundColor: accent.withValues(
+                    alpha: isLeader ? 0.25 : 0.15,
+                  ),
                   child: Text(
                     user.initials,
                     style: TextStyle(
@@ -534,9 +1048,20 @@ class _TeamPageState extends State<TeamPage> {
               if (isLeader)
                 Padding(
                   padding: const EdgeInsets.only(right: 6),
-                  child: Icon(Icons.shield_moon_rounded,
-                      size: 14,
-                      color: accent.withValues(alpha: 0.7)),
+                  child: Icon(
+                    Icons.shield_moon_rounded,
+                    size: 14,
+                    color: accent.withValues(alpha: 0.7),
+                  ),
+                ),
+              if (keySkillName != null && user.keySkills.contains(keySkillName))
+                const Padding(
+                  padding: EdgeInsets.only(right: 5),
+                  child: Icon(
+                    Icons.star_rounded,
+                    size: 14,
+                    color: Colors.amber,
+                  ),
                 ),
               Icon(
                 Icons.chevron_right_rounded,
@@ -600,9 +1125,11 @@ class _TeamPageState extends State<TeamPage> {
             // Titre
             Row(
               children: [
-                Icon(Icons.groups_rounded,
-                    size: 18,
-                    color: isDark ? Colors.grey.shade400 : Colors.grey.shade600),
+                Icon(
+                  Icons.groups_rounded,
+                  size: 18,
+                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                ),
                 const SizedBox(width: 8),
                 Text(
                   'CHOISIR UNE ÉQUIPE',
@@ -622,8 +1149,11 @@ class _TeamPageState extends State<TeamPage> {
               label: 'Effectif complet',
               subtitle: 'Tous les agents de la caserne',
               color: KColors.appNameColor,
-              dotContent: Icon(Icons.groups_rounded,
-                  color: Colors.white, size: 14),
+              dotContent: Icon(
+                Icons.groups_rounded,
+                color: Colors.white,
+                size: 14,
+              ),
               isSelected: _showAllStaff,
               isDark: isDark,
               onTap: () {
@@ -685,6 +1215,269 @@ class _TeamPageState extends State<TeamPage> {
   }
 }
 
+// ── Data class pour les colonnes du badge stats ─────────────────────────────
+class _StatData {
+  final IconData icon;
+  final String value;
+  final String label;
+
+  const _StatData({
+    required this.icon,
+    required this.value,
+    required this.label,
+  });
+}
+
+// ── Bouton de sélection de vue (avec overlay) ───────────────────────────────
+class _ViewModeButton extends StatefulWidget {
+  final TeamViewMode currentMode;
+  final Color accent;
+  final ValueChanged<TeamViewMode> onModeChanged;
+
+  const _ViewModeButton({
+    required this.currentMode,
+    required this.accent,
+    required this.onModeChanged,
+  });
+
+  @override
+  State<_ViewModeButton> createState() => _ViewModeButtonState();
+}
+
+class _ViewModeButtonState extends State<_ViewModeButton> {
+  final LayerLink _layerLink = LayerLink();
+  OverlayEntry? _overlayEntry;
+
+  static const _views = [
+    (
+      mode: TeamViewMode.rolesBased,
+      icon: Icons.shield_moon_outlined,
+      label: 'Par rôles',
+    ),
+    (
+      mode: TeamViewMode.positionsBased,
+      icon: Icons.work_outline,
+      label: 'Par postes',
+    ),
+    (
+      mode: TeamViewMode.skillsBased,
+      icon: Icons.verified_outlined,
+      label: 'Par compétences',
+    ),
+  ];
+
+  @override
+  void dispose() {
+    _closeOverlay();
+    super.dispose();
+  }
+
+  void _closeOverlay() {
+    _overlayEntry?.remove();
+    _overlayEntry = null;
+  }
+
+  void _openOverlay(BuildContext ctx) {
+    if (_overlayEntry != null) {
+      _closeOverlay();
+      return;
+    }
+
+    const dropdownWidth = 190.0;
+    const buttonHeight = 48.0;
+
+    final isDark = Theme.of(ctx).brightness == Brightness.dark;
+
+    _overlayEntry = OverlayEntry(
+      builder: (_) => Stack(
+        children: [
+          Positioned.fill(
+            child: GestureDetector(
+              onTap: _closeOverlay,
+              behavior: HitTestBehavior.opaque,
+              child: const ColoredBox(color: Colors.transparent),
+            ),
+          ),
+          CompositedTransformFollower(
+            link: _layerLink,
+            showWhenUnlinked: false,
+            offset: const Offset(-dropdownWidth + 48, buttonHeight + 4),
+            child: Align(
+              alignment: Alignment.topLeft,
+              child: _ViewModeDropdown(
+                currentMode: widget.currentMode,
+                isDark: isDark,
+                accent: widget.accent,
+                views: _views,
+                onSelect: (mode) {
+                  _closeOverlay();
+                  widget.onModeChanged(mode);
+                },
+                dropdownWidth: dropdownWidth,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    Overlay.of(ctx).insert(_overlayEntry!);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isOpen = _overlayEntry != null;
+    final currentView = _views.firstWhere(
+      (v) => v.mode == widget.currentMode,
+      orElse: () => _views.first,
+    );
+
+    return CompositedTransformTarget(
+      link: _layerLink,
+      child: GestureDetector(
+        onTap: () => _openOverlay(context),
+        child: Container(
+          margin: const EdgeInsets.only(right: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: widget.accent.withValues(alpha: isDark ? 0.15 : 0.08),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: widget.accent.withValues(alpha: 0.25)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(currentView.icon, size: 18, color: widget.accent),
+              const SizedBox(width: 4),
+              Icon(
+                isOpen ? Icons.expand_less_rounded : Icons.expand_more_rounded,
+                size: 16,
+                color: widget.accent.withValues(alpha: 0.7),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ViewModeDropdown extends StatelessWidget {
+  final TeamViewMode currentMode;
+  final bool isDark;
+  final Color accent;
+  final List<({TeamViewMode mode, IconData icon, String label})> views;
+  final ValueChanged<TeamViewMode> onSelect;
+  final double dropdownWidth;
+
+  const _ViewModeDropdown({
+    required this.currentMode,
+    required this.isDark,
+    required this.accent,
+    required this.views,
+    required this.onSelect,
+    required this.dropdownWidth,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        width: dropdownWidth,
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF2A2A3E) : Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.10)
+                : Colors.grey.shade200,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.12),
+              blurRadius: 20,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: views.map((v) {
+              final isSelected = v.mode == currentMode;
+              return Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () => onSelect(v.mode),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 11,
+                    ),
+                    color: isSelected
+                        ? (isDark
+                              ? Colors.white.withValues(alpha: 0.05)
+                              : accent.withValues(alpha: 0.06))
+                        : Colors.transparent,
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 28,
+                          height: 28,
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? accent.withValues(alpha: 0.15)
+                                : (isDark
+                                      ? Colors.white.withValues(alpha: 0.06)
+                                      : Colors.grey.shade100),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            v.icon,
+                            size: 15,
+                            color: isSelected
+                                ? accent
+                                : (isDark
+                                      ? Colors.grey.shade400
+                                      : Colors.grey.shade500),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            v.label,
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: isSelected
+                                  ? FontWeight.w600
+                                  : FontWeight.w400,
+                              color: isSelected
+                                  ? accent
+                                  : (isDark
+                                        ? Colors.grey.shade300
+                                        : Colors.grey.shade800),
+                            ),
+                          ),
+                        ),
+                        if (isSelected)
+                          Icon(Icons.check_rounded, size: 16, color: accent),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // ── Widgets locaux ─────────────────────────────────────────────────────────────
 
 class _StatItem extends StatelessWidget {
@@ -722,6 +1515,7 @@ class _StatItem extends StatelessWidget {
             fontWeight: FontWeight.w500,
             color: color.withValues(alpha: 0.7),
           ),
+          overflow: TextOverflow.ellipsis,
         ),
       ],
     );
@@ -766,14 +1560,13 @@ class _TeamPickerItem extends StatelessWidget {
               color: isSelected
                   ? color.withValues(alpha: 0.50)
                   : (isDark
-                      ? Colors.white.withValues(alpha: 0.08)
-                      : Colors.grey.shade200),
+                        ? Colors.white.withValues(alpha: 0.08)
+                        : Colors.grey.shade200),
               width: isSelected ? 1.5 : 1,
             ),
           ),
           child: Row(
             children: [
-              // Point/cercle coloré
               Container(
                 width: 34,
                 height: 34,
@@ -807,8 +1600,8 @@ class _TeamPickerItem extends StatelessWidget {
                         color: isSelected
                             ? color
                             : (isDark
-                                ? Colors.grey.shade200
-                                : Colors.grey.shade800),
+                                  ? Colors.grey.shade200
+                                  : Colors.grey.shade800),
                       ),
                     ),
                     Text(

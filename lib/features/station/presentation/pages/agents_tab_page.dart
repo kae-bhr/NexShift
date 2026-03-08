@@ -1079,27 +1079,31 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                       Wrap(
                         spacing: 6,
                         runSpacing: 2,
-                        children: userPositions.map((pos) => Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (pos.iconName != null) ...[
-                              Icon(
-                                KSkills.positionIcons[pos.iconName],
-                                size: 13,
-                                color: subtitleColor,
+                        children: userPositions
+                            .map(
+                              (pos) => Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (pos.iconName != null) ...[
+                                    Icon(
+                                      KSkills.positionIcons[pos.iconName],
+                                      size: 13,
+                                      color: subtitleColor,
+                                    ),
+                                    const SizedBox(width: 3),
+                                  ],
+                                  Text(
+                                    pos.name,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontStyle: FontStyle.italic,
+                                      color: subtitleColor,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(width: 3),
-                            ],
-                            Text(
-                              pos.name,
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontStyle: FontStyle.italic,
-                                color: subtitleColor,
-                              ),
-                            ),
-                          ],
-                        )).toList(),
+                            )
+                            .toList(),
                       ),
                     ],
                     if (user.skills.isNotEmpty) ...[
@@ -1204,7 +1208,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                       value: 'skills',
                       child: Row(
                         children: [
-                          Icon(Icons.workspace_premium_rounded, size: 18),
+                          Icon(Icons.verified_rounded, size: 18),
                           SizedBox(width: 8),
                           Text('Compétences'),
                         ],
@@ -1234,9 +1238,20 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                       value: 'position',
                       child: Row(
                         children: [
-                          Icon(Icons.work_outline_rounded, size: 18),
+                          Icon(Icons.work_outlined, size: 18),
                           SizedBox(width: 8),
                           Text('Définir le poste'),
+                        ],
+                      ),
+                    ),
+                    // Option de changement d'état (leader/admin uniquement)
+                    const PopupMenuItem(
+                      value: 'change_status',
+                      child: Row(
+                        children: [
+                          Icon(Icons.pause_circle_rounded, size: 18),
+                          SizedBox(width: 8),
+                          Text('Changer l\'état'),
                         ],
                       ),
                     ),
@@ -1258,17 +1273,6 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                           ],
                         ),
                       ),
-                    // Option de changement d'état (leader/admin uniquement)
-                    const PopupMenuItem(
-                      value: 'change_status',
-                      child: Row(
-                        children: [
-                          Icon(Icons.pause_circle_outline_rounded, size: 18),
-                          SizedBox(width: 8),
-                          Text('Changer l\'état'),
-                        ],
-                      ),
-                    ),
                     PopupMenuItem(
                       value: 'delete',
                       child: Row(
@@ -2264,9 +2268,9 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
           final label = ids.isEmpty
               ? 'Aucun poste'
               : positions
-                  .where((p) => ids.contains(p.id))
-                  .map((p) => p.name)
-                  .join(', ');
+                    .where((p) => ids.contains(p.id))
+                    .map((p) => p.name)
+                    .join(', ');
           scaffoldMessenger.showSnackBar(
             SnackBar(content: Text('Postes mis à jour: $label')),
           );
@@ -2285,7 +2289,9 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
           child: Padding(
             padding: const EdgeInsets.all(24),
             child: Column(
@@ -2339,42 +2345,52 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                     ),
                   )
                 else
-                  ...positions.map((position) {
-                    final icon = position.iconName != null
-                        ? KSkills.positionIcons[position.iconName]
-                        : null;
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _buildPositionCard(
-                        icon: icon ?? Icons.work_outline,
-                        iconColor: KColors.appNameColor,
-                        title: position.name,
-                        description: position.description ?? '',
-                        isSelected: selectedIds.contains(position.id),
-                        onTap: () {
-                          setDialogState(() {
-                            if (selectedIds.contains(position.id)) {
-                              selectedIds.remove(position.id);
-                            } else {
-                              selectedIds.add(position.id);
-                            }
-                          });
-                        },
+                  Flexible(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          ...positions.map((position) {
+                            final icon = position.iconName != null
+                                ? KSkills.positionIcons[position.iconName]
+                                : null;
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: _buildPositionCard(
+                                icon: icon ?? Icons.work_outline,
+                                iconColor: KColors.appNameColor,
+                                title: position.name,
+                                description: position.description ?? '',
+                                isSelected: selectedIds.contains(position.id),
+                                onTap: () {
+                                  setDialogState(() {
+                                    if (selectedIds.contains(position.id)) {
+                                      selectedIds.remove(position.id);
+                                    } else {
+                                      selectedIds.add(position.id);
+                                    }
+                                  });
+                                },
+                              ),
+                            );
+                          }),
+                          if (selectedIds.isNotEmpty)
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: TextButton.icon(
+                                onPressed: () =>
+                                    setDialogState(() => selectedIds.clear()),
+                                icon: const Icon(Icons.clear, size: 16),
+                                label: const Text('Tout désélectionner'),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: Colors.grey,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
-                    );
-                  }),
-                if (positions.isNotEmpty && selectedIds.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton.icon(
-                      onPressed: () => setDialogState(() => selectedIds.clear()),
-                      icon: const Icon(Icons.clear, size: 16),
-                      label: const Text('Tout désélectionner'),
-                      style: TextButton.styleFrom(foregroundColor: Colors.grey),
                     ),
                   ),
-                ],
                 const SizedBox(height: 16),
                 // Boutons Annuler / Valider
                 Row(
@@ -2718,7 +2734,8 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
       // La Cloud Function sendTestNotificationV2 sera déclenchée automatiquement
       final sdisId = SDISContext().currentSDISId;
       final stationId = targetUser.station;
-      final testNotifPath = 'sdis/$sdisId/stations/$stationId/testNotifications';
+      final testNotifPath =
+          'sdis/$sdisId/stations/$stationId/testNotifications';
       await FirebaseFirestore.instance.collection(testNotifPath).add({
         'targetUserId': targetUser.id,
         'adminId': currentUser.id,

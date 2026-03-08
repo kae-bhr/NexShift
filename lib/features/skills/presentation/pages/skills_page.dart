@@ -44,7 +44,6 @@ class _SkillsPageState extends State<SkillsPage> {
       _isLoading = true;
       _errorMessage = null;
     });
-
     try {
       if (widget.userId != null) {
         final user = await _repository.getUserProfile(widget.userId!);
@@ -312,7 +311,7 @@ class _SkillsPageState extends State<SkillsPage> {
                         _getHighestLevel(userSkills, category);
                     final isAcquired = highestLevel != null;
                     final icon = KSkills.skillCategoryIcons[category] ??
-                        Icons.workspace_premium;
+                        Icons.verified_outlined;
                     final color = _getLevelColor(context, highestLevel);
 
                     return Padding(

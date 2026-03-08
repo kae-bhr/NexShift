@@ -1363,7 +1363,7 @@ class _SkillsImpactCard extends StatelessWidget {
           Row(
             children: [
               Icon(
-                Icons.workspace_premium_rounded,
+                Icons.verified_rounded,
                 size: 16,
                 color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
               ),

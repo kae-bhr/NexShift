@@ -3,6 +3,8 @@ import {getFirestore, Timestamp} from "firebase-admin/firestore";
 
 /**
  * Helper : récupérer toutes les paires (sdisId, stationId, stationPath)
+ * Utilise collectionGroup("stations") car les documents sdis/{sdisId} peuvent
+ * être implicites (sans document explicite, seules les sous-collections existent).
  */
 async function getAllStationPaths(): Promise<
   Array<{sdisId: string; stationId: string; stationPath: string}>
@@ -10,18 +12,18 @@ async function getAllStationPaths(): Promise<
   const db = getFirestore();
   const result: Array<{sdisId: string; stationId: string; stationPath: string}> = [];
 
-  const sdisSnapshot = await db.collection("sdis").get();
-  for (const sdisDoc of sdisSnapshot.docs) {
-    const sdisId = sdisDoc.id;
-    const stationsSnapshot = await db
-      .collection(`sdis/${sdisId}/stations`)
-      .get();
+  // collectionGroup liste toutes les collections "stations" à n'importe quelle profondeur
+  const stationsSnapshot = await db.collectionGroup("stations").get();
 
-    for (const stationDoc of stationsSnapshot.docs) {
+  for (const stationDoc of stationsSnapshot.docs) {
+    const stationPath = stationDoc.ref.path; // ex: "sdis/30/stations/station_xxx"
+    const parts = stationPath.split("/");
+    // Structure attendue : sdis/{sdisId}/stations/{stationId}
+    if (parts.length === 4 && parts[0] === "sdis" && parts[2] === "stations") {
       result.push({
-        sdisId,
-        stationId: stationDoc.id,
-        stationPath: `sdis/${sdisId}/stations/${stationDoc.id}`,
+        sdisId: parts[1],
+        stationId: parts[3],
+        stationPath,
       });
     }
   }
@@ -78,30 +80,36 @@ export const sendDailyShiftReminder = onSchedule(
           return effectiveHour === currentHour;
         });
 
+        if (eligibleUsers.length === 0) continue;
+
+        // Récupérer tous les plannings actifs de la station en une seule query
+        // (agents[] est un tableau d'objets — pas de champ agentsId en Firestore)
+        const planningsSnapshot = await db
+          .collection(`${stationPath}/plannings`)
+          .where("endTime", ">", Timestamp.fromDate(windowStart))
+          .get();
+
+        // Filtrer en mémoire sur la fenêtre de 24h
+        const activePlannings = planningsSnapshot.docs.filter((doc) => {
+          const data = doc.data();
+          const startDate: Date =
+            data.startTime?.toDate?.() ?? data.startDate?.toDate?.();
+          return startDate && startDate < windowEnd;
+        });
+
         for (const userDoc of eligibleUsers) {
           const userId = userDoc.id;
 
-          // Plannings où l'agent est présent (filtre temporel entièrement en mémoire
-          // pour éviter l'index composite array-contains + range)
-          const planningsSnapshot = await db
-            .collection(`${stationPath}/plannings`)
-            .where("agentsId", "array-contains", userId)
-            .get();
-
-          const overlapping = planningsSnapshot.docs.filter((doc) => {
-            const data = doc.data();
-            const startDate: Date =
-              data.startTime?.toDate?.() ?? data.startDate?.toDate?.();
-            const endDate: Date =
-              data.endTime?.toDate?.() ?? data.endDate?.toDate?.();
-            return startDate && endDate &&
-              startDate < windowEnd &&
-              endDate > windowStart;
+          // Plannings où cet agent est présent (champ agents[].agentId)
+          const userPlannings = activePlannings.filter((doc) => {
+            const agents = doc.data().agents as Array<{agentId: string; replacedAgentId?: string}> | undefined;
+            if (!agents) return false;
+            return agents.some((a) => a.agentId === userId && !a.replacedAgentId);
           });
 
-          if (overlapping.length === 0) continue;
+          if (userPlannings.length === 0) continue;
 
-          const planningsSummary = overlapping.map((doc) => {
+          const planningsSummary = userPlannings.map((doc) => {
             const data = doc.data();
             const startDate: Date =
               data.startTime?.toDate?.() ?? data.startDate?.toDate?.();
@@ -119,7 +127,7 @@ export const sendDailyShiftReminder = onSchedule(
             type: "daily_shift_reminder",
             targetUserIds: [userId],
             title: "⏰ Astreintes à venir",
-            body: `${overlapping.length} astreinte(s) dans les prochaines 24h`,
+            body: `${userPlannings.length} astreinte(s) dans les prochaines 24h`,
             data: {
               plannings: planningsSummary,
             },

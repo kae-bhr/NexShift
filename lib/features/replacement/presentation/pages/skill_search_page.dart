@@ -577,7 +577,7 @@ class _SkillSearchPageState extends State<SkillSearchPage> {
                 Row(
                   children: [
                     _SectionHeader(
-                      icon: Icons.workspace_premium_rounded,
+                      icon: Icons.verified_rounded,
                       label: 'Compétences requises',
                     ),
                     const Spacer(),
@@ -704,7 +704,7 @@ class _SkillSearchPageState extends State<SkillSearchPage> {
               shape: const Border(),
               collapsedShape: const Border(),
               leading: Icon(
-                KSkills.skillCategoryIcons[category] ?? Icons.workspace_premium,
+                KSkills.skillCategoryIcons[category] ?? Icons.verified_outlined,
                 size: 20,
                 color: hasCatSelection ? KColors.appNameColor : null,
               ),

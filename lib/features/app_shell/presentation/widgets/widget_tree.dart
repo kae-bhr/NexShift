@@ -279,11 +279,11 @@ class _WidgetTreeState extends State<WidgetTree> {
                         child: ListTile(
                           minTileHeight: 0.0,
                           leading: Icon(
-                            Icons.workspace_premium,
+                            Icons.verified_outlined,
                             color: Theme.of(context).colorScheme.primary,
                           ),
                           title: Text(
-                            "Mes compétences",
+                            "Compétences",
                             style: TextStyle(
                               color: Theme.of(context).colorScheme.tertiary,
                               fontSize:
@@ -315,7 +315,7 @@ class _WidgetTreeState extends State<WidgetTree> {
                             color: Theme.of(context).colorScheme.primary,
                           ),
                           title: Text(
-                            "Mon équipe",
+                            "Équipe",
                             style: TextStyle(
                               color: Theme.of(context).colorScheme.tertiary,
                               fontSize:
@@ -344,7 +344,7 @@ class _WidgetTreeState extends State<WidgetTree> {
                             color: Theme.of(context).colorScheme.primary,
                           ),
                           title: Text(
-                            "Ma caserne",
+                            "Caserne",
                             style: TextStyle(
                               color: Theme.of(context).colorScheme.tertiary,
                               fontSize:
@@ -422,22 +422,29 @@ class _WidgetTreeState extends State<WidgetTree> {
                           );
                         },
                         child: ValueListenableBuilder<bool>(
-                          valueListenable: BadgeCountService().hasReplacementPending,
+                          valueListenable:
+                              BadgeCountService().hasReplacementPending,
                           builder: (context, hasReplacementPending, _) {
                             return ValueListenableBuilder<bool>(
-                              valueListenable: BadgeCountService().hasExchangePending,
+                              valueListenable:
+                                  BadgeCountService().hasExchangePending,
                               builder: (context, hasExchangePending, _) {
                                 return ValueListenableBuilder<bool>(
-                                  valueListenable: BadgeCountService().hasAgentQueryPending,
+                                  valueListenable:
+                                      BadgeCountService().hasAgentQueryPending,
                                   builder: (context, hasAgentQueryPending, _) {
                                     return ValueListenableBuilder<bool>(
-                                      valueListenable: BadgeCountService().hasExchangeNeedingSelection,
+                                      valueListenable: BadgeCountService()
+                                          .hasExchangeNeedingSelection,
                                       builder: (context, hasExchangeNeedingSelection, _) {
                                         return ValueListenableBuilder<bool>(
-                                          valueListenable: BadgeCountService().hasReplacementValidation,
+                                          valueListenable: BadgeCountService()
+                                              .hasReplacementValidation,
                                           builder: (context, hasReplacementValidation, _) {
                                             return ValueListenableBuilder<bool>(
-                                              valueListenable: BadgeCountService().hasExchangeValidation,
+                                              valueListenable:
+                                                  BadgeCountService()
+                                                      .hasExchangeValidation,
                                               builder: (context, hasExchangeValidation, _) {
                                                 // Pastille 1 : appNameColor si n'importe quelle demande pending ou sélection à faire
                                                 final hasPending =
@@ -454,21 +461,34 @@ class _WidgetTreeState extends State<WidgetTree> {
                                                   minTileHeight: 0.0,
                                                   leading: Icon(
                                                     Icons.swap_horiz,
-                                                    color: Theme.of(context).colorScheme.primary,
+                                                    color: Theme.of(
+                                                      context,
+                                                    ).colorScheme.primary,
                                                   ),
                                                   title: Text(
                                                     "Demandes",
                                                     style: TextStyle(
-                                                      color: Theme.of(context).colorScheme.tertiary,
-                                                      fontSize: KTextStyle.descriptionTextStyle.fontSize,
-                                                      fontFamily: KTextStyle.descriptionTextStyle.fontFamily,
-                                                      fontWeight: KTextStyle.descriptionTextStyle.fontWeight,
+                                                      color: Theme.of(
+                                                        context,
+                                                      ).colorScheme.tertiary,
+                                                      fontSize: KTextStyle
+                                                          .descriptionTextStyle
+                                                          .fontSize,
+                                                      fontFamily: KTextStyle
+                                                          .descriptionTextStyle
+                                                          .fontFamily,
+                                                      fontWeight: KTextStyle
+                                                          .descriptionTextStyle
+                                                          .fontWeight,
                                                     ),
                                                   ),
-                                                  trailing: (!hasPending && !hasValidation)
+                                                  trailing:
+                                                      (!hasPending &&
+                                                          !hasValidation)
                                                       ? const SizedBox.shrink()
                                                       : Row(
-                                                          mainAxisSize: MainAxisSize.min,
+                                                          mainAxisSize:
+                                                              MainAxisSize.min,
                                                           children: [
                                                             // Pastille appNameColor : demandes en attente
                                                             if (hasPending)
@@ -476,20 +496,27 @@ class _WidgetTreeState extends State<WidgetTree> {
                                                                 width: 12,
                                                                 height: 12,
                                                                 decoration: BoxDecoration(
-                                                                  color: KColors.appNameColor,
-                                                                  shape: BoxShape.circle,
+                                                                  color: KColors
+                                                                      .appNameColor,
+                                                                  shape: BoxShape
+                                                                      .circle,
                                                                 ),
                                                               ),
-                                                            if (hasPending && hasValidation)
-                                                              const SizedBox(width: 6),
+                                                            if (hasPending &&
+                                                                hasValidation)
+                                                              const SizedBox(
+                                                                width: 6,
+                                                              ),
                                                             // Pastille blue : validations en attente
                                                             if (hasValidation)
                                                               Container(
                                                                 width: 12,
                                                                 height: 12,
                                                                 decoration: const BoxDecoration(
-                                                                  color: Colors.blue,
-                                                                  shape: BoxShape.circle,
+                                                                  color: Colors
+                                                                      .blue,
+                                                                  shape: BoxShape
+                                                                      .circle,
                                                                 ),
                                                               ),
                                                           ],

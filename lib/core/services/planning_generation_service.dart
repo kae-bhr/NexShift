@@ -6,7 +6,9 @@ import 'package:nexshift_app/core/data/models/shift_rule_model.dart';
 import 'package:nexshift_app/core/repositories/planning_repository.dart';
 import 'package:nexshift_app/core/repositories/shift_rule_repository.dart';
 import 'package:nexshift_app/core/repositories/station_repository.dart';
+import 'package:nexshift_app/core/repositories/subshift_repositories.dart';
 import 'package:nexshift_app/core/repositories/user_repository.dart';
+import 'package:nexshift_app/core/services/replacement_notification_service.dart';
 import 'package:nexshift_app/core/services/shift_generator.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
 
@@ -17,6 +19,7 @@ class PlanningGenerationService {
   final UserRepository _userRepository;
   final StationRepository _stationRepository;
   final ShiftGenerator _shiftGenerator;
+  final SubshiftRepository _subshiftRepository;
 
   PlanningGenerationService({
     PlanningRepository? planningRepository,
@@ -24,11 +27,13 @@ class PlanningGenerationService {
     UserRepository? userRepository,
     StationRepository? stationRepository,
     ShiftGenerator? shiftGenerator,
+    SubshiftRepository? subshiftRepository,
   }) : _planningRepository = planningRepository ?? PlanningRepository(),
        _ruleRepository = ruleRepository ?? ShiftRuleRepository(),
        _userRepository = userRepository ?? UserRepository(),
        _stationRepository = stationRepository ?? StationRepository(),
-       _shiftGenerator = shiftGenerator ?? ShiftGenerator();
+       _shiftGenerator = shiftGenerator ?? ShiftGenerator(),
+       _subshiftRepository = subshiftRepository ?? SubshiftRepository();
 
   /// Génère les plannings à partir des règles actives
   /// Supprime tous les plannings dans la plage de dates et les remplace par les plannings générés
@@ -52,6 +57,16 @@ class PlanningGenerationService {
       endDate.add(const Duration(days: 1)),
     );
     final deletedCount = oldPlannings.length;
+
+    // Récupérer les subshifts existants AVANT la suppression des plannings,
+    // pour les réappliquer après la génération et ne pas perdre les remplacements.
+    final allSubshifts = await _subshiftRepository.getAll(stationId: stationName);
+    final oldPlanningIds = oldPlannings.map((p) => p.id).toSet();
+    final subshiftsToReapply = allSubshifts
+        .where((s) => oldPlanningIds.contains(s.planningId))
+        .toList();
+    // Mémoriser l'équipe de chaque ancien planning pour reconstruire le nouveau planningId
+    final planningTeamById = {for (final p in oldPlannings) p.id: p.team};
 
     // Supprimer les plannings dans la plage de dates AVANT de générer les nouveaux
     await _planningRepository.deletePlanningsInRange(startDate, endDate, stationId: stationName);
@@ -96,6 +111,23 @@ class PlanningGenerationService {
       final existingPlannings = await _planningRepository.getByStation(stationName);
       final allPlannings = [...existingPlannings, ...newPlannings];
       await _planningRepository.saveAll(allPlannings, stationId: stationName);
+    }
+
+    // Réappliquer les subshifts sur les nouveaux plannings pour préserver les remplacements.
+    // Le planningId est déterministe : ${teamId}_${year}_${month}_${day}
+    for (final subshift in subshiftsToReapply) {
+      final teamId = planningTeamById[subshift.planningId];
+      if (teamId == null) continue;
+      final d = subshift.start;
+      final newPlanningId = '${teamId}_${d.year}_${d.month}_${d.day}';
+      await ReplacementNotificationService.updatePlanningAgentsForReplacement(
+        planningId: newPlanningId,
+        stationId: stationName,
+        replacedId: subshift.replacedId,
+        replacerId: subshift.replacerId,
+        start: subshift.start,
+        end: subshift.end,
+      );
     }
 
     return GenerationResult(

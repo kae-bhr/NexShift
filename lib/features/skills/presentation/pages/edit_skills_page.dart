@@ -839,7 +839,7 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
 
   Widget _buildCategorySection(String category) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final icon = KSkills.skillCategoryIcons[category] ?? Icons.workspace_premium;
+    final icon = KSkills.skillCategoryIcons[category] ?? Icons.verified_outlined;
     final levels = KSkills.skillLevels[category] ?? [];
 
     // Vérifier si la catégorie a au moins une compétence sélectionnée

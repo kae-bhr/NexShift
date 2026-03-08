@@ -62,21 +62,17 @@ export const cleanupOldData = onSchedule(
       {key: "shiftExchangeProposals", dateField: "createdAt", label: "ShiftExchangeProposals"},
     ];
 
-    // Parcourir tous les SDIS
-    const sdisSnapshot = await db.collection("sdis").get();
+    // Parcourir toutes les stations via collectionGroup
+    // (les documents sdis/{sdisId} peuvent être implicites sans document explicite)
+    const stationsSnapshot = await db.collectionGroup("stations").get();
 
-    for (const sdisDoc of sdisSnapshot.docs) {
-      const sdisId = sdisDoc.id;
-      console.log(`📂 SDIS: ${sdisId}`);
-
-      // Parcourir toutes les stations de ce SDIS
-      const stationsSnapshot = await db
-        .collection(`sdis/${sdisId}/stations`)
-        .get();
-
-      for (const stationDoc of stationsSnapshot.docs) {
-        const stationPath = `sdis/${sdisId}/stations/${stationDoc.id}`;
-        console.log(`  📍 Station: ${stationDoc.id}`);
+    for (const stationDoc of stationsSnapshot.docs) {
+      const stationRefPath = stationDoc.ref.path;
+      const parts = stationRefPath.split("/");
+      if (parts.length !== 4 || parts[0] !== "sdis" || parts[2] !== "stations") continue;
+      const sdisId = parts[1];
+      const stationPath = stationRefPath;
+      console.log(`  📍 Station: ${stationDoc.id} (SDIS: ${sdisId})`);
 
         for (const {key, dateField, label} of collectionsToClean) {
           try {
@@ -101,7 +97,6 @@ export const cleanupOldData = onSchedule(
             console.error(`    ❌ Erreur ${label}:`, error);
           }
         }
-      }
     }
 
     console.log(

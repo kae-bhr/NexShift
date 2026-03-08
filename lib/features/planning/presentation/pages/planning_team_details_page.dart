@@ -705,7 +705,7 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
 
                   // ── Compétences ─────────────────────────────────────────
                   _OperationalSection(
-                    icon: Icons.workspace_premium_rounded,
+                    icon: Icons.verified_rounded,
                     title: 'Compétences',
                     count: null,
                     emptyMessage: '',

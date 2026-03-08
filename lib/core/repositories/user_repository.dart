@@ -25,6 +25,11 @@ class UserRepository {
   /// Clé = userId, Valeur = User avec PII en clair.
   static final Map<String, User> _decryptedUserCache = {};
 
+  /// Invalide le cache pour forcer un rechargement depuis Firestore.
+  static void invalidateCache() {
+    _decryptedUserCache.clear();
+  }
+
   /// Retourne le chemin de collection selon l'environnement
   String _getCollectionPath(String? stationId) {
     return EnvironmentConfig.getCollectionPath(_collectionName, stationId);
@@ -225,6 +230,7 @@ class UserRepository {
           _decryptedUserCache[user.id] = cached.copyWith(
             skills: user.skills,
             keySkills: user.keySkills,
+            positionIds: user.positionIds,
             team: user.team,
             status: user.status,
           );
@@ -242,6 +248,7 @@ class UserRepository {
         _decryptedUserCache[user.id] = cached.copyWith(
           skills: user.skills,
           keySkills: user.keySkills,
+          positionIds: user.positionIds,
           team: user.team,
           status: user.status,
         );

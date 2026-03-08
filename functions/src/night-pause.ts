@@ -29,22 +29,21 @@ export const sendPendingWavesAfterNightPause = onSchedule(
       const currentMinute = parisNow.getMinutes();
       const currentTimeMinutes = currentHour * 60 + currentMinute;
 
-      // Parcourir tous les SDIS
-      const sdisSnapshot = await db.collection("sdis").get();
+      // Parcourir toutes les stations avec pause nocturne activée
+      // Utilise collectionGroup car les documents sdis/{sdisId} peuvent être implicites
+      const stationsSnapshot = await db
+        .collectionGroup("stations")
+        .where("nightPauseEnabled", "==", true)
+        .get();
 
-      for (const sdisDoc of sdisSnapshot.docs) {
-        const sdisId = sdisDoc.id;
+      for (const stationDoc of stationsSnapshot.docs) {
+        const stationPath = stationDoc.ref.path;
+        const parts = stationPath.split("/");
+        if (parts.length !== 4 || parts[0] !== "sdis" || parts[2] !== "stations") continue;
 
-        // Récupérer les stations avec pause nocturne activée
-        const stationsSnapshot = await db
-          .collection(`sdis/${sdisId}/stations`)
-          .where("nightPauseEnabled", "==", true)
-          .get();
-
-        for (const stationDoc of stationsSnapshot.docs) {
+        {
           const station = stationDoc.data();
           const stationId = stationDoc.id;
-          const stationPath = `sdis/${sdisId}/stations/${stationId}`;
 
           // Parser les heures de pause
           const pauseEnd = station.nightPauseEnd || "06:00";
