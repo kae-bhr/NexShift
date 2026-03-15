@@ -11,11 +11,13 @@ import 'package:nexshift_app/features/station/presentation/pages/station_shell_p
 import 'package:nexshift_app/features/skills/presentation/pages/skills_page.dart';
 import 'package:nexshift_app/features/app_shell/presentation/widgets/navbar_widget.dart';
 import 'package:nexshift_app/features/teams/presentation/pages/team_page.dart';
+import 'package:nexshift_app/features/teams/presentation/pages/team_dashboard_page.dart';
 import 'package:nexshift_app/features/availability/presentation/pages/add_availability_page.dart';
 import 'package:nexshift_app/features/replacement/presentation/pages/replacement_requests_list_page.dart';
 import 'package:nexshift_app/core/services/badge_count_service.dart';
 import 'package:nexshift_app/core/services/subscription_service.dart';
 import 'package:nexshift_app/core/services/cloud_functions_service.dart';
+import 'package:nexshift_app/core/services/push_notification_service.dart';
 
 class WidgetTree extends StatefulWidget {
   const WidgetTree({super.key});
@@ -24,7 +26,7 @@ class WidgetTree extends StatefulWidget {
   State<WidgetTree> createState() => _WidgetTreeState();
 }
 
-class _WidgetTreeState extends State<WidgetTree> {
+class _WidgetTreeState extends State<WidgetTree> with WidgetsBindingObserver {
   late PageController _pageController;
   // Les pages sont créées dans le State et non plus comme variable globale,
   // pour éviter que HomePage/PlanningPage soient instanciées avant que
@@ -42,6 +44,7 @@ class _WidgetTreeState extends State<WidgetTree> {
     // Initialiser le BadgeCountService dès que l'utilisateur est disponible
     userNotifier.addListener(_onUserChanged);
     _initializeBadgeService();
+    WidgetsBinding.instance.addObserver(this);
   }
 
   void _onUserChanged() {
@@ -59,7 +62,15 @@ class _WidgetTreeState extends State<WidgetTree> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      PushNotificationService().clearBadge();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     selectedPageNotifier.removeListener(_onPageNotifierChanged);
     userNotifier.removeListener(_onUserChanged);
     _pageController.dispose();
@@ -357,6 +368,38 @@ class _WidgetTreeState extends State<WidgetTree> {
                           ),
                         ),
                       ),
+                      // Tableau de bord - visible pour tous les utilisateurs authentifiés
+                      // (la page gère la vue selon le rôle et les droits configurés dans admin)
+                      if (user != null)
+                        TextButton(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => TeamDashboardPage(
+                                  currentUser: user,
+                                ),
+                              ),
+                            );
+                          },
+                          child: ListTile(
+                            minTileHeight: 0.0,
+                            leading: Icon(
+                              Icons.bar_chart_rounded,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                            title: Text(
+                              "Tableau de bord",
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.tertiary,
+                                fontSize: KTextStyle.descriptionTextStyle.fontSize,
+                                fontFamily: KTextStyle.descriptionTextStyle.fontFamily,
+                                fontWeight: KTextStyle.descriptionTextStyle.fontWeight,
+                              ),
+                            ),
+                          ),
+                        ),
                       // Administration - visible pour admins, chefs de centre et chefs de garde
                       if (user != null &&
                           (user.admin ||

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:nexshift_app/core/data/models/on_call_level_model.dart';
+import 'package:nexshift_app/core/repositories/on_call_level_repository.dart';
 import 'package:nexshift_app/core/repositories/truck_repository.dart';
 import 'package:nexshift_app/core/repositories/team_repository.dart';
 import 'package:nexshift_app/core/repositories/user_repository.dart';
@@ -38,7 +40,8 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
       []; // agents de la garde courante (vide si pas d'astreinte)
   List<User> _effectiveAgents =
       []; // agents effectifs avec remplacements appliqués
-  List<User> _availableAgents = []; // agents en disponibilité
+  List<({User user, Availability availability})> _availableAgents = []; // agents en disponibilité
+  List<OnCallLevel> _onCallLevels = [];
   Map<String, int> _skillsCount = {};
   List<Truck> _stationTrucks = [];
   Map<String, CrewResult> _crewResults = {};
@@ -246,23 +249,91 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
       }
     }
 
+    // Charger les niveaux d'astreinte/disponibilité (avant de construire availableAgents)
+    final onCallLevels = await OnCallLevelRepository().getAll(chosenStation);
+    final availabilityLevelIds = onCallLevels
+        .where((l) => l.isAvailability)
+        .map((l) => l.id)
+        .toSet();
+
+    // Retirer de la liste des astreintes les agents actifs à atUtc avec un niveau isAvailability
+    if (planningExists && availabilityLevelIds.isNotEmpty) {
+      final isAvailabilityAgentIds = maybePlanning.agents
+          .where((a) {
+            if (!availabilityLevelIds.contains(a.levelId)) return false;
+            if (a.replacedAgentId != null) return false;
+            final aStart = a.start.toUtc();
+            final aEnd = a.end.toUtc();
+            return (aStart.isBefore(atUtc) || aStart.isAtSameMomentAs(atUtc)) &&
+                aEnd.isAfter(atUtc);
+          })
+          .map((a) => a.agentId)
+          .toSet();
+      agents = agents.where((u) => !isAvailabilityAgentIds.contains(u.id)).toList();
+      effectiveAgents.removeWhere((u) => isAvailabilityAgentIds.contains(u.id));
+    }
+
     // Find available agents at _at (agents with active availability slots)
-    final List<User> availableAgents = [];
+    final List<({User user, Availability availability})> availableAgents = [];
     for (final availability in availabilities) {
       final start = availability.start.toUtc();
       final end = availability.end.toUtc();
       if ((start.isBefore(atUtc) || start.isAtSameMomentAs(atUtc)) &&
           end.isAfter(atUtc)) {
         final agent = users.where((u) => u.id == availability.agentId).firstOrNull;
-        if (agent != null && !effectiveAgents.any((a) => a.id == agent.id)) {
-          availableAgents.add(agent);
+        if (agent == null) continue;
+        // Si l'agent a une disponibilité avec levelId (isAvailability), le retirer
+        // de effectiveAgents et l'ajouter à availableAgents même s'il était déjà dedans
+        final hasAvailLevel = availability.levelId != null &&
+            availability.levelId!.isNotEmpty &&
+            availabilityLevelIds.contains(availability.levelId);
+        if (hasAvailLevel) {
+          effectiveAgents.removeWhere((a) => a.id == agent.id);
+          agents.removeWhere((a) => a.id == agent.id);
+          if (!availableAgents.any((e) => e.user.id == agent.id)) {
+            availableAgents.add((user: agent, availability: availability));
+          }
+        } else if (!effectiveAgents.any((a) => a.id == agent.id)) {
+          availableAgents.add((user: agent, availability: availability));
         }
+      }
+    }
+
+    // Inclure aussi les PlanningAgents dont le levelId pointe vers un niveau isAvailability
+    if (planningExists) {
+      final alreadyInAvailable = availableAgents.map((e) => e.user.id).toSet();
+      for (final pa in maybePlanning.agents) {
+        if (!availabilityLevelIds.contains(pa.levelId)) continue;
+        final paStart = pa.start.toUtc();
+        final paEnd = pa.end.toUtc();
+        final activeAtAt =
+            (paStart.isBefore(atUtc) || paStart.isAtSameMomentAs(atUtc)) &&
+            paEnd.isAfter(atUtc);
+        if (!activeAtAt) continue;
+        if (effectiveAgents.any((a) => a.id == pa.agentId)) continue;
+        if (alreadyInAvailable.contains(pa.agentId)) continue;
+        final agent = users.where((u) => u.id == pa.agentId).firstOrNull;
+        if (agent == null) continue;
+        // Créer une Availability synthétique pour l'affichage
+        final syntheticAvail = Availability(
+          id: pa.agentId,
+          agentId: pa.agentId,
+          start: pa.start,
+          end: pa.end,
+          planningId: maybePlanning.id,
+          levelId: pa.levelId,
+        );
+        availableAgents.add((user: agent, availability: syntheticAvail));
+        alreadyInAvailable.add(pa.agentId);
       }
     }
 
     // Combine effective agents + available agents (planning.agents is already
     // fully represented via effectiveAgents above — no manualAgents needed)
-    final allActiveAgents = [...effectiveAgents, ...availableAgents];
+    final allActiveAgents = [
+      ...effectiveAgents,
+      ...availableAgents.map((e) => e.user),
+    ];
 
     // compute skill counts based on effective + available crew
     final Map<String, int> skillCount = {
@@ -298,6 +369,7 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
       _agents = agents;
       _effectiveAgents = effectiveAgents;
       _availableAgents = availableAgents;
+      _onCallLevels = onCallLevels;
       _skillsCount = skillCount;
       _stationTrucks = trucks;
       _crewResults = crewResults;
@@ -647,7 +719,30 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
                                   replacedStyle: _replacedNameStyle(context),
                                 );
                               }
-                              return _AgentRow(agent: a);
+                              final rawLevelId = _currentPlanning?.agents
+                                  .where((pa) =>
+                                      pa.agentId == a.id &&
+                                      pa.replacedAgentId == null &&
+                                      (pa.start.toUtc().isBefore(atUtc) ||
+                                          pa.start.toUtc().isAtSameMomentAs(atUtc)) &&
+                                      pa.end.toUtc().isAfter(atUtc))
+                                  .map((pa) => pa.levelId)
+                                  .firstOrNull;
+                              // Si levelId vide, fallback sur le premier niveau non-dispo
+                              final effectiveLevelId =
+                                  rawLevelId != null && rawLevelId.isNotEmpty
+                                      ? rawLevelId
+                                      : _onCallLevels
+                                          .where((l) => !l.isAvailability)
+                                          .map((l) => l.id)
+                                          .firstOrNull;
+                              final levelName = effectiveLevelId != null
+                                  ? _onCallLevels
+                                      .where((l) => l.id == effectiveLevelId)
+                                      .map((l) => l.name)
+                                      .firstOrNull
+                                  : null;
+                              return _AgentRow(agent: a, levelName: levelName);
                             }).toList(),
                           ),
                   ),
@@ -664,9 +759,15 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
                         ? null
                         : Column(
                             children: _availableAgents
-                                .map((a) => _AgentRow(
-                                      agent: a,
+                                .map((e) => _AgentRow(
+                                      agent: e.user,
                                       isAvailable: true,
+                                      levelName: _onCallLevels
+                                          .where((l) =>
+                                              l.id ==
+                                              e.availability.levelId)
+                                          .map((l) => l.name)
+                                          .firstOrNull,
                                     ))
                                 .toList(),
                           ),
@@ -776,7 +877,7 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
         .toList();
 
     final availableAgents = _availableAgents
-        .where((a) => a.skills.contains(skill))
+        .where((e) => e.user.skills.contains(skill))
         .toList();
 
     final totalCount = onCallAgents.length + availableAgents.length;
@@ -886,7 +987,7 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
                   ),
                   const SizedBox(height: 12),
                   ...availableAgents.map(
-                    (a) => Container(
+                    (e) => Container(
                       margin: const EdgeInsets.only(bottom: 8),
                       padding: const EdgeInsets.symmetric(
                         horizontal: 12,
@@ -914,7 +1015,7 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
                           const SizedBox(width: 10),
                           Expanded(
                             child: Text(
-                              a.displayName,
+                              e.user.displayName,
                               style: TextStyle(
                                 fontWeight: FontWeight.w500,
                                 color: Colors.blue.shade700,
@@ -1311,8 +1412,13 @@ class _OperationalSection extends StatelessWidget {
 class _AgentRow extends StatelessWidget {
   final User agent;
   final bool isAvailable;
+  final String? levelName;
 
-  const _AgentRow({required this.agent, this.isAvailable = false});
+  const _AgentRow({
+    required this.agent,
+    this.isAvailable = false,
+    this.levelName,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1320,6 +1426,7 @@ class _AgentRow extends StatelessWidget {
     final color = isAvailable
         ? (isDark ? Colors.blue.shade300 : Colors.blue.shade600)
         : (isDark ? Colors.grey.shade200 : Colors.grey.shade800);
+    final badgeColor = isAvailable ? Colors.blue : Colors.grey;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
@@ -1360,27 +1467,32 @@ class _AgentRow extends StatelessWidget {
               agent.displayName,
               style: TextStyle(
                 fontSize: 14,
-                fontWeight: isAvailable ? FontWeight.w400 : FontWeight.w500,
+                fontWeight: FontWeight.w500,
                 color: color,
-                fontStyle: isAvailable ? FontStyle.italic : FontStyle.normal,
               ),
             ),
           ),
-          if (isAvailable)
+          if (levelName != null)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
               decoration: BoxDecoration(
-                color: Colors.blue.withValues(alpha: isDark ? 0.18 : 0.08),
+                color: badgeColor.withValues(alpha: isDark ? 0.18 : 0.08),
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
-                    color: Colors.blue.withValues(alpha: 0.3), width: 1),
+                    color: badgeColor.withValues(alpha: 0.3), width: 1),
               ),
               child: Text(
-                'dispo',
+                levelName!,
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.w600,
-                  color: isDark ? Colors.blue.shade300 : Colors.blue.shade600,
+                  color: isDark
+                      ? (isAvailable
+                          ? Colors.blue.shade300
+                          : Colors.grey.shade400)
+                      : (isAvailable
+                          ? Colors.blue.shade600
+                          : Colors.grey.shade600),
                 ),
               ),
             ),

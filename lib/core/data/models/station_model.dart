@@ -1,5 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+/// Portée d'accès au tableau de bord pour un rôle donné
+enum DashboardScope {
+  personal, // Uniquement ses propres statistiques
+  team,     // Les statistiques des agents de son équipe
+  station,  // Toutes les statistiques de la caserne (aucune restriction)
+}
+
 /// Mode de remplacement
 enum ReplacementMode {
   similarity, // Mode par similarité (système actuel)
@@ -50,6 +57,10 @@ class Station {
   // Niveau si durée de remplacement >= seuil
   final String? longReplacementLevelId;
 
+  // Portée d'accès au tableau de bord par rôle
+  final DashboardScope dashboardAgentScope; // défaut: personal
+  final DashboardScope dashboardChiefScope; // défaut: team
+
   const Station({
     required this.id,
     required this.name,
@@ -68,6 +79,8 @@ class Station {
     this.replacementDurationThresholdHours = 10,
     this.shortReplacementLevelId,
     this.longReplacementLevelId,
+    this.dashboardAgentScope = DashboardScope.personal,
+    this.dashboardChiefScope = DashboardScope.team,
   });
 
   /// Vérifie si l'abonnement est expiré
@@ -107,6 +120,8 @@ class Station {
     int? replacementDurationThresholdHours,
     String? shortReplacementLevelId,
     String? longReplacementLevelId,
+    DashboardScope? dashboardAgentScope,
+    DashboardScope? dashboardChiefScope,
   }) =>
       Station(
         id: id ?? this.id,
@@ -126,6 +141,8 @@ class Station {
         replacementDurationThresholdHours: replacementDurationThresholdHours ?? this.replacementDurationThresholdHours,
         shortReplacementLevelId: shortReplacementLevelId ?? this.shortReplacementLevelId,
         longReplacementLevelId: longReplacementLevelId ?? this.longReplacementLevelId,
+        dashboardAgentScope: dashboardAgentScope ?? this.dashboardAgentScope,
+        dashboardChiefScope: dashboardChiefScope ?? this.dashboardChiefScope,
       );
 
   Map<String, dynamic> toJson() => {
@@ -151,6 +168,8 @@ class Station {
           'shortReplacementLevelId': shortReplacementLevelId,
         if (longReplacementLevelId != null)
           'longReplacementLevelId': longReplacementLevelId,
+        'dashboardAgentScope': dashboardAgentScope.name,
+        'dashboardChiefScope': dashboardChiefScope.name,
       };
 
   factory Station.fromJson(Map<String, dynamic> json) => Station(
@@ -183,5 +202,17 @@ class Station {
             json['replacementDurationThresholdHours'] as int? ?? 10,
         shortReplacementLevelId: json['shortReplacementLevelId'] as String?,
         longReplacementLevelId: json['longReplacementLevelId'] as String?,
+        dashboardAgentScope: json['dashboardAgentScope'] != null
+            ? DashboardScope.values.firstWhere(
+                (e) => e.name == json['dashboardAgentScope'],
+                orElse: () => DashboardScope.personal,
+              )
+            : DashboardScope.personal,
+        dashboardChiefScope: json['dashboardChiefScope'] != null
+            ? DashboardScope.values.firstWhere(
+                (e) => e.name == json['dashboardChiefScope'],
+                orElse: () => DashboardScope.team,
+              )
+            : DashboardScope.team,
       );
 }

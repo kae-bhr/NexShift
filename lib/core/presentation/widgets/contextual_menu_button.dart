@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 /// Widget générique qui affiche un menu en overlay positionné juste en dessous
-/// du bouton (offset = taille bouton + 8px).
+/// du bouton (ou au-dessus si le menu ne tient pas en bas de l'écran).
 ///
 /// Usage :
 /// ```dart
@@ -20,11 +20,15 @@ class ContextualMenuButton extends StatefulWidget {
   /// Rayon des coins du menu (défaut 12).
   final double menuBorderRadius;
 
+  /// Hauteur estimée du menu pour la détection de dépassement (défaut 200).
+  final double estimatedMenuHeight;
+
   const ContextualMenuButton({
     super.key,
     required this.child,
     required this.menuContent,
     this.menuBorderRadius = 12,
+    this.estimatedMenuHeight = 200,
   });
 
   @override
@@ -36,7 +40,6 @@ class _ContextualMenuButtonState extends State<ContextualMenuButton>
   OverlayEntry? _overlayEntry;
   late AnimationController _animationController;
   late Animation<double> _animation;
-  final LayerLink _layerLink = LayerLink();
 
   @override
   void initState() {
@@ -76,7 +79,13 @@ class _ContextualMenuButtonState extends State<ContextualMenuButton>
   void _showMenu() {
     final overlay = Overlay.of(context);
     final renderBox = context.findRenderObject() as RenderBox;
+    final offset = renderBox.localToGlobal(Offset.zero);
     final size = renderBox.size;
+    final screenHeight = MediaQuery.of(context).size.height;
+
+    // Si le menu ne tient pas en bas, on l'affiche au-dessus
+    final fitsBelow =
+        offset.dy + size.height + 8 + widget.estimatedMenuHeight <= screenHeight;
 
     _overlayEntry = OverlayEntry(
       builder: (context) => GestureDetector(
@@ -88,24 +97,23 @@ class _ContextualMenuButtonState extends State<ContextualMenuButton>
               child: Container(color: Colors.black.withValues(alpha: 0.3)),
             ),
             Positioned(
+              left: offset.dx,
               width: size.width,
-              child: CompositedTransformFollower(
-                link: _layerLink,
-                showWhenUnlinked: false,
-                offset: Offset(0, size.height),
-                targetAnchor: Alignment.bottomLeft,
-                followerAnchor: Alignment.topLeft,
-                child: FadeTransition(
-                  opacity: _animation,
-                  child: ScaleTransition(
-                    scale: _animation,
-                    alignment: Alignment.topCenter,
-                    child: Material(
-                      elevation: 8,
-                      borderRadius:
-                          BorderRadius.circular(widget.menuBorderRadius),
-                      child: widget.menuContent(_removeOverlay),
-                    ),
+              top: fitsBelow ? offset.dy + size.height + 8 : null,
+              bottom: fitsBelow
+                  ? null
+                  : screenHeight - offset.dy + 8,
+              child: FadeTransition(
+                opacity: _animation,
+                child: ScaleTransition(
+                  scale: _animation,
+                  alignment:
+                      fitsBelow ? Alignment.topCenter : Alignment.bottomCenter,
+                  child: Material(
+                    elevation: 8,
+                    borderRadius:
+                        BorderRadius.circular(widget.menuBorderRadius),
+                    child: widget.menuContent(_removeOverlay),
                   ),
                 ),
               ),
@@ -121,12 +129,9 @@ class _ContextualMenuButtonState extends State<ContextualMenuButton>
 
   @override
   Widget build(BuildContext context) {
-    return CompositedTransformTarget(
-      link: _layerLink,
-      child: GestureDetector(
-        onTap: _toggleMenu,
-        child: widget.child,
-      ),
+    return GestureDetector(
+      onTap: _toggleMenu,
+      child: widget.child,
     );
   }
 }

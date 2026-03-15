@@ -78,7 +78,10 @@ class _StationShellPageState extends State<StationShellPage>
       final teams = await teamRepo.getByStation(userStation);
       final trucks = await truckRepo.getByStation(userStation);
       final positions = currentUser != null
-          ? await positionRepo.getPositionsByStation(currentUser.station).first
+          ? await positionRepo
+              .getPositionsByStation(currentUser.station)
+              .first
+              .catchError((_) => <Position>[])
           : <Position>[];
 
       // Group users by team

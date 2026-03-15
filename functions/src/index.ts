@@ -4,6 +4,7 @@ import {initializeApp} from "firebase-admin/app";
 import {getFirestore, Timestamp} from "firebase-admin/firestore";
 import {getMessaging} from "firebase-admin/messaging";
 import {encryptionKey, decryptPII} from "./crypto-utils.js";
+import {checkIfFullyCovered} from "./planning-utils.js";
 
 // Re-export des nouvelles Cloud Functions
 export {cleanupOldData} from "./cleanup";
@@ -69,64 +70,6 @@ function formatShort(date: Date): string {
   const M = String(p.getMinutes()).padStart(2, "0");
   return M !== "00" ? `${d}/${m} ${H}h${M}` : `${d}/${m} ${H}h`;
 }
-
-/**
- * Vérifie si une période est complètement couverte par des intervalles
- * @param {Date} targetStart - Début de la période cible
- * @param {Date} targetEnd - Fin de la période cible
- * @param {Array} intervals - Intervalles de couverture
- * @return {boolean} True si complètement couvert
- */
-function checkIfFullyCovered(
-  targetStart: Date,
-  targetEnd: Date,
-  intervals: Array<{ start: Date; end: Date }>,
-): boolean {
-  if (intervals.length === 0) return false;
-
-  // Trier les intervalles par date de début
-  const sorted = intervals
-    .map((i) => ({
-      "start": i.start.getTime(),
-      "end": i.end.getTime(),
-    }))
-    .sort((a, b) => a.start - b.start);
-
-  const targetStartTime = targetStart.getTime();
-  const targetEndTime = targetEnd.getTime();
-
-  // Fusionner les intervalles qui se chevauchent
-  const merged: Array<{ start: number; end: number }> = [];
-  let current = sorted[0];
-
-  for (let i = 1; i < sorted.length; i++) {
-    const next = sorted[i];
-    if (next.start <= current.end) {
-      // Chevauchement ou contigus: fusionner
-      current = {
-        start: Math.min(current.start, next.start),
-        end: Math.max(current.end, next.end),
-      };
-    } else {
-      // Pas de chevauchement: ajouter current et passer au suivant
-      merged.push(current);
-      current = next;
-    }
-  }
-  merged.push(current);
-
-  // Vérifier si la période cible est couverte (avec tolérance d'1 minute)
-  const tolerance = 60 * 1000; // 1 minute en millisecondes
-  for (const interval of merged) {
-    if (interval.start - tolerance <= targetStartTime &&
-      interval.end + tolerance >= targetEndTime) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
 
 
 

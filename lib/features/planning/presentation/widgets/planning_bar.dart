@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:nexshift_app/core/presentation/widgets/diagonal_stripe_painter.dart';
 
 class PlanningBar extends StatelessWidget {
   final DateTime start;
@@ -108,7 +109,7 @@ class PlanningBar extends StatelessWidget {
               if (isAvailability)
                 Positioned.fill(
                   child: CustomPaint(
-                    painter: _DiagonalStripePainter(
+                    painter: DiagonalStripePainter(
                       color1: color!.withValues(alpha: 0.6),
                       color2: isDark
                           ? Colors.grey.shade800
@@ -148,39 +149,4 @@ class PlanningBar extends StatelessWidget {
       ),
     );
   }
-}
-
-/// CustomPainter pour dessiner un motif de hachures diagonales bicolores
-class _DiagonalStripePainter extends CustomPainter {
-  final Color color1;
-  final Color color2;
-
-  _DiagonalStripePainter({required this.color1, required this.color2});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint1 = Paint()..color = color1;
-    final paint2 = Paint()..color = color2;
-    final stripeWidth = 6.0;
-
-    // Dessiner les bandes diagonales alternées
-    double x = -size.height;
-    bool useColor1 = true;
-
-    while (x < size.width + size.height) {
-      final path = Path()
-        ..moveTo(x, 0)
-        ..lineTo(x + size.height, size.height)
-        ..lineTo(x + size.height + stripeWidth, size.height)
-        ..lineTo(x + stripeWidth, 0)
-        ..close();
-
-      canvas.drawPath(path, useColor1 ? paint1 : paint2);
-      x += stripeWidth;
-      useColor1 = !useColor1;
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

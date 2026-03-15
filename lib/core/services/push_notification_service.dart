@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'debug_logger.dart';
 
 /// Handler pour les messages reçus en arrière-plan
@@ -57,6 +58,11 @@ class PushNotificationService {
   RemoteMessage? _pendingInitialMessage;
 
   bool _initialized = false;
+
+  // Identifiants courants, mis à jour par saveUserToken pour permettre
+  // le rafraîchissement automatique du token FCM.
+  String? _currentUserId;
+  String? _currentAuthUid;
 
   /// Setter qui assigne le callback et rejoue immédiatement le message initial
   /// si l'app a été lancée depuis une notification (app était fermée).
@@ -214,12 +220,36 @@ class PushNotificationService {
     }
   }
 
+  /// Vérifie si une notification doit être affichée selon les préférences locales.
+  /// Retourne false si l'utilisateur a désactivé ce type de notification.
+  Future<bool> _isNotificationAllowed(Map<String, dynamic> data) async {
+    final prefs = await SharedPreferences.getInstance();
+    final type = data['type'] as String? ?? '';
+
+    if (type.startsWith('replacement_') || type == 'replacement_reminder') {
+      return prefs.getBool('notif_replacement') ?? true;
+    }
+    if (type.startsWith('shift_exchange_') || type.startsWith('exchange_')) {
+      return prefs.getBool('notif_exchange') ?? true;
+    }
+    if (type.startsWith('agent_query_') || type == 'agent_query') {
+      return prefs.getBool('notif_query') ?? true;
+    }
+    return true;
+  }
+
   /// Affiche une notification locale pour les messages reçus en premier plan
   Future<void> _showLocalNotification(RemoteMessage message) async {
     final notification = message.notification;
     final data = message.data;
 
     if (notification == null) return;
+
+    if (!await _isNotificationAllowed(data)) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final soundEnabled = prefs.getBool('notif_sound') ?? true;
+    final vibrationEnabled = prefs.getBool('notif_vibration') ?? true;
 
     // Construire le payload à partir des data
     final payload = Uri(queryParameters: data).query;
@@ -228,20 +258,20 @@ class PushNotificationService {
       notification.hashCode,
       notification.title,
       notification.body,
-      const NotificationDetails(
+      NotificationDetails(
         android: AndroidNotificationDetails(
           'nexshift_replacement_channel',
           'Remplacements',
           channelDescription: 'Notifications de recherche de remplaçants',
           importance: Importance.high,
           priority: Priority.high,
-          playSound: true,
-          enableVibration: true,
+          playSound: soundEnabled,
+          enableVibration: vibrationEnabled,
         ),
         iOS: DarwinNotificationDetails(
           presentAlert: true,
           presentBadge: true,
-          presentSound: true,
+          presentSound: soundEnabled,
         ),
       ),
       payload: payload,
@@ -254,17 +284,19 @@ class PushNotificationService {
       final token = await _firebaseMessaging.getToken();
       if (token != null) {
         debugPrint('📱 FCM Token: $token');
-        // TODO: Sauvegarder le token dans Firestore pour l'utilisateur courant
-        // Sera implémenté dans la prochaine étape
       }
     } catch (e) {
       debugPrint('Error getting FCM token: $e');
     }
 
-    // Écouter les changements de token
-    _firebaseMessaging.onTokenRefresh.listen((newToken) {
+    // Mettre à jour le token dans Firestore dès qu'il change
+    _firebaseMessaging.onTokenRefresh.listen((newToken) async {
       debugPrint('🔄 FCM Token refreshed: $newToken');
-      // TODO: Mettre à jour le token dans Firestore
+      final userId = _currentUserId;
+      final authUid = _currentAuthUid;
+      if (userId != null && authUid != null) {
+        await saveUserToken(userId, authUid: authUid);
+      }
     });
   }
 
@@ -298,6 +330,8 @@ class PushNotificationService {
   /// Le token est stocké dans sdis/{sdisId}/users/{authUid} pour être accessible
   /// même avant que l'utilisateur ait rejoint une caserne.
   Future<void> saveUserToken(String userId, {String? authUid}) async {
+    _currentUserId = userId;
+    if (authUid != null) _currentAuthUid = authUid;
     final logger = DebugLogger();
 
     try {

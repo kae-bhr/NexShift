@@ -151,6 +151,9 @@ class _AdminPageState extends State<AdminPage> {
                 _buildSectionHeader(context, 'Gestion des postes'),
                 _buildPositionsSection(context),
                 const SizedBox(height: 24),
+                _buildSectionHeader(context, 'Tableau de bord'),
+                _buildDashboardPermissionsSection(context),
+                const SizedBox(height: 24),
               ],
             ),
     );
@@ -451,9 +454,21 @@ class _AdminPageState extends State<AdminPage> {
                       ),
                     ),
                   ),
-                  title: Text(
-                    level.name,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  title: Row(
+                    children: [
+                      Text(
+                        level.name,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      if (level.isAvailability) ...[
+                        const SizedBox(width: 6),
+                        Icon(
+                          Icons.volunteer_activism_rounded,
+                          size: 14,
+                          color: level.color,
+                        ),
+                      ],
+                    ],
                   ),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -699,6 +714,7 @@ class _AdminPageState extends State<AdminPage> {
   ) async {
     final nameController = TextEditingController(text: existing?.name ?? '');
     int selectedColor = existing?.colorValue ?? Colors.blue.toARGB32();
+    bool selectedIsAvailability = existing?.isAvailability ?? false;
 
     final colorOptions = [
       Colors.blue,
@@ -765,6 +781,21 @@ class _AdminPageState extends State<AdminPage> {
                   );
                 }).toList(),
               ),
+              const SizedBox(height: 12),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text(
+                  'Niveau de disponibilité',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                ),
+                subtitle: const Text(
+                  'Les agents pourront se déclarer disponibles sur ce niveau',
+                  style: TextStyle(fontSize: 12),
+                ),
+                value: selectedIsAvailability,
+                onChanged: (value) =>
+                    setDialogState(() => selectedIsAvailability = value),
+              ),
             ],
           ),
           actions: [
@@ -778,6 +809,7 @@ class _AdminPageState extends State<AdminPage> {
                   Navigator.pop(context, {
                     'name': nameController.text.trim(),
                     'colorValue': selectedColor,
+                    'isAvailability': selectedIsAvailability,
                   });
                 }
               },
@@ -794,6 +826,7 @@ class _AdminPageState extends State<AdminPage> {
           final updated = existing.copyWith(
             name: result['name'] as String,
             colorValue: result['colorValue'] as int,
+            isAvailability: result['isAvailability'] as bool,
           );
           await _onCallLevelRepository.update(updated, stationId);
           setState(() {
@@ -806,6 +839,7 @@ class _AdminPageState extends State<AdminPage> {
             name: result['name'] as String,
             colorValue: result['colorValue'] as int,
             order: _onCallLevels.length,
+            isAvailability: result['isAvailability'] as bool,
           );
           final id = await _onCallLevelRepository.create(newLevel, stationId);
           setState(() {
@@ -1163,6 +1197,54 @@ class _AdminPageState extends State<AdminPage> {
           IconButton(
             icon: const Icon(Icons.delete, size: 20, color: Colors.red),
             onPressed: () => _deletePosition(context, position),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Section tableau de bord — droits d'accès par rôle
+  // ---------------------------------------------------------------------------
+
+  Widget _buildDashboardPermissionsSection(BuildContext context) {
+    if (_currentStation == null) return const SizedBox.shrink();
+
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Card(
+      child: Column(
+        children: [
+          _DashboardScopeRow(
+            icon: Icons.manage_accounts_rounded,
+            title: 'Agent',
+            value: _currentStation!.dashboardAgentScope,
+            options: DashboardScope.values.toList(),
+            isDark: isDark,
+            onChanged: (scope) {
+              setState(() {
+                _currentStation = _currentStation!.copyWith(
+                  dashboardAgentScope: scope,
+                );
+              });
+              _saveStationConfig();
+            },
+          ),
+          const Divider(height: 1),
+          _DashboardScopeRow(
+            icon: Icons.supervisor_account_rounded,
+            title: 'Chef d\'équipe',
+            value: _currentStation!.dashboardChiefScope,
+            options: [DashboardScope.team, DashboardScope.station],
+            isDark: isDark,
+            onChanged: (scope) {
+              setState(() {
+                _currentStation = _currentStation!.copyWith(
+                  dashboardChiefScope: scope,
+                );
+              });
+              _saveStationConfig();
+            },
           ),
         ],
       ),
@@ -1810,5 +1892,316 @@ class _MembershipRequestsDialogState extends State<_MembershipRequestsDialog> {
         });
       }
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Widget — ligne de sélection de portée tableau de bord avec overlay
+// ---------------------------------------------------------------------------
+
+String _dashboardScopeLabel(DashboardScope scope) {
+  switch (scope) {
+    case DashboardScope.personal:
+      return 'Personnel';
+    case DashboardScope.team:
+      return 'Équipe';
+    case DashboardScope.station:
+      return 'Caserne';
+  }
+}
+
+String _dashboardScopeDescription(DashboardScope scope) {
+  switch (scope) {
+    case DashboardScope.personal:
+      return 'Voit uniquement ses propres statistiques. Le sélecteur d\'équipe est grisé.';
+    case DashboardScope.team:
+      return 'Voit les statistiques des agents de son équipe. Le sélecteur d\'équipe est figé sur son équipe.';
+    case DashboardScope.station:
+      return 'Accès complet à toutes les équipes de la caserne sans restriction.';
+  }
+}
+
+class _DashboardScopeRow extends StatefulWidget {
+  final IconData icon;
+  final String title;
+  final DashboardScope value;
+  final List<DashboardScope> options;
+  final bool isDark;
+  final ValueChanged<DashboardScope> onChanged;
+
+  const _DashboardScopeRow({
+    required this.icon,
+    required this.title,
+    required this.value,
+    required this.options,
+    required this.isDark,
+    required this.onChanged,
+  });
+
+  @override
+  State<_DashboardScopeRow> createState() => _DashboardScopeRowState();
+}
+
+class _DashboardScopeRowState extends State<_DashboardScopeRow> {
+  OverlayEntry? _overlayEntry;
+
+  @override
+  void dispose() {
+    _closeOverlay();
+    super.dispose();
+  }
+
+  void _closeOverlay() {
+    _overlayEntry?.remove();
+    _overlayEntry = null;
+  }
+
+  void _openOverlay() {
+    if (_overlayEntry != null) {
+      _closeOverlay();
+      return;
+    }
+
+    // Calculer la position absolue du chip sur l'écran
+    final renderBox = context.findRenderObject() as RenderBox?;
+    if (renderBox == null) return;
+    final offset = renderBox.localToGlobal(Offset.zero);
+    final size = renderBox.size;
+
+    // Estimer la hauteur de l'overlay : ~70px par option + 16px de padding
+    final estimatedOverlayHeight = widget.options.length * 70.0 + 16.0;
+    final screenHeight = MediaQuery.of(context).size.height;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final rightEdge = screenWidth - (offset.dx + size.width);
+
+    // Si l'overlay déborde en bas, l'afficher au-dessus du chip
+    final fitsBelow = offset.dy + size.height + 6 + estimatedOverlayHeight <= screenHeight;
+
+    _overlayEntry = OverlayEntry(
+      builder: (_) => Stack(
+        children: [
+          Positioned.fill(
+            child: GestureDetector(
+              onTap: _closeOverlay,
+              behavior: HitTestBehavior.opaque,
+              child: const ColoredBox(color: Colors.transparent),
+            ),
+          ),
+          Positioned(
+            right: rightEdge,
+            top: fitsBelow ? offset.dy + size.height + 6 : null,
+            bottom: fitsBelow ? null : screenHeight - offset.dy + 6,
+            child: _DashboardScopeOverlay(
+              options: widget.options,
+              selected: widget.value,
+              isDark: widget.isDark,
+              onSelected: (scope) {
+                _closeOverlay();
+                widget.onChanged(scope);
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+    Overlay.of(context).insert(_overlayEntry!);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final desc = _dashboardScopeDescription(widget.value);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Icon(widget.icon, size: 22, color: scheme.primary),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  widget.title,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  desc,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: widget.isDark
+                        ? Colors.grey.shade400
+                        : Colors.grey.shade600,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          GestureDetector(
+              onTap: _openOverlay,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: scheme.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: scheme.primary.withValues(alpha: 0.3),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _dashboardScopeLabel(widget.value),
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: scheme.primary,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(
+                      Icons.expand_more_rounded,
+                      size: 16,
+                      color: scheme.primary,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DashboardScopeOverlay extends StatelessWidget {
+  final List<DashboardScope> options;
+  final DashboardScope selected;
+  final bool isDark;
+  final ValueChanged<DashboardScope> onSelected;
+
+  const _DashboardScopeOverlay({
+    required this.options,
+    required this.selected,
+    required this.isDark,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        width: 260,
+        margin: const EdgeInsets.only(right: 16),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF2A2A3E) : Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.1)
+                : Colors.grey.shade200,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.12),
+              blurRadius: 20,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: options.map((scope) {
+              final isSel = scope == selected;
+              final isLast = scope == options.last;
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  GestureDetector(
+                    onTap: () => onSelected(scope),
+                    behavior: HitTestBehavior.opaque,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 11,
+                      ),
+                      child: Row(
+                        children: [
+                          if (isSel)
+                            Icon(Icons.check_circle_rounded,
+                                size: 16, color: scheme.primary)
+                          else
+                            Icon(Icons.radio_button_unchecked_rounded,
+                                size: 16,
+                                color: isDark
+                                    ? Colors.grey.shade500
+                                    : Colors.grey.shade400),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _dashboardScopeLabel(scope),
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: isSel
+                                        ? FontWeight.w700
+                                        : FontWeight.w500,
+                                    color: isSel
+                                        ? scheme.primary
+                                        : (isDark
+                                            ? Colors.grey.shade200
+                                            : Colors.grey.shade800),
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  _dashboardScopeDescription(scope),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    height: 1.35,
+                                    color: isDark
+                                        ? Colors.grey.shade500
+                                        : Colors.grey.shade500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  if (!isLast)
+                    Divider(
+                      height: 1,
+                      color: isDark
+                          ? Colors.white.withValues(alpha: 0.06)
+                          : Colors.grey.shade100,
+                    ),
+                ],
+              );
+            }).toList(),
+          ),
+        ),
+      ),
+    );
   }
 }

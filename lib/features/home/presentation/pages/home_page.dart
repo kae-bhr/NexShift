@@ -640,12 +640,33 @@ class _HomePageState extends State<HomePage> {
 
     // Mode personnel : filtrer selon les règles spécifiques
     if (!stationView) {
+      final availabilityLevelIds = _onCallLevels
+          .where((l) => l.isAvailability)
+          .map((l) => l.id)
+          .toSet();
+
+      // Plannings dont l'agent est uniquement en niveau isAvailability (imposé par chef)
+      // → à convertir en tuile disponibilité virtuelle
+      final chiefAssignedAvailPlannings = <Planning>[];
+
       final userPlannings = planningsInWeek.where((planning) {
         // a) L'utilisateur est explicitement dans les agents ET NON remplacé entièrement
         final isAgent = planning.agentsId.contains(_user.id);
         final isReplacedEntirely = _isUserReplacedEntirely(planning, _user.id);
 
         if (isAgent && !isReplacedEntirely) {
+          // Vérifier si toutes ses entrées actives sont en niveau isAvailability
+          if (availabilityLevelIds.isNotEmpty) {
+            final userEntries = planning.agents
+                .where((a) => a.agentId == _user.id && a.replacedAgentId == null)
+                .toList();
+            final allDispo = userEntries.isNotEmpty &&
+                userEntries.every((a) => availabilityLevelIds.contains(a.levelId));
+            if (allDispo) {
+              chiefAssignedAvailPlannings.add(planning);
+              return false; // exclure des plannings réguliers
+            }
+          }
           return true;
         }
 
@@ -661,8 +682,28 @@ class _HomePageState extends State<HomePage> {
         return isReplacer;
       }).toList();
 
+      // Convertir les plannings "chef-assigné-dispo" en tuiles disponibilité virtuelles
+      for (final p in chiefAssignedAvailPlannings) {
+        final userEntries = p.agents
+            .where((a) => a.agentId == _user.id && a.replacedAgentId == null)
+            .toList();
+        if (userEntries.isEmpty) continue;
+        // Prendre la première entrée pour déterminer le niveau
+        final levelId = userEntries.first.levelId;
+        final virtualAvail = Availability(
+          id: 'chief_${p.id}_${_user.id}',
+          agentId: _user.id,
+          start: userEntries.first.start,
+          end: userEntries.first.end,
+          planningId: p.id,
+          levelId: levelId.isNotEmpty ? levelId : null,
+        );
+        _allAvailabilities.add(virtualAvail);
+      }
+
       // Ajouter les disponibilités comme des plannings virtuels en mode personnel
-      final availabilityPlannings = _getAvailabilityPlannings(weekEnd);
+      // (exclure celles déjà couvertes par un planning réel)
+      final availabilityPlannings = _getAvailabilityPlannings(weekEnd, userPlannings);
 
       // Trier par ordre chronologique (startTime)
       final allPlannings = [...userPlannings, ...availabilityPlannings];
@@ -723,12 +764,16 @@ class _HomePageState extends State<HomePage> {
     return stationPlannings;
   }
 
-  List<Planning> _getAvailabilityPlannings(DateTime weekEnd) {
+  List<Planning> _getAvailabilityPlannings(DateTime weekEnd, List<Planning> realPlannings) {
     // Filtrer les disponibilités de l'utilisateur dans la semaine
     final userAvailabilities = _allAvailabilities.where((a) {
-      return a.agentId == _user.id &&
-          a.end.isAfter(currentWeekStartNotifier.value) &&
-          a.start.isBefore(weekEnd);
+      if (a.agentId != _user.id) return false;
+      if (!a.end.isAfter(currentWeekStartNotifier.value)) return false;
+      if (!a.start.isBefore(weekEnd)) return false;
+      // Exclure si la disponibilité chevauche un planning réel où l'utilisateur est agent
+      final overlapsReal = realPlannings.any((p) =>
+          p.startTime.isBefore(a.end) && p.endTime.isAfter(a.start));
+      return !overlapsReal;
     }).toList();
 
     // Fusionner les disponibilités qui se chevauchent
@@ -2646,9 +2691,18 @@ class _HomePageState extends State<HomePage> {
                             final isAvailability = planning.id.startsWith(
                               'availability_',
                             );
-                            final isOnGuard = planning.agentsId.contains(
-                              _user.id,
-                            );
+                            // Vérifier si l'utilisateur est en garde effective (non uniquement en niveau dispo)
+                            final guardAvailLevelIds = _onCallLevels
+                                .where((l) => l.isAvailability)
+                                .map((l) => l.id)
+                                .toSet();
+                            final userRealEntries = planning.agents
+                                .where((a) =>
+                                    a.agentId == _user.id &&
+                                    a.replacedAgentId == null &&
+                                    !guardAvailLevelIds.contains(a.levelId))
+                                .toList();
+                            final isOnGuard = userRealEntries.isNotEmpty;
                             final isReplacedFully = _isUserReplacedEntirely(
                               planning,
                               _user.id,
@@ -2681,24 +2735,29 @@ class _HomePageState extends State<HomePage> {
                                       int? agentCountMax;
                                       List<AgentCountIssue> agentCountIssues =
                                           [];
+                                      final availLevelIds = _onCallLevels
+                                          .where((l) => l.isAvailability)
+                                          .map((l) => l.id)
+                                          .toSet();
                                       if (_onCallLevels.isNotEmpty) {
                                         final countResult =
                                             OnCallDispositionService.computeAgentCount(
                                               planning: planning,
+                                              availabilityLevelIds: availLevelIds,
                                             );
                                         agentCountMin = countResult.min;
                                         agentCountMax = countResult.max;
                                         agentCountIssues = countResult.issues;
                                       }
 
-                                      // Le badge est vert si TOUS les agents sont checkés
+                                      // Le badge est vert si TOUS les agents (hors dispo) sont checkés
                                       bool allChecked = false;
                                       if (_onCallLevels.isNotEmpty) {
-                                        allChecked =
-                                            planning.agents.isNotEmpty &&
-                                            planning.agents.every(
-                                              (a) => a.checkedByChief,
-                                            );
+                                        final checkableAgents = planning.agents
+                                            .where((a) => !availLevelIds.contains(a.levelId))
+                                            .toList();
+                                        allChecked = checkableAgents.isNotEmpty &&
+                                            checkableAgents.every((a) => a.checkedByChief);
                                       } else {
                                         allChecked =
                                             subList.isNotEmpty &&
@@ -2795,6 +2854,9 @@ class _HomePageState extends State<HomePage> {
                                                 station: _station!,
                                                 allUsers: _allUsers,
                                                 currentUser: _user,
+                                                availabilities: _allAvailabilities
+                                                    .where((a) => a.planningId == planning.id)
+                                                    .toList(),
                                                 canManage:
                                                     _user.admin ||
                                                     _user.status ==
@@ -3103,7 +3165,17 @@ class _HomePageState extends State<HomePage> {
               ..sort((a, b) => a.start.compareTo(b.start));
 
             final isAvailability = planning.id.startsWith('availability_');
-            final isOnGuard = planning.agentsId.contains(_user.id);
+            final guardAvailLevelIds2 = _onCallLevels
+                .where((l) => l.isAvailability)
+                .map((l) => l.id)
+                .toSet();
+            final userRealEntries2 = planning.agents
+                .where((a) =>
+                    a.agentId == _user.id &&
+                    a.replacedAgentId == null &&
+                    !guardAvailLevelIds2.contains(a.levelId))
+                .toList();
+            final isOnGuard = userRealEntries2.isNotEmpty;
             final isReplacedFully = _isUserReplacedEntirely(planning, _user.id);
 
             Subshift? replacerSubshift;
@@ -3128,10 +3200,15 @@ class _HomePageState extends State<HomePage> {
                       int? agentCountMin;
                       int? agentCountMax;
                       List<AgentCountIssue> agentCountIssues = [];
+                      final availLevelIds = _onCallLevels
+                          .where((l) => l.isAvailability)
+                          .map((l) => l.id)
+                          .toSet();
                       if (_onCallLevels.isNotEmpty) {
                         final countResult =
                             OnCallDispositionService.computeAgentCount(
                               planning: planning,
+                              availabilityLevelIds: availLevelIds,
                             );
                         agentCountMin = countResult.min;
                         agentCountMax = countResult.max;
@@ -3140,8 +3217,11 @@ class _HomePageState extends State<HomePage> {
 
                       bool allChecked = false;
                       if (_onCallLevels.isNotEmpty) {
-                        allChecked = planning.agents.isNotEmpty &&
-                            planning.agents.every((a) => a.checkedByChief);
+                        final checkableAgents = planning.agents
+                            .where((a) => !availLevelIds.contains(a.levelId))
+                            .toList();
+                        allChecked = checkableAgents.isNotEmpty &&
+                            checkableAgents.every((a) => a.checkedByChief);
                       } else {
                         allChecked = subList.isNotEmpty &&
                             subList.every((s) => s.checkedByChief);
@@ -3218,6 +3298,9 @@ class _HomePageState extends State<HomePage> {
                                 station: _station!,
                                 allUsers: _allUsers,
                                 currentUser: _user,
+                                availabilities: _allAvailabilities
+                                    .where((a) => a.planningId == planning.id)
+                                    .toList(),
                                 canManage: _user.admin ||
                                     _user.status == KConstants.statusLeader ||
                                     (_user.status == KConstants.statusChief &&
@@ -3363,6 +3446,7 @@ class _AbsenceMenuButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ContextualMenuButton(
+      estimatedMenuHeight: 260,
       menuContent: (onClose) => AbsenceMenuOverlay.buildMenuContent(
         context: context,
         planning: planning,
@@ -3427,8 +3511,6 @@ class _AdminReplaceButtonState extends State<_AdminReplaceButton>
   OverlayEntry? _overlayEntry;
   late AnimationController _animationController;
   late Animation<double> _animation;
-  final LayerLink _layerLink = LayerLink();
-
   @override
   void initState() {
     super.initState();
@@ -3467,7 +3549,14 @@ class _AdminReplaceButtonState extends State<_AdminReplaceButton>
   void _showMenu() {
     final overlay = Overlay.of(context);
     final renderBox = context.findRenderObject() as RenderBox;
+    final offset = renderBox.localToGlobal(Offset.zero);
     final size = renderBox.size;
+    final screenHeight = MediaQuery.of(context).size.height;
+
+    // Estimation : ~3 options × 56px + padding
+    const estimatedMenuHeight = 3 * 56.0 + 16.0;
+    final fitsBelow =
+        offset.dy + size.height + 8 + estimatedMenuHeight <= screenHeight;
 
     _overlayEntry = OverlayEntry(
       builder: (context) => GestureDetector(
@@ -3481,26 +3570,25 @@ class _AdminReplaceButtonState extends State<_AdminReplaceButton>
             ),
             // Menu options
             Positioned(
+              left: offset.dx,
               width: size.width,
-              child: CompositedTransformFollower(
-                link: _layerLink,
-                showWhenUnlinked: false,
-                offset: Offset(0, size.height + 8),
-                child: FadeTransition(
-                  opacity: _animation,
-                  child: ScaleTransition(
-                    scale: _animation,
-                    alignment: Alignment.topCenter,
-                    child: Material(
-                      elevation: 8,
-                      borderRadius: BorderRadius.circular(12),
-                      child: AbsenceMenuOverlay.buildMenuContent(
-                        context: context,
-                        planning: widget.planning,
-                        user: widget.user,
-                        parentSubshift: null,
-                        onOptionSelected: _removeOverlay,
-                      ),
+              top: fitsBelow ? offset.dy + size.height + 8 : null,
+              bottom: fitsBelow ? null : screenHeight - offset.dy + 8,
+              child: FadeTransition(
+                opacity: _animation,
+                child: ScaleTransition(
+                  scale: _animation,
+                  alignment:
+                      fitsBelow ? Alignment.topCenter : Alignment.bottomCenter,
+                  child: Material(
+                    elevation: 8,
+                    borderRadius: BorderRadius.circular(12),
+                    child: AbsenceMenuOverlay.buildMenuContent(
+                      context: context,
+                      planning: widget.planning,
+                      user: widget.user,
+                      parentSubshift: null,
+                      onOptionSelected: _removeOverlay,
                     ),
                   ),
                 ),
@@ -3517,9 +3605,7 @@ class _AdminReplaceButtonState extends State<_AdminReplaceButton>
 
   @override
   Widget build(BuildContext context) {
-    return CompositedTransformTarget(
-      link: _layerLink,
-      child: Container(
+    return Container(
         width: double.infinity,
         height: 44,
         decoration: BoxDecoration(
@@ -3562,7 +3648,6 @@ class _AdminReplaceButtonState extends State<_AdminReplaceButton>
             ),
           ),
         ),
-      ),
     );
   }
 }

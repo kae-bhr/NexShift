@@ -47,17 +47,18 @@ export const cleanupOldData = onSchedule(
     let totalDeleted = 0;
 
     // Collections à nettoyer au niveau station
+    // Noms de champs vérifiés par rapport aux modèles Firestore réels
     const collectionsToClean: Array<{
       key: string;
       dateField: string;
       label: string;
     }> = [
-      {key: "plannings", dateField: "endDate", label: "Plannings"},
+      {key: "plannings", dateField: "endTime", label: "Plannings"},
       {key: "replacementRequests", dateField: "createdAt", label: "ReplacementRequests"},
       {key: "subshifts", dateField: "end", label: "Subshifts"},
-      {key: "availabilities", dateField: "end", label: "Availabilities"},
-      {key: "notificationTriggers", dateField: "processedAt", label: "NotificationTriggers"},
-      {key: "shiftExchangeRequests", dateField: "completedAt", label: "ShiftExchangeRequests"},
+      {key: "availabilities", dateField: "endTime", label: "Availabilities"},
+      {key: "notificationTriggers", dateField: "createdAt", label: "NotificationTriggers"},
+      {key: "shiftExchangeRequests", dateField: "createdAt", label: "ShiftExchangeRequests"},
       {key: "replacementAcceptances", dateField: "createdAt", label: "ReplacementAcceptances"},
       {key: "shiftExchangeProposals", dateField: "createdAt", label: "ShiftExchangeProposals"},
     ];
@@ -77,22 +78,33 @@ export const cleanupOldData = onSchedule(
         for (const {key, dateField, label} of collectionsToClean) {
           try {
             const collectionPath = getStationCollectionPath(stationPath, key);
-            const snapshot = await db
-              .collection(collectionPath)
-              .where(dateField, "<", cutoffTimestamp)
-              .limit(500)
-              .get();
+            let deletedForCollection = 0;
 
-            if (snapshot.empty) continue;
+            // Boucle de pagination : supprime par lots de 500 jusqu'à épuisement
+            while (true) {
+              const snapshot = await db
+                .collection(collectionPath)
+                .where(dateField, "<", cutoffTimestamp)
+                .limit(500)
+                .get();
 
-            const batch = db.batch();
-            snapshot.docs.forEach((doc) => batch.delete(doc.ref));
-            await batch.commit();
-            totalDeleted += snapshot.size;
+              if (snapshot.empty) break;
 
-            console.log(
-              `    🗑️ ${label}: ${snapshot.size} document(s) supprimé(s)`,
-            );
+              const batch = db.batch();
+              snapshot.docs.forEach((doc) => batch.delete(doc.ref));
+              await batch.commit();
+              deletedForCollection += snapshot.size;
+              totalDeleted += snapshot.size;
+
+              // Si moins de 500 résultats, on a tout traité
+              if (snapshot.size < 500) break;
+            }
+
+            if (deletedForCollection > 0) {
+              console.log(
+                `    🗑️ ${label}: ${deletedForCollection} document(s) supprimé(s)`,
+              );
+            }
           } catch (error) {
             console.error(`    ❌ Erreur ${label}:`, error);
           }

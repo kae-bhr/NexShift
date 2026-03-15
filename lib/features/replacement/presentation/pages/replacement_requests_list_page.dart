@@ -97,8 +97,10 @@ class _ReplacementRequestsListPageState
     }
   }
 
-  /// Calcule le nombre de propositions d'échange nécessitant la validation de CE leader spécifique
-  /// en utilisant la même logique que getProposalsRequiringValidationForLeader
+  /// Calcule le nombre de propositions d'échange nécessitant la validation de CE leader spécifique.
+  /// Logique identique à badge_count_service.dart :
+  /// - Concerne ce leader si proposerTeamId == son équipe OU initiatorTeamId == son équipe
+  /// - Exclut les propositions où ce leader a déjà validé (clé teamId_leaderId dans leaderValidations)
   Future<int> _getExchangeValidationCount(
     QuerySnapshot proposalsSnapshot,
   ) async {
@@ -118,30 +120,14 @@ class _ReplacementRequestsListPageState
           proposalData['leaderValidations'] as Map<String, dynamic>? ?? {};
 
       // Si ce leader a déjà validé, on passe
-      if (validations.containsKey(leaderKey)) {
-        continue;
-      }
+      if (validations.containsKey(leaderKey)) continue;
 
-      // Récupérer les équipes de l'initiateur et du proposeur
       final proposerTeam = proposalData['proposerTeamId'] as String?;
-      final requestId = proposalData['requestId'] as String?;
+      final initiatorTeam = proposalData['initiatorTeamId'] as String?;
 
-      // Vérifier si ce leader fait partie des équipes concernées
-      if (proposerTeam == userTeam) {
+      // Ce leader est concerné si son équipe est celle du proposeur ou de l'initiateur
+      if (proposerTeam == userTeam || initiatorTeam == userTeam) {
         count++;
-        continue;
-      }
-
-      // Pour l'équipe de l'initiateur, on doit récupérer le planning
-      if (requestId != null) {
-        try {
-          // On pourrait aussi extraire initiatorTeamId s'il est stocké dans la proposition
-          // Sinon on doit récupérer la demande et son planning
-          // Pour l'instant, on compte si le proposeur est dans l'équipe
-          // La logique complète nécessiterait de récupérer chaque request
-        } catch (e) {
-          // Ignorer les erreurs
-        }
       }
     }
 

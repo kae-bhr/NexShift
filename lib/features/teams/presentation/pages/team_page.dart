@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
@@ -28,6 +29,7 @@ enum TeamViewMode { rolesBased, positionsBased, skillsBased }
 class _TeamPageState extends State<TeamPage> {
   final PositionRepository _positionRepo = PositionRepository();
   final TextEditingController _searchController = TextEditingController();
+  Timer? _searchDebounce;
   bool _loading = true;
   String? _error;
   List<User> _teamUsers = [];
@@ -90,6 +92,7 @@ class _TeamPageState extends State<TeamPage> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchController.dispose();
     teamDataChangedNotifier.removeListener(_onTeamDataChanged);
     userNotifier.removeListener(_onUserChanged);
@@ -251,8 +254,11 @@ class _TeamPageState extends State<TeamPage> {
             child: TextField(
               controller: _searchController,
               onChanged: (value) {
-                setState(() => _searchQuery = value);
-                _applySearch();
+                _searchDebounce?.cancel();
+                _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+                  setState(() => _searchQuery = value);
+                  _applySearch();
+                });
               },
               style: TextStyle(
                 fontSize: 14,

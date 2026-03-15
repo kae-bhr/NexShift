@@ -116,148 +116,181 @@ class _PlanningHeaderState extends State<PlanningHeader> {
 
   @override
   Widget build(BuildContext context) {
-    final daysOfWeek = List.generate(
-      7,
-      (i) => currentWeekStartNotifier.value.add(Duration(days: i)),
-    );
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final viewMode = viewModeNotifier.value;
-    final currentMonth = currentMonthNotifier.value;
 
-    final dateLabel = viewMode == ViewMode.week
-        ? "${DateFormat('d MMM', 'fr_FR').format(daysOfWeek.first)} - ${DateFormat('d MMM', 'fr_FR').format(daysOfWeek.last)}"
-        : _capitalizeFirst(
-            DateFormat('MMMM yyyy', 'fr_FR').format(currentMonth),
-          );
+    return ValueListenableBuilder<ViewMode>(
+      valueListenable: viewModeNotifier,
+      builder: (context, viewMode, _) {
+        return ValueListenableBuilder<DateTimeRange?>(
+          valueListenable: customDateRangeNotifier,
+          builder: (context, customRange, _) {
+            final isCustom = customRange != null;
+            final daysOfWeek = List.generate(
+              7,
+              (i) => currentWeekStartNotifier.value.add(Duration(days: i)),
+            );
+            final currentMonth = currentMonthNotifier.value;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20.0),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          // ── Colonne gauche : filtre équipe ──────────────────────
-          ValueListenableBuilder<bool>(
-            valueListenable: stationViewNotifier,
-            builder: (_, stationView, __) => ValueListenableBuilder<String?>(
-              valueListenable: selectedTeamNotifier,
-              builder: (_, selectedTeam, __) => _TeamFilterButton(
-                stationView: stationView,
-                availableTeams: widget.availableTeams,
-                isDark: isDark,
-              ),
-            ),
-          ),
+            final String dateLabel;
+            final IconData dateIcon;
+            if (isCustom) {
+              final fmt = DateFormat('d MMM', 'fr_FR');
+              dateLabel =
+                  '${fmt.format(customRange.start)} – ${fmt.format(customRange.end)}';
+              dateIcon = Icons.date_range_rounded;
+            } else if (viewMode == ViewMode.week) {
+              dateLabel =
+                  '${DateFormat('d MMM', 'fr_FR').format(daysOfWeek.first)} - ${DateFormat('d MMM', 'fr_FR').format(daysOfWeek.last)}';
+              dateIcon = Icons.calendar_month_rounded;
+            } else {
+              dateLabel = _capitalizeFirst(
+                DateFormat('MMMM yyyy', 'fr_FR').format(currentMonth),
+              );
+              dateIcon = Icons.calendar_today_rounded;
+            }
 
-          const SizedBox(width: 8),
-
-          // ── Colonne centrale : toggle Personnel/Centre + date nav ─
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                // Toggle Personnel / Centre
-                ValueListenableBuilder<bool>(
-                  valueListenable: stationViewNotifier,
-                  builder: (context, stationView, _) {
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      child: Center(
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: isDark
-                                ? Colors.white.withValues(alpha: 0.08)
-                                : Colors.grey.shade100,
-                            borderRadius: BorderRadius.circular(14),
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20.0),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // ── Colonne gauche : filtre équipe ──────────────────────
+                  ValueListenableBuilder<bool>(
+                    valueListenable: stationViewNotifier,
+                    builder: (_, stationView, __) =>
+                        ValueListenableBuilder<String?>(
+                          valueListenable: selectedTeamNotifier,
+                          builder: (_, selectedTeam, __) => _TeamFilterButton(
+                            stationView: stationView,
+                            availableTeams: widget.availableTeams,
+                            isDark: isDark,
                           ),
-                          padding: const EdgeInsets.all(4),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              _SegmentButton(
-                                icon: Icons.person_rounded,
-                                label: 'Personnel',
-                                isSelected: !stationView,
-                                onTap: () => stationViewNotifier.value = false,
+                        ),
+                  ),
+
+                  const SizedBox(width: 8),
+
+                  // ── Colonne centrale : toggle Personnel/Centre + date nav ─
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        // Toggle Personnel / Centre
+                        ValueListenableBuilder<bool>(
+                          valueListenable: stationViewNotifier,
+                          builder: (context, stationView, _) {
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              child: Center(
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: isDark
+                                        ? Colors.white.withValues(alpha: 0.08)
+                                        : Colors.grey.shade100,
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  padding: const EdgeInsets.all(4),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      _SegmentButton(
+                                        icon: Icons.person_rounded,
+                                        label: 'Personnel',
+                                        isSelected: !stationView,
+                                        onTap: () =>
+                                            stationViewNotifier.value = false,
+                                      ),
+                                      _SegmentButton(
+                                        icon: Icons.fire_truck_rounded,
+                                        label: 'Centre',
+                                        isSelected: stationView,
+                                        onTap: () =>
+                                            stationViewNotifier.value = true,
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ),
-                              _SegmentButton(
-                                icon: Icons.fire_truck_rounded,
-                                label: 'Centre',
-                                isSelected: stationView,
-                                onTap: () => stationViewNotifier.value = true,
+                            );
+                          },
+                        ),
+
+                        // Navigation date (masquée en mode custom)
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            if (!isCustom) ...[
+                              _NavArrowButton(
+                                icon: Icons.chevron_left_rounded,
+                                onTap: _goToPrevious,
+                              ),
+                              const SizedBox(width: 4),
+                            ],
+                            GestureDetector(
+                              onTap: _showPicker,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 8,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: isDark
+                                      ? KColors.appNameColor.withValues(
+                                          alpha: 0.15,
+                                        )
+                                      : KColors.appNameColor.withValues(
+                                          alpha: 0.08,
+                                        ),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      dateIcon,
+                                      size: 18,
+                                      color: KColors.appNameColor,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      dateLabel,
+                                      style: TextStyle(
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.primary,
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w600,
+                                        letterSpacing: -0.2,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            if (!isCustom) ...[
+                              const SizedBox(width: 4),
+                              _NavArrowButton(
+                                icon: Icons.chevron_right_rounded,
+                                onTap: _goToNext,
                               ),
                             ],
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-
-                // Navigation date
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _NavArrowButton(
-                      icon: Icons.chevron_left_rounded,
-                      onTap: _goToPrevious,
-                    ),
-                    const SizedBox(width: 4),
-                    GestureDetector(
-                      onTap: _showPicker,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: isDark
-                              ? KColors.appNameColor.withValues(alpha: 0.15)
-                              : KColors.appNameColor.withValues(alpha: 0.08),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              viewMode == ViewMode.week
-                                  ? Icons.calendar_month_rounded
-                                  : Icons.calendar_today_rounded,
-                              size: 18,
-                              color: KColors.appNameColor,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              dateLabel,
-                              style: TextStyle(
-                                color: Theme.of(context).colorScheme.primary,
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600,
-                                letterSpacing: -0.2,
-                              ),
-                            ),
                           ],
                         ),
-                      ),
+                        const SizedBox(height: 8),
+                      ],
                     ),
-                    const SizedBox(width: 4),
-                    _NavArrowButton(
-                      icon: Icons.chevron_right_rounded,
-                      onTap: _goToNext,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-              ],
-            ),
-          ),
+                  ),
 
-          const SizedBox(width: 8),
+                  const SizedBox(width: 8),
 
-          // ── Colonne droite : toggle Sem./Mois ───────────────────
-          // UnconstrainedBox évite que la Row impose sa hauteur au toggle
-          UnconstrainedBox(child: _ViewModeToggle()),
-        ],
-      ),
+                  // ── Colonne droite : sélecteur période ──────────────────
+                  UnconstrainedBox(child: _PeriodFilterButton(isDark: isDark)),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -285,7 +318,6 @@ class _TeamFilterButton extends StatefulWidget {
 }
 
 class _TeamFilterButtonState extends State<_TeamFilterButton> {
-  final LayerLink _layerLink = LayerLink();
   OverlayEntry? _overlayEntry;
 
   @override
@@ -305,10 +337,15 @@ class _TeamFilterButtonState extends State<_TeamFilterButton> {
       return;
     }
 
-    // Largeur du dropdown
-    const dropdownWidth = 200.0;
-    // Hauteur approximative du bouton (2 lignes + padding = ~70px)
-    const buttonHeight = 70.0;
+    final renderBox = ctx.findRenderObject() as RenderBox;
+    final offset = renderBox.localToGlobal(Offset.zero);
+    final size = renderBox.size;
+    final screenHeight = MediaQuery.of(ctx).size.height;
+
+    // 1 ligne "Toutes" + N équipes, ~44px chacune + padding
+    final estimatedHeight = (widget.availableTeams.length + 1) * 44.0 + 16.0;
+    final fitsBelow =
+        offset.dy + size.height + 4 + estimatedHeight <= screenHeight;
 
     _overlayEntry = OverlayEntry(
       builder: (_) => Stack(
@@ -321,19 +358,15 @@ class _TeamFilterButtonState extends State<_TeamFilterButton> {
               child: const ColoredBox(color: Colors.transparent),
             ),
           ),
-          // Dropdown positionné sous le bouton, aligné à gauche
-          CompositedTransformFollower(
-            link: _layerLink,
-            showWhenUnlinked: false,
-            offset: const Offset(0, buttonHeight + 4),
-            child: Align(
-              alignment: Alignment.topLeft,
-              child: _TeamFilterDropdown(
-                availableTeams: widget.availableTeams,
-                isDark: widget.isDark,
-                onClose: _closeOverlay,
-                dropdownWidth: dropdownWidth,
-              ),
+          Positioned(
+            left: offset.dx,
+            top: fitsBelow ? offset.dy + size.height + 4 : null,
+            bottom: fitsBelow ? null : screenHeight - offset.dy + 4,
+            child: _TeamFilterDropdown(
+              availableTeams: widget.availableTeams,
+              isDark: widget.isDark,
+              onClose: _closeOverlay,
+              dropdownWidth: 200,
             ),
           ),
         ],
@@ -401,20 +434,17 @@ class _TeamFilterButtonState extends State<_TeamFilterButton> {
       );
     }
 
-    final container = CompositedTransformTarget(
-      link: _layerLink,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeInOut,
-        width: _kToggleW,
-        height: _kFilterH,
-        decoration: BoxDecoration(
-          color: bgColor,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: borderColor),
-        ),
-        child: Center(child: innerContent),
+    final container = AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeInOut,
+      width: _kToggleW,
+      height: _kFilterH,
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: borderColor),
       ),
+      child: Center(child: innerContent),
     );
 
     if (!widget.stationView) {
@@ -738,106 +768,219 @@ class _NavArrowButton extends StatelessWidget {
   }
 }
 
-/// Compact Semaine/Mois toggle, reads and writes [viewModeNotifier]
-class _ViewModeToggle extends StatelessWidget {
-  const _ViewModeToggle();
+// ─────────────────────────────────────────────────────────────────────────────
+// SÉLECTEUR DE PÉRIODE (Semaine / Mois / Personnalisé)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _PeriodFilterButton extends StatefulWidget {
+  final bool isDark;
+
+  const _PeriodFilterButton({required this.isDark});
+
+  @override
+  State<_PeriodFilterButton> createState() => _PeriodFilterButtonState();
+}
+
+class _PeriodFilterButtonState extends State<_PeriodFilterButton> {
+  OverlayEntry? _overlayEntry;
+
+  @override
+  void dispose() {
+    _closeOverlay();
+    super.dispose();
+  }
+
+  void _closeOverlay() {
+    _overlayEntry?.remove();
+    _overlayEntry = null;
+  }
+
+  void _openOverlay(BuildContext ctx) {
+    if (_overlayEntry != null) {
+      _closeOverlay();
+      return;
+    }
+
+    final renderBox = ctx.findRenderObject() as RenderBox;
+    final offset = renderBox.localToGlobal(Offset.zero);
+    final size = renderBox.size;
+    final screenHeight = MediaQuery.of(ctx).size.height;
+
+    // 3 options × 44px + padding
+    const estimatedHeight = 3 * 44.0 + 16.0;
+    final fitsBelow =
+        offset.dy + size.height + 4 + estimatedHeight <= screenHeight;
+
+    _overlayEntry = OverlayEntry(
+      builder: (_) => Stack(
+        children: [
+          Positioned.fill(
+            child: GestureDetector(
+              onTap: _closeOverlay,
+              behavior: HitTestBehavior.opaque,
+              child: const ColoredBox(color: Colors.transparent),
+            ),
+          ),
+          Positioned(
+            // Aligner le bord droit de l'overlay sur le bord droit du bouton
+            right: MediaQuery.of(ctx).size.width - (offset.dx + size.width),
+            top: fitsBelow ? offset.dy + size.height + 4 : null,
+            bottom: fitsBelow ? null : screenHeight - offset.dy + 4,
+            child: _PeriodDropdown(
+              isDark: widget.isDark,
+              onClose: _closeOverlay,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    Overlay.of(ctx).insert(_overlayEntry!);
+  }
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return ValueListenableBuilder<ViewMode>(
       valueListenable: viewModeNotifier,
       builder: (context, viewMode, _) {
-        return Container(
-          width: _kToggleW,
-          decoration: BoxDecoration(
-            color: isDark
-                ? Colors.white.withValues(alpha: 0.06)
-                : Colors.grey.shade100,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: isDark
-                  ? Colors.white.withValues(alpha: 0.1)
-                  : Colors.grey.shade200,
-            ),
-          ),
-          padding: const EdgeInsets.all(2),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _ViewModeButton(
-                icon: Icons.view_week_rounded,
-                label: 'Sem',
-                isSelected: viewMode == ViewMode.week,
-                onTap: () => viewModeNotifier.value = ViewMode.week,
+        return ValueListenableBuilder<DateTimeRange?>(
+          valueListenable: customDateRangeNotifier,
+          builder: (context, customRange, _) {
+            final isCustom = customRange != null;
+
+            final IconData icon;
+            final Color activeColor;
+
+            if (isCustom) {
+              icon = Icons.date_range_rounded;
+              activeColor = Colors.purple.shade400;
+            } else if (viewMode == ViewMode.week) {
+              icon = Icons.view_agenda_outlined;
+              activeColor = KColors.appNameColor;
+            } else {
+              icon = Icons.calendar_view_month_rounded;
+              activeColor = KColors.appNameColor;
+            }
+
+            final bgColor = widget.isDark
+                ? activeColor.withValues(alpha: 0.2)
+                : activeColor.withValues(alpha: 0.10);
+            final borderColor = activeColor.withValues(alpha: 0.35);
+
+            final container = AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeInOut,
+              width: _kToggleW,
+              height: _kFilterH,
+              decoration: BoxDecoration(
+                color: bgColor,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: borderColor),
               ),
-              _ViewModeButton(
-                icon: Icons.calendar_view_month_rounded,
-                label: 'Mois',
-                isSelected: viewMode == ViewMode.month,
-                onTap: () => viewModeNotifier.value = ViewMode.month,
-              ),
-            ],
-          ),
+              child: Center(child: Icon(icon, size: 20, color: activeColor)),
+            );
+
+            return GestureDetector(
+              onTap: () => _openOverlay(context),
+              child: container,
+            );
+          },
         );
       },
     );
   }
 }
 
-class _ViewModeButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final bool isSelected;
-  final VoidCallback onTap;
+class _PeriodDropdown extends StatelessWidget {
+  final bool isDark;
+  final VoidCallback onClose;
 
-  const _ViewModeButton({
-    required this.icon,
-    required this.label,
-    required this.isSelected,
-    required this.onTap,
-  });
+  const _PeriodDropdown({required this.isDark, required this.onClose});
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeInOut,
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? (isDark
-                    ? KColors.appNameColor.withValues(alpha: 0.3)
-                    : KColors.appNameColor.withValues(alpha: 0.12))
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Icon(
-              icon,
-              size: 16,
-              color: isSelected ? KColors.appNameColor : Colors.grey.shade500,
-            ),
-            const SizedBox(height: 3),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                color: isSelected ? KColors.appNameColor : Colors.grey.shade500,
-                letterSpacing: -0.1,
+    return ValueListenableBuilder<ViewMode>(
+      valueListenable: viewModeNotifier,
+      builder: (_, viewMode, __) {
+        final divider = Divider(
+          height: 1,
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.06)
+              : Colors.grey.shade100,
+        );
+
+        Widget item(IconData icon, String label, ViewMode mode) {
+          final isSelected = viewMode == mode;
+          return _DropdownItem(
+            isDark: isDark,
+            isSelected: isSelected,
+            onTap: () {
+              viewModeNotifier.value = mode;
+              onClose();
+            },
+            leading: Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? KColors.appNameColor.withValues(alpha: 0.15)
+                    : (isDark
+                          ? Colors.white.withValues(alpha: 0.06)
+                          : Colors.grey.shade100),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                icon,
+                size: 15,
+                color: isSelected
+                    ? KColors.appNameColor
+                    : (isDark ? Colors.grey.shade400 : Colors.grey.shade500),
               ),
             ),
-          ],
-        ),
-      ),
+            label: label,
+            labelColor: isSelected ? KColors.appNameColor : null,
+            checkColor: KColors.appNameColor,
+          );
+        }
+
+        return Material(
+          color: Colors.transparent,
+          child: Container(
+            width: 200,
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF2A2A3E) : Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.1)
+                    : Colors.grey.shade200,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.12),
+                  blurRadius: 20,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  item(Icons.view_agenda_outlined, 'Semaine', ViewMode.week),
+                  divider,
+                  item(
+                    Icons.calendar_view_month_rounded,
+                    'Mois',
+                    ViewMode.month,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

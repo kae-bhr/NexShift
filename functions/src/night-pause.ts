@@ -87,6 +87,11 @@ export const sendPendingWavesAfterNightPause = onSchedule(
             const lastWaveMinutes = lastWaveHour * 60 + lastWaveParis.getMinutes();
             const pauseStartMinutes = startHour * 60 + startMinute;
 
+            // La vague ne doit pas dater de plus de 24h (évite de reprendre des
+            // vagues anciennes qui n'ont rien à voir avec la pause de cette nuit)
+            const ageMs = now.getTime() - lastWaveSentAt.getTime();
+            if (ageMs > 24 * 60 * 60 * 1000) continue;
+
             // Déterminer si la dernière vague est tombée pendant la pause
             let wasDuringPause = false;
             if (pauseStartMinutes > pauseEndMinutes) {

@@ -13,6 +13,7 @@ import 'package:nexshift_app/features/planning/presentation/widgets/planning_hea
 import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 import 'package:nexshift_app/core/data/datasources/notifiers.dart';
 import 'package:nexshift_app/core/repositories/team_repository.dart';
+import 'package:nexshift_app/core/repositories/on_call_level_repository.dart';
 import 'package:nexshift_app/core/utils/subshift_normalizer.dart';
 import 'package:nexshift_app/features/app_shell/presentation/widgets/absence_menu_overlay.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
@@ -33,6 +34,7 @@ class _PlanningPageState extends State<PlanningPage> {
   List<Planning> _plannings = [];
   List<Subshift> _subshifts = [];
   List<Availability> _availabilities = [];
+  Set<String> _availabilityLevelIds = {};
   User? _currentUser;
   Map<String, Color> _teamColorById = {};
   List<Team> _availableTeams = [];
@@ -61,6 +63,7 @@ class _PlanningPageState extends State<PlanningPage> {
     userNotifier.addListener(_onUserChanged);
     viewModeNotifier.addListener(_onViewModeChanged);
     currentMonthNotifier.addListener(_onCurrentMonthChanged);
+    customDateRangeNotifier.addListener(_onCustomRangeChanged);
     selectedTeamNotifier.addListener(_onSelectedTeamChanged);
   }
 
@@ -80,6 +83,7 @@ class _PlanningPageState extends State<PlanningPage> {
     userNotifier.removeListener(_onUserChanged);
     viewModeNotifier.removeListener(_onViewModeChanged);
     currentMonthNotifier.removeListener(_onCurrentMonthChanged);
+    customDateRangeNotifier.removeListener(_onCustomRangeChanged);
     selectedTeamNotifier.removeListener(_onSelectedTeamChanged);
     super.dispose();
   }
@@ -95,6 +99,18 @@ class _PlanningPageState extends State<PlanningPage> {
   void _onCurrentMonthChanged() {
     setState(() => _monthPlannings = []);
     _reloadPlanningsForMonth(currentMonthNotifier.value);
+  }
+
+  void _onCustomRangeChanged() {
+    final range = customDateRangeNotifier.value;
+    setState(() => _monthPlannings = []);
+    if (range != null) {
+      _reloadPlanningsForMonth(range.start, end: range.end);
+    } else if (viewModeNotifier.value == ViewMode.month) {
+      _reloadPlanningsForMonth(currentMonthNotifier.value);
+    } else {
+      setState(() {});
+    }
   }
 
   void _onSelectedTeamChanged() => setState(() {});
@@ -305,6 +321,9 @@ class _PlanningPageState extends State<PlanningPage> {
     // Vérifier s'il existe une demande de remplacement active
     final hasActiveRequest = await _hasActiveReplacementRequest(planning, user.id, user.station);
 
+    // Vérifier si l'agent a une disponibilité active sur cette période
+    final hasActiveAvailability = await _hasActiveAvailability(planning, user.id, user.station);
+
     // Afficher un BottomSheet avec les actions
     showModalBottomSheet(
       context: context,
@@ -391,7 +410,7 @@ class _PlanningPageState extends State<PlanningPage> {
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
-                  onPressed: (hasActiveRequest && user.status == KConstants.statusAgent)
+                  onPressed: (hasActiveRequest && user.status == KConstants.statusAgent) || hasActiveAvailability
                       ? null
                       : () {
                           Navigator.pop(context);
@@ -405,7 +424,7 @@ class _PlanningPageState extends State<PlanningPage> {
                         },
                   icon: const Icon(Icons.event_busy),
                   label: const Text("Je souhaite m'absenter"),
-                  style: (hasActiveRequest && user.status == KConstants.statusAgent)
+                  style: ((hasActiveRequest && user.status == KConstants.statusAgent) || hasActiveAvailability)
                       ? OutlinedButton.styleFrom(
                           foregroundColor: Colors.grey,
                           side: const BorderSide(color: Colors.grey),
@@ -413,6 +432,25 @@ class _PlanningPageState extends State<PlanningPage> {
                       : null,
                 ),
               ),
+              if (hasActiveAvailability) ...[
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Icon(Icons.volunteer_activism_rounded,
+                        size: 13, color: Colors.orange.shade600),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Vous avez une disponibilité active sur cette période',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.orange.shade600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ],
 
             const SizedBox(height: 12),
@@ -518,6 +556,48 @@ class _PlanningPageState extends State<PlanningPage> {
 
         // Fusionner les disponibilités qui se chevauchent
         availabilities = _mergeOverlappingAvailabilities(userAvailabilities);
+
+        // Charger les niveaux isAvailability pour la vue personnelle
+        final levels = await OnCallLevelRepository().getAll(user.station);
+        final availLevelIds = levels
+            .where((l) => l.isAvailability)
+            .map((l) => l.id)
+            .toSet();
+
+        // Pour les plannings où l'agent est uniquement en niveau isAvailability
+        // (assigné par un chef), ajouter une disponibilité synthétique et retirer
+        // ce planning de la liste des plannings réguliers
+        final planningsToRemove = <String>{};
+        for (final p in plannings) {
+          if (!p.agentsId.contains(user.id)) continue;
+          final userEntries = p.agents
+              .where((a) => a.agentId == user.id && a.replacedAgentId == null)
+              .toList();
+          if (userEntries.isEmpty) continue;
+          final allDispo = availLevelIds.isNotEmpty &&
+              userEntries.every((a) => availLevelIds.contains(a.levelId));
+          if (!allDispo) continue;
+          planningsToRemove.add(p.id);
+          // Ajouter une disponibilité synthétique si pas déjà couverte
+          final alreadyCovered = availabilities.any((a) =>
+              !a.start.isAfter(userEntries.first.start) &&
+              !a.end.isBefore(userEntries.first.end));
+          if (!alreadyCovered) {
+            availabilities.add(Availability(
+              id: 'chief_${p.id}_${user.id}',
+              agentId: user.id,
+              start: userEntries.first.start,
+              end: userEntries.first.end,
+              planningId: p.id,
+              levelId: userEntries.first.levelId.isNotEmpty
+                  ? userEntries.first.levelId
+                  : null,
+            ));
+          }
+        }
+        plannings.removeWhere((p) => planningsToRemove.contains(p.id));
+
+        setState(() => _availabilityLevelIds = availLevelIds);
       }
 
       debugPrint('📅 [PLANNING_PAGE] setState() - plannings: ${plannings.length}, subshifts: ${subshifts.length}, availabilities: ${availabilities.length}');
@@ -546,7 +626,7 @@ class _PlanningPageState extends State<PlanningPage> {
   }
 
 
-  Future<void> _reloadPlanningsForMonth(DateTime month) async {
+  Future<void> _reloadPlanningsForMonth(DateTime month, {DateTime? end}) async {
     setState(() => _isMonthLoading = true);
     final user = _currentUser;
     if (user == null) {
@@ -555,8 +635,8 @@ class _PlanningPageState extends State<PlanningPage> {
     }
     final repo = LocalRepository();
     final isStationView = stationViewNotifier.value;
-    final monthStart = DateTime(month.year, month.month, 1);
-    final monthEnd = DateTime(month.year, month.month + 1, 0, 23, 59, 59);
+    final monthStart = end != null ? month : DateTime(month.year, month.month, 1);
+    final monthEnd = end ?? DateTime(month.year, month.month + 1, 0, 23, 59, 59);
 
     List<Planning> plannings;
     if (isStationView) {
@@ -818,6 +898,21 @@ class _PlanningPageState extends State<PlanningPage> {
           }
         }
       }
+
+      // Fusion astreinte/dispo : supprimer les barres availability dont la
+      // période est entièrement couverte par une barre d'astreinte effective
+      final effectiveTypes = {'agent', 'replacer'};
+      bars.removeWhere((avail) {
+        if (avail['type'] != 'availability') return false;
+        final aStart = avail['start'] as DateTime;
+        final aEnd = avail['end'] as DateTime;
+        return bars.any((b) {
+          if (!effectiveTypes.contains(b['type'])) return false;
+          final bStart = b['start'] as DateTime;
+          final bEnd = b['end'] as DateTime;
+          return !bStart.isAfter(aStart) && !bEnd.isBefore(aEnd);
+        });
+      });
     }
 
     return bars;
@@ -1630,6 +1725,20 @@ class _PlanningPageState extends State<PlanningPage> {
       return false;
     } catch (e) {
       debugPrint('Error checking active replacement requests: $e');
+      return false;
+    }
+  }
+
+  Future<bool> _hasActiveAvailability(Planning planning, String userId, String stationId) async {
+    try {
+      final repo = LocalRepository();
+      final availabilities = await repo.getAvailabilitiesForAgent(
+        userId,
+        stationId: stationId,
+      );
+      return availabilities.any((a) =>
+          a.end.isAfter(planning.startTime) && a.start.isBefore(planning.endTime));
+    } catch (e) {
       return false;
     }
   }

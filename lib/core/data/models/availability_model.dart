@@ -10,6 +10,7 @@ class Availability {
   final DateTime start; // Début de la disponibilité
   final DateTime end; // Fin de la disponibilité
   final String? planningId; // Optionnel : référence à un planning existant
+  final String? levelId; // Optionnel : niveau de disponibilité choisi (isAvailability == true)
 
   Availability({
     required this.id,
@@ -17,6 +18,7 @@ class Availability {
     required this.start,
     required this.end,
     this.planningId,
+    this.levelId,
   });
 
   factory Availability.create({
@@ -24,6 +26,7 @@ class Availability {
     required DateTime start,
     required DateTime end,
     String? planningId,
+    String? levelId,
   }) {
     return Availability(
       id: const Uuid().v4(),
@@ -31,6 +34,7 @@ class Availability {
       start: start,
       end: end,
       planningId: planningId,
+      levelId: levelId,
     );
   }
 
@@ -40,6 +44,7 @@ class Availability {
         'start': start.toIso8601String(),
         'end': end.toIso8601String(),
         'planningId': planningId,
+        if (levelId != null) 'levelId': levelId,
       };
 
   factory Availability.fromJson(Map<String, dynamic> json) => Availability(
@@ -48,6 +53,7 @@ class Availability {
         start: DateTime.parse(json['start']),
         end: DateTime.parse(json['end']),
         planningId: json['planningId'],
+        levelId: json['levelId'] as String?,
       );
 
   Availability copyWith({
@@ -56,6 +62,7 @@ class Availability {
     DateTime? start,
     DateTime? end,
     String? planningId,
+    String? levelId,
   }) {
     return Availability(
       id: id ?? this.id,
@@ -63,6 +70,7 @@ class Availability {
       start: start ?? this.start,
       end: end ?? this.end,
       planningId: planningId ?? this.planningId,
+      levelId: levelId ?? this.levelId,
     );
   }
 }

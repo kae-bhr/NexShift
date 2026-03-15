@@ -62,6 +62,10 @@ DateTime _getStartOfCurrentWeek() {
 final ValueNotifier<DateTime> currentWeekStartNotifier =
     ValueNotifier<DateTime>(_getStartOfCurrentWeek());
 
+// Plage de dates personnalisée pour le planning (null = pas de plage custom active)
+final ValueNotifier<DateTimeRange?> customDateRangeNotifier =
+    ValueNotifier<DateTimeRange?>(null);
+
 // Indique qu'une tentative de restauration de session est en cours au démarrage.
 // Démarre à true, passe à false une fois la vérification terminée (succès ou non).
 // Utilisé par WelcomePage pour afficher un indicateur de chargement et bloquer

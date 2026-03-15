@@ -626,6 +626,19 @@ class _PlanningCardState extends State<PlanningCard> {
       }
     }
 
+    // Fusion astreinte/dispo : masquer les slots 'available' couverts par un slot 'onCall'
+    slots.removeWhere((avail) {
+      if (avail['type'] != 'available') return false;
+      final aStart = avail['start'] as DateTime;
+      final aEnd = avail['end'] as DateTime;
+      return slots.any((b) {
+        if (b['type'] != 'onCall' && b['type'] != 'replacement') return false;
+        final bStart = b['start'] as DateTime;
+        final bEnd = b['end'] as DateTime;
+        return !bStart.isAfter(aStart) && !bEnd.isBefore(aEnd);
+      });
+    });
+
     // Trier les slots par ordre chronologique
     slots.sort((a, b) => a['start']!.compareTo(b['start']!));
 

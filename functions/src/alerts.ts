@@ -1,5 +1,6 @@
 import {onSchedule} from "firebase-functions/v2/scheduler";
 import {getFirestore, Timestamp} from "firebase-admin/firestore";
+import {checkIfFullyCovered} from "./planning-utils.js";
 
 /**
  * Helper : récupérer toutes les paires (sdisId, stationId, stationPath)
@@ -100,11 +101,40 @@ export const sendDailyShiftReminder = onSchedule(
         for (const userDoc of eligibleUsers) {
           const userId = userDoc.id;
 
-          // Plannings où cet agent est présent (champ agents[].agentId)
+          // Plannings pertinents pour cet agent :
+          // Cas 1 : il est agent de base ET pas totalement remplacé
+          // Cas 2 : il est remplaçant d'un autre agent
           const userPlannings = activePlannings.filter((doc) => {
-            const agents = doc.data().agents as Array<{agentId: string; replacedAgentId?: string}> | undefined;
+            const agents = doc.data().agents as Array<{agentId: string; replacedAgentId?: string | null}> | undefined;
             if (!agents) return false;
-            return agents.some((a) => a.agentId === userId && !a.replacedAgentId);
+
+            // Cas 2 : l'agent est remplaçant dans ce planning
+            const isReplacing = agents.some((a) => a.agentId === userId && a.replacedAgentId);
+            if (isReplacing) return true;
+
+            // Cas 1 : l'agent est agent de base (sans replacedAgentId)
+            const isBaseAgent = agents.some((a) => a.agentId === userId && !a.replacedAgentId);
+            if (!isBaseAgent) return false;
+
+            // Vérifier si l'agent de base est totalement remplacé
+            const hasAnyReplacement = agents.some((a) => a.replacedAgentId === userId);
+            if (!hasAnyReplacement) return true; // Pas du tout remplacé → à notifier
+
+            // Construire les intervalles de couverture par les remplaçants
+            type AgentEntry = {agentId: string; replacedAgentId?: string | null; start?: {toDate?: () => Date}; end?: {toDate?: () => Date}};
+            const typedAgents = agents as AgentEntry[];
+            const baseEntry = typedAgents.find((a) => a.agentId === userId && !a.replacedAgentId);
+            if (!baseEntry?.start?.toDate || !baseEntry?.end?.toDate) return true;
+
+            const replacementIntervals = typedAgents
+              .filter((a) => a.replacedAgentId === userId && a.start?.toDate && a.end?.toDate)
+              .map((a) => ({start: a.start!.toDate!(), end: a.end!.toDate!()}));
+
+            return !checkIfFullyCovered(
+              baseEntry.start.toDate(),
+              baseEntry.end.toDate(),
+              replacementIntervals,
+            );
           });
 
           if (userPlannings.length === 0) continue;
@@ -115,19 +145,34 @@ export const sendDailyShiftReminder = onSchedule(
               data.startTime?.toDate?.() ?? data.startDate?.toDate?.();
             const endDate: Date =
               data.endTime?.toDate?.() ?? data.endDate?.toDate?.();
+            const docAgents = (data.agents as Array<{agentId: string; replacedAgentId?: string | null}>) ?? [];
+            const isReplacing = docAgents.some((a) => a.agentId === userId && a.replacedAgentId);
             return {
               planningId: doc.id,
               startDate: startDate.toISOString(),
               endDate: endDate.toISOString(),
               team: (data.team as string) || "",
+              isReplacing,
             };
           });
+
+          const replacingCount = planningsSummary.filter((p) => p.isReplacing).length;
+          const baseCount = planningsSummary.length - replacingCount;
+
+          let body = "";
+          if (baseCount > 0 && replacingCount > 0) {
+            body = `${baseCount} astreinte(s) + ${replacingCount} remplacement(s) dans les prochaines 24h`;
+          } else if (replacingCount > 0) {
+            body = `${replacingCount} remplacement(s) dans les prochaines 24h`;
+          } else {
+            body = `${baseCount} astreinte(s) dans les prochaines 24h`;
+          }
 
           await db.collection(`${stationPath}/notificationTriggers`).add({
             type: "daily_shift_reminder",
             targetUserIds: [userId],
             title: "⏰ Astreintes à venir",
-            body: `${userPlannings.length} astreinte(s) dans les prochaines 24h`,
+            body,
             data: {
               plannings: planningsSummary,
             },

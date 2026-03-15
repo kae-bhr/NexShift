@@ -104,11 +104,13 @@ class _SkillSearchPageState extends State<SkillSearchPage> {
       setState(() => filteredUsers = []);
       return;
     }
+    final requiredSkills = Set<String>.from(selectedSkills);
     setState(() {
       filteredUsers = allUsers.where((user) {
         // Exclure les agents suspendus ou en arrêt maladie
         if (!user.isActiveForReplacement) return false;
-        return selectedSkills.every((skill) => user.skills.contains(skill));
+        final userSkillSet = Set<String>.from(user.skills);
+        return requiredSkills.every(userSkillSet.contains);
       }).toList();
       _sortFilteredUsers();
     });

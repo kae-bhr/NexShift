@@ -65,6 +65,7 @@ class OnCallDispositionService {
       ..sort((a, b) => a.order.compareTo(b.order));
 
     for (final level in sortedLevels) {
+      if (level.isAvailability) continue; // Les niveaux de disponibilité sont gérés séparément
       final levelSlots =
           slots.where((s) => s.levelId == level.id).toList();
       if (levelSlots.isNotEmpty) {
@@ -78,11 +79,17 @@ class OnCallDispositionService {
 
   /// Calcule le nombre d'agents présents à chaque instant de la garde.
   /// Lit directement depuis planning.agents.
+  /// [availabilityLevelIds] : IDs des niveaux isAvailability à exclure du comptage.
   static ({int min, int max, List<AgentCountIssue> issues})
       computeAgentCount({
     required Planning planning,
+    Set<String> availabilityLevelIds = const {},
   }) {
-    final agents = planning.agents;
+    final agents = availabilityLevelIds.isEmpty
+        ? planning.agents
+        : planning.agents
+            .where((a) => !availabilityLevelIds.contains(a.levelId))
+            .toList();
 
     if (agents.isEmpty) {
       return (min: 0, max: 0, issues: <AgentCountIssue>[]);

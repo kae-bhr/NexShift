@@ -7,12 +7,14 @@ class OnCallLevel {
   final String name; // ex: "ASTR 1", "ASTR 2"
   final int colorValue; // Couleur stockée en ARGB int (comme Team.color)
   final int order; // Priorité (1 = plus haute, ordre décroissant)
+  final bool isAvailability; // Si true, ce niveau est réservé aux disponibilités
 
   const OnCallLevel({
     required this.id,
     required this.name,
     required this.colorValue,
     required this.order,
+    this.isAvailability = false,
   });
 
   Color get color => Color(colorValue);
@@ -22,12 +24,14 @@ class OnCallLevel {
     String? name,
     int? colorValue,
     int? order,
+    bool? isAvailability,
   }) =>
       OnCallLevel(
         id: id ?? this.id,
         name: name ?? this.name,
         colorValue: colorValue ?? this.colorValue,
         order: order ?? this.order,
+        isAvailability: isAvailability ?? this.isAvailability,
       );
 
   Map<String, dynamic> toJson() => {
@@ -35,6 +39,7 @@ class OnCallLevel {
         'name': name,
         'colorValue': colorValue,
         'order': order,
+        'isAvailability': isAvailability,
       };
 
   factory OnCallLevel.fromJson(Map<String, dynamic> json) => OnCallLevel(
@@ -42,5 +47,6 @@ class OnCallLevel {
         name: json['name'] as String,
         colorValue: json['colorValue'] as int,
         order: json['order'] as int? ?? 0,
+        isAvailability: json['isAvailability'] as bool? ?? false,
       );
 }
