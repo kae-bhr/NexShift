@@ -178,12 +178,15 @@ class OnCallDispositionService {
     required DateTime end,
     required Station station,
     required String defaultLevelId,
+    Duration? totalReplacementDuration,
   }) {
     if (!station.enableReplacementDurationThreshold) {
       return station.replacementOnCallLevelId ?? defaultLevelId;
     }
 
-    final durationHours = end.difference(start).inMinutes / 60.0;
+    final durationHours = station.enableCumulativeThreshold && totalReplacementDuration != null
+        ? totalReplacementDuration.inMinutes / 60.0
+        : end.difference(start).inMinutes / 60.0;
     final threshold = station.replacementDurationThresholdHours;
 
     if (durationHours < threshold) {

@@ -56,6 +56,8 @@ class Station {
   final String? shortReplacementLevelId;
   // Niveau si durée de remplacement >= seuil
   final String? longReplacementLevelId;
+  // Calculer le seuil sur la somme cumulée des remplacements du planning
+  final bool enableCumulativeThreshold;
 
   // Portée d'accès au tableau de bord par rôle
   final DashboardScope dashboardAgentScope; // défaut: personal
@@ -79,6 +81,7 @@ class Station {
     this.replacementDurationThresholdHours = 10,
     this.shortReplacementLevelId,
     this.longReplacementLevelId,
+    this.enableCumulativeThreshold = false,
     this.dashboardAgentScope = DashboardScope.personal,
     this.dashboardChiefScope = DashboardScope.team,
   });
@@ -120,6 +123,7 @@ class Station {
     int? replacementDurationThresholdHours,
     String? shortReplacementLevelId,
     String? longReplacementLevelId,
+    bool? enableCumulativeThreshold,
     DashboardScope? dashboardAgentScope,
     DashboardScope? dashboardChiefScope,
   }) =>
@@ -141,6 +145,7 @@ class Station {
         replacementDurationThresholdHours: replacementDurationThresholdHours ?? this.replacementDurationThresholdHours,
         shortReplacementLevelId: shortReplacementLevelId ?? this.shortReplacementLevelId,
         longReplacementLevelId: longReplacementLevelId ?? this.longReplacementLevelId,
+        enableCumulativeThreshold: enableCumulativeThreshold ?? this.enableCumulativeThreshold,
         dashboardAgentScope: dashboardAgentScope ?? this.dashboardAgentScope,
         dashboardChiefScope: dashboardChiefScope ?? this.dashboardChiefScope,
       );
@@ -168,6 +173,7 @@ class Station {
           'shortReplacementLevelId': shortReplacementLevelId,
         if (longReplacementLevelId != null)
           'longReplacementLevelId': longReplacementLevelId,
+        'enableCumulativeThreshold': enableCumulativeThreshold,
         'dashboardAgentScope': dashboardAgentScope.name,
         'dashboardChiefScope': dashboardChiefScope.name,
       };
@@ -202,6 +208,7 @@ class Station {
             json['replacementDurationThresholdHours'] as int? ?? 10,
         shortReplacementLevelId: json['shortReplacementLevelId'] as String?,
         longReplacementLevelId: json['longReplacementLevelId'] as String?,
+        enableCumulativeThreshold: json['enableCumulativeThreshold'] as bool? ?? false,
         dashboardAgentScope: json['dashboardAgentScope'] != null
             ? DashboardScope.values.firstWhere(
                 (e) => e.name == json['dashboardAgentScope'],

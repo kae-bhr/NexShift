@@ -54,7 +54,10 @@ class _AdminPageState extends State<AdminPage> {
         // Charger les niveaux d'astreinte séparément pour ne pas bloquer la station
         try {
           final levels = await _onCallLevelRepository.getAll(user.station);
-          if (mounted) setState(() { _onCallLevels = levels; });
+          if (mounted)
+            setState(() {
+              _onCallLevels = levels;
+            });
         } catch (e) {
           debugPrint('⚠️ [ADMIN] Error loading on-call levels: $e');
         }
@@ -62,7 +65,10 @@ class _AdminPageState extends State<AdminPage> {
           final positions = await _positionRepository
               .getPositionsByStation(user.station)
               .first;
-          if (mounted) setState(() { _positions = positions; });
+          if (mounted)
+            setState(() {
+              _positions = positions;
+            });
         } catch (e) {
           debugPrint('⚠️ [ADMIN] Error loading positions: $e');
         }
@@ -273,7 +279,9 @@ class _AdminPageState extends State<AdminPage> {
         decoration: BoxDecoration(
           color: isDark ? Colors.grey[800] : Colors.grey[100],
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: isDark ? Colors.grey[600]! : Colors.grey[300]!),
+          border: Border.all(
+            color: isDark ? Colors.grey[600]! : Colors.grey[300]!,
+          ),
         ),
         child: Row(
           children: [
@@ -495,7 +503,10 @@ class _AdminPageState extends State<AdminPage> {
           const Divider(height: 1),
           // Bouton ajouter
           ListTile(
-            leading: Icon(Icons.add_circle_outline, color: KColors.appNameColor),
+            leading: Icon(
+              Icons.add_circle_outline,
+              color: KColors.appNameColor,
+            ),
             title: Text(
               'Ajouter un niveau',
               style: TextStyle(
@@ -617,6 +628,28 @@ class _AdminPageState extends State<AdminPage> {
                         _saveStationConfig();
                       },
                     ),
+                    const SizedBox(height: 8),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text(
+                        'Seuil cumulatif',
+                        style: TextStyle(fontSize: 14),
+                      ),
+                      subtitle: const Text(
+                        'Le seuil est calculé sur la somme des remplacements acceptés sur un même planning',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                      activeThumbColor: KColors.appNameColor,
+                      value: _currentStation!.enableCumulativeThreshold,
+                      onChanged: (value) {
+                        setState(() {
+                          _currentStation = _currentStation!.copyWith(
+                            enableCumulativeThreshold: value,
+                          );
+                        });
+                        _saveStationConfig();
+                      },
+                    ),
                   ] else ...[
                     _buildLevelDropdown(
                       label: 'Niveau remplaçant',
@@ -655,7 +688,9 @@ class _AdminPageState extends State<AdminPage> {
         Expanded(
           flex: 3,
           child: DropdownButtonFormField<String>(
-            initialValue: _onCallLevels.any((l) => l.id == value) ? value : null,
+            initialValue: _onCallLevels.any((l) => l.id == value)
+                ? value
+                : null,
             isExpanded: true,
             decoration: const InputDecoration(
               isDense: true,
@@ -735,7 +770,9 @@ class _AdminPageState extends State<AdminPage> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: Text(existing != null ? 'Modifier le niveau' : 'Nouveau niveau'),
+          title: Text(
+            existing != null ? 'Modifier le niveau' : 'Nouveau niveau',
+          ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -775,7 +812,11 @@ class _AdminPageState extends State<AdminPage> {
                         ),
                       ),
                       child: isSelected
-                          ? const Icon(Icons.check, color: Colors.white, size: 20)
+                          ? const Icon(
+                              Icons.check,
+                              color: Colors.white,
+                              size: 20,
+                            )
                           : null,
                     ),
                   );
@@ -847,15 +888,15 @@ class _AdminPageState extends State<AdminPage> {
           });
         }
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Niveau sauvegardé')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Niveau sauvegardé')));
         }
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Erreur: $e')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Erreur: $e')));
         }
       }
     }
@@ -917,15 +958,15 @@ class _AdminPageState extends State<AdminPage> {
           _saveStationConfig();
         }
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Niveau supprimé')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Niveau supprimé')));
         }
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Erreur: $e')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Erreur: $e')));
         }
       }
     }
@@ -1975,7 +2016,8 @@ class _DashboardScopeRowState extends State<_DashboardScopeRow> {
     final rightEdge = screenWidth - (offset.dx + size.width);
 
     // Si l'overlay déborde en bas, l'afficher au-dessus du chip
-    final fitsBelow = offset.dy + size.height + 6 + estimatedOverlayHeight <= screenHeight;
+    final fitsBelow =
+        offset.dy + size.height + 6 + estimatedOverlayHeight <= screenHeight;
 
     _overlayEntry = OverlayEntry(
       builder: (_) => Stack(
@@ -2049,37 +2091,37 @@ class _DashboardScopeRowState extends State<_DashboardScopeRow> {
           ),
           const SizedBox(width: 12),
           GestureDetector(
-              onTap: _openOverlay,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: scheme.primary.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: scheme.primary.withValues(alpha: 0.3),
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      _dashboardScopeLabel(widget.value),
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: scheme.primary,
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    Icon(
-                      Icons.expand_more_rounded,
-                      size: 16,
-                      color: scheme.primary,
-                    ),
-                  ],
+            onTap: _openOverlay,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: scheme.primary.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: scheme.primary.withValues(alpha: 0.3),
                 ),
               ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _dashboardScopeLabel(widget.value),
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: scheme.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    Icons.expand_more_rounded,
+                    size: 16,
+                    color: scheme.primary,
+                  ),
+                ],
+              ),
             ),
+          ),
         ],
       ),
     );
@@ -2144,14 +2186,19 @@ class _DashboardScopeOverlay extends StatelessWidget {
                       child: Row(
                         children: [
                           if (isSel)
-                            Icon(Icons.check_circle_rounded,
-                                size: 16, color: scheme.primary)
+                            Icon(
+                              Icons.check_circle_rounded,
+                              size: 16,
+                              color: scheme.primary,
+                            )
                           else
-                            Icon(Icons.radio_button_unchecked_rounded,
-                                size: 16,
-                                color: isDark
-                                    ? Colors.grey.shade500
-                                    : Colors.grey.shade400),
+                            Icon(
+                              Icons.radio_button_unchecked_rounded,
+                              size: 16,
+                              color: isDark
+                                  ? Colors.grey.shade500
+                                  : Colors.grey.shade400,
+                            ),
                           const SizedBox(width: 10),
                           Expanded(
                             child: Column(
@@ -2167,8 +2214,8 @@ class _DashboardScopeOverlay extends StatelessWidget {
                                     color: isSel
                                         ? scheme.primary
                                         : (isDark
-                                            ? Colors.grey.shade200
-                                            : Colors.grey.shade800),
+                                              ? Colors.grey.shade200
+                                              : Colors.grey.shade800),
                                   ),
                                 ),
                                 const SizedBox(height: 2),

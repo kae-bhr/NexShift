@@ -2502,14 +2502,41 @@ class ReplacementNotificationService {
       // Déterminer le levelId du remplaçant
       final station = await StationRepository().getById(stationId);
       final defaultLevelId = toRemove.isNotEmpty ? toRemove.first.levelId : '';
-      final replacerLevelId = station != null
-          ? OnCallDispositionService.getReplacementLevelId(
-              start: start,
-              end: end,
-              station: station,
-              defaultLevelId: defaultLevelId,
-            )
-          : defaultLevelId;
+
+      String replacerLevelId;
+      if (station != null && station.enableCumulativeThreshold) {
+        // Mode cumulatif : sommer tous les remplacements existants + le nouveau slot
+        final existingReplacerSlots = updatedAgents
+            .where((a) => a.agentId == replacerId && a.replacedAgentId != null)
+            .toList();
+        final totalDuration = existingReplacerSlots.fold(
+          end.difference(start),
+          (acc, a) => acc + a.end.difference(a.start),
+        );
+        replacerLevelId = OnCallDispositionService.getReplacementLevelId(
+          start: start,
+          end: end,
+          station: station,
+          defaultLevelId: defaultLevelId,
+          totalReplacementDuration: totalDuration,
+        );
+        // Promouvoir les remplacements existants si le niveau a changé
+        for (int i = 0; i < updatedAgents.length; i++) {
+          final a = updatedAgents[i];
+          if (a.agentId == replacerId && a.replacedAgentId != null && a.levelId != replacerLevelId) {
+            updatedAgents[i] = a.copyWith(levelId: replacerLevelId);
+          }
+        }
+      } else {
+        replacerLevelId = station != null
+            ? OnCallDispositionService.getReplacementLevelId(
+                start: start,
+                end: end,
+                station: station,
+                defaultLevelId: defaultLevelId,
+              )
+            : defaultLevelId;
+      }
 
       // Ajouter le remplaçant
       updatedAgents.add(PlanningAgent(

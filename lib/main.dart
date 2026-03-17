@@ -26,6 +26,7 @@ import 'package:nexshift_app/features/auth/presentation/pages/profile_completion
 import 'package:nexshift_app/features/auth/presentation/widgets/enter_app_widget.dart';
 import 'package:nexshift_app/features/replacement/presentation/pages/replacement_request_dialog.dart';
 import 'package:nexshift_app/features/replacement/presentation/pages/replacement_requests_list_page.dart';
+import 'package:nexshift_app/core/services/preferences_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:nexshift_app/firebase_options.dart';
 
@@ -222,6 +223,7 @@ class _NexShiftState extends State<NexShift> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     initThemeMode();
+    _initPresenceViewMode();
     _checkAuthState();
     _startConnectivityMonitoring();
     _maintenanceService.startListening();
@@ -272,6 +274,10 @@ class _NexShiftState extends State<NexShift> with WidgetsBindingObserver {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     final bool? themeModeStored = prefs.getBool(KConstants.themeModeKey);
     isDarkModeNotifier.value = themeModeStored ?? false;
+  }
+
+  void _initPresenceViewMode() {
+    PreferencesService().loadPresenceViewMode();
   }
 
   /// Vérifie l'état d'authentification Firebase au démarrage

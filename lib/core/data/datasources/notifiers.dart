@@ -66,6 +66,13 @@ final ValueNotifier<DateTime> currentWeekStartNotifier =
 final ValueNotifier<DateTimeRange?> customDateRangeNotifier =
     ValueNotifier<DateTimeRange?>(null);
 
+// Mode de filtrage de la vue des agents dans OnCallPresenceSection
+// Persisté dans SharedPreferences via PreferencesService
+enum PresenceViewMode { chronological, personal }
+
+final ValueNotifier<PresenceViewMode> presenceViewModeNotifier =
+    ValueNotifier<PresenceViewMode>(PresenceViewMode.chronological);
+
 // Indique qu'une tentative de restauration de session est en cours au démarrage.
 // Démarre à true, passe à false une fois la vérification terminée (succès ou non).
 // Utilisé par WelcomePage pour afficher un indicateur de chargement et bloquer
