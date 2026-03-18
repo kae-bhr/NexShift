@@ -182,32 +182,35 @@ class _PlanningHeaderState extends State<PlanningHeader> {
                             return Container(
                               margin: const EdgeInsets.only(bottom: 12),
                               child: Center(
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color: isDark
-                                        ? Colors.white.withValues(alpha: 0.08)
-                                        : Colors.grey.shade100,
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                  padding: const EdgeInsets.all(4),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      _SegmentButton(
-                                        icon: Icons.person_rounded,
-                                        label: 'Personnel',
-                                        isSelected: !stationView,
-                                        onTap: () =>
-                                            stationViewNotifier.value = false,
-                                      ),
-                                      _SegmentButton(
-                                        icon: Icons.fire_truck_rounded,
-                                        label: 'Centre',
-                                        isSelected: stationView,
-                                        onTap: () =>
-                                            stationViewNotifier.value = true,
-                                      ),
-                                    ],
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: isDark
+                                          ? Colors.white.withValues(alpha: 0.08)
+                                          : Colors.grey.shade100,
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                    padding: const EdgeInsets.all(4),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        _SegmentButton(
+                                          icon: Icons.person_rounded,
+                                          label: 'Personnel',
+                                          isSelected: !stationView,
+                                          onTap: () =>
+                                              stationViewNotifier.value = false,
+                                        ),
+                                        _SegmentButton(
+                                          icon: Icons.fire_truck_rounded,
+                                          label: 'Centre',
+                                          isSelected: stationView,
+                                          onTap: () =>
+                                              stationViewNotifier.value = true,
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
@@ -226,44 +229,52 @@ class _PlanningHeaderState extends State<PlanningHeader> {
                               ),
                               const SizedBox(width: 4),
                             ],
-                            GestureDetector(
-                              onTap: _showPicker,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 8,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: isDark
-                                      ? KColors.appNameColor.withValues(
-                                          alpha: 0.15,
-                                        )
-                                      : KColors.appNameColor.withValues(
-                                          alpha: 0.08,
-                                        ),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      dateIcon,
-                                      size: 18,
-                                      color: KColors.appNameColor,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      dateLabel,
-                                      style: TextStyle(
-                                        color: Theme.of(
-                                          context,
-                                        ).colorScheme.primary,
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w600,
-                                        letterSpacing: -0.2,
+                            Flexible(
+                              child: GestureDetector(
+                                onTap: _showPicker,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 8,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: isDark
+                                        ? KColors.appNameColor.withValues(
+                                            alpha: 0.15,
+                                          )
+                                        : KColors.appNameColor.withValues(
+                                            alpha: 0.08,
+                                          ),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        dateIcon,
+                                        size: 18,
+                                        color: KColors.appNameColor,
                                       ),
-                                    ),
-                                  ],
+                                      const SizedBox(width: 8),
+                                      Flexible(
+                                        child: FittedBox(
+                                          fit: BoxFit.scaleDown,
+                                          alignment: Alignment.centerLeft,
+                                          child: Text(
+                                            dateLabel,
+                                            style: TextStyle(
+                                              color: Theme.of(
+                                                context,
+                                              ).colorScheme.primary,
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w600,
+                                              letterSpacing: -0.2,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
@@ -681,7 +692,7 @@ class _SegmentButton extends StatelessWidget {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 250),
         curve: Curves.easeInOut,
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
           color: isSelected
               ? (isDark

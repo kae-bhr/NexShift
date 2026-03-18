@@ -1125,6 +1125,31 @@ class _HomePageState extends State<HomePage> {
 
   // _removeAgentFromPlanning supprimé — remplacé par _removeEntryFromPlanning
 
+  /// Picker date+heure séquentiel contraint aux bornes du planning.
+  Future<DateTime?> _pickDateTime({
+    required BuildContext ctx,
+    required DateTime initial,
+    required DateTime firstDate,
+    required DateTime lastDate,
+  }) async {
+    final clampedInitial = initial.isBefore(firstDate)
+        ? firstDate
+        : (initial.isAfter(lastDate) ? lastDate : initial);
+    final date = await showDatePicker(
+      context: ctx,
+      initialDate: clampedInitial,
+      firstDate: DateUtils.dateOnly(firstDate),
+      lastDate: DateUtils.dateOnly(lastDate),
+    );
+    if (date == null || !ctx.mounted) return null;
+    final time = await showTimePicker(
+      context: ctx,
+      initialTime: TimeOfDay.fromDateTime(initial),
+    );
+    if (time == null) return null;
+    return DateTime(date.year, date.month, date.day, time.hour, time.minute);
+  }
+
   /// Affiche le dialogue d'édition d'une présence d'agent (horaires + niveau d'astreinte)
   Future<void> _showEditPresenceDialog(
     Planning planning,
@@ -1135,15 +1160,17 @@ class _HomePageState extends State<HomePage> {
       orElse: () => noneUser,
     );
 
-    DateTime editStart = entry.start;
-    DateTime editEnd = entry.end;
     // Normaliser le levelId : si vide ou absent des niveaux, prendre le premier niveau disponible
     String? selectedLevelId =
         entry.levelId.isNotEmpty &&
             _onCallLevels.any((l) => l.id == entry.levelId)
         ? entry.levelId
         : (_onCallLevels.isNotEmpty ? _onCallLevels.first.id : null);
-    String? timeError;
+
+    final List<_EditSlot> slots = [
+      _EditSlot(start: entry.start, end: entry.end),
+    ];
+    String? globalError;
 
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
@@ -1152,19 +1179,76 @@ class _HomePageState extends State<HomePage> {
           builder: (ctx, setDialogState) {
             final isDark = Theme.of(ctx).brightness == Brightness.dark;
 
-            // Validation des bornes
-            void validateTimes() {
-              String? err;
-              if (editStart.isBefore(planning.startTime)) {
-                err = 'Le début ne peut pas précéder le début de l\'astreinte.';
-              } else if (editEnd.isAfter(planning.endTime)) {
-                err = 'La fin ne peut pas dépasser la fin de l\'astreinte.';
-              } else if (editEnd.isBefore(editStart) ||
-                  editEnd.isAtSameMomentAs(editStart)) {
-                err = 'La fin doit être après le début.';
+            void validateAllSlots() {
+              String? global;
+              for (int i = 0; i < slots.length; i++) {
+                final s = slots[i];
+                String? err;
+                if (!s.start.isBefore(s.end)) {
+                  err = 'La fin doit être après le début.';
+                } else if (s.start.isBefore(planning.startTime)) {
+                  err = 'Le début précède le début de l\'astreinte.';
+                } else if (s.end.isAfter(planning.endTime)) {
+                  err = 'La fin dépasse la fin de l\'astreinte.';
+                }
+                if (err == null && i < slots.length - 1) {
+                  if (s.end.isAfter(slots[i + 1].start)) {
+                    global = 'Les créneaux se chevauchent.';
+                  }
+                }
+                slots[i].error = err;
               }
-              setDialogState(() => timeError = err);
+              setDialogState(() => globalError = global);
             }
+
+            void addSlot() {
+              final last = slots.last;
+              var newStart = last.end.add(const Duration(minutes: 30));
+              if (newStart.isAfter(planning.endTime)) {
+                newStart = planning.endTime;
+              }
+              var newEnd = newStart.add(const Duration(hours: 1));
+              if (newEnd.isAfter(planning.endTime)) newEnd = planning.endTime;
+              setDialogState(
+                () => slots.add(_EditSlot(start: newStart, end: newEnd)),
+              );
+              validateAllSlots();
+            }
+
+            // Construit le container de picker date+heure avec le style existant
+            Widget buildPickerTile(DateTime dt) {
+              return Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? Colors.white.withValues(alpha: 0.06)
+                      : Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.schedule_rounded, size: 16),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            final labelStyle = TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+            );
 
             return AlertDialog(
               title: Text(
@@ -1174,219 +1258,172 @@ class _HomePageState extends State<HomePage> {
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Heure de début
-                  Text(
-                    'Début',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: isDark
-                          ? Colors.grey.shade400
-                          : Colors.grey.shade600,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  InkWell(
-                    onTap: () async {
-                      final time = await showTimePicker(
-                        context: ctx,
-                        initialTime: TimeOfDay.fromDateTime(editStart),
-                      );
-                      if (time != null) {
-                        // Utiliser la date du planning.startTime comme base
-                        final base = planning.startTime;
-                        var newStart = DateTime(
-                          base.year,
-                          base.month,
-                          base.day,
-                          time.hour,
-                          time.minute,
-                        );
-                        // Si l'heure choisie est avant le début du planning jour,
-                        // on prend le jour de fin (astreinte de nuit)
-                        if (newStart.isBefore(planning.startTime)) {
-                          newStart = DateTime(
-                            planning.endTime.year,
-                            planning.endTime.month,
-                            planning.endTime.day,
-                            time.hour,
-                            time.minute,
-                          );
-                        }
-                        setDialogState(() {
-                          editStart = newStart;
-                        });
-                        validateTimes();
-                      }
-                    },
-                    borderRadius: BorderRadius.circular(8),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
-                      ),
-                      decoration: BoxDecoration(
-                        color: isDark
-                            ? Colors.white.withValues(alpha: 0.06)
-                            : Colors.grey.shade100,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.schedule_rounded, size: 16),
-                          const SizedBox(width: 8),
-                          Text(
-                            '${editStart.day.toString().padLeft(2, '0')}/${editStart.month.toString().padLeft(2, '0')} ${editStart.hour.toString().padLeft(2, '0')}:${editStart.minute.toString().padLeft(2, '0')}',
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  // Heure de fin
-                  Text(
-                    'Fin',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: isDark
-                          ? Colors.grey.shade400
-                          : Colors.grey.shade600,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  InkWell(
-                    onTap: () async {
-                      final time = await showTimePicker(
-                        context: ctx,
-                        initialTime: TimeOfDay.fromDateTime(editEnd),
-                      );
-                      if (time != null) {
-                        // Utiliser la date du planning.endTime comme base
-                        final base = planning.endTime;
-                        var newEnd = DateTime(
-                          base.year,
-                          base.month,
-                          base.day,
-                          time.hour,
-                          time.minute,
-                        );
-                        // Si l'heure choisie est après minuit mais le planning finit le lendemain,
-                        // prendre le bon jour
-                        if (newEnd.isBefore(planning.startTime)) {
-                          newEnd = DateTime(
-                            planning.endTime.year,
-                            planning.endTime.month,
-                            planning.endTime.day,
-                            time.hour,
-                            time.minute,
-                          );
-                        }
-                        setDialogState(() {
-                          editEnd = newEnd;
-                        });
-                        validateTimes();
-                      }
-                    },
-                    borderRadius: BorderRadius.circular(8),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
-                      ),
-                      decoration: BoxDecoration(
-                        color: isDark
-                            ? Colors.white.withValues(alpha: 0.06)
-                            : Colors.grey.shade100,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.schedule_rounded, size: 16),
-                          const SizedBox(width: 8),
-                          Text(
-                            '${editEnd.day.toString().padLeft(2, '0')}/${editEnd.month.toString().padLeft(2, '0')} ${editEnd.hour.toString().padLeft(2, '0')}:${editEnd.minute.toString().padLeft(2, '0')}',
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  // Message d'erreur de validation
-                  if (timeError != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      timeError!,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.red.shade400,
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 16),
-                  // Niveau d'astreinte
-                  Text(
-                    "Niveau d'astreinte",
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: isDark
-                          ? Colors.grey.shade400
-                          : Colors.grey.shade600,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  DropdownButtonFormField<String>(
-                    value: selectedLevelId,
-                    decoration: InputDecoration(
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    items: _onCallLevels.map((level) {
-                      return DropdownMenuItem<String>(
-                        value: level.id,
-                        child: Row(
+              content: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 520),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Créneaux
+                      for (int i = 0; i < slots.length; i++) ...[
+                        // En-tête du créneau
+                        Row(
                           children: [
-                            Container(
-                              width: 12,
-                              height: 12,
-                              decoration: BoxDecoration(
-                                color: level.color,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
                             Text(
-                              level.name,
-                              style: const TextStyle(fontSize: 14),
+                              slots.length > 1
+                                  ? 'Créneau ${i + 1}'
+                                  : 'Horaires',
+                              style: labelStyle,
                             ),
+                            const Spacer(),
+                            if (slots.length > 1)
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.remove_circle_outline,
+                                  size: 18,
+                                ),
+                                color: Colors.red.shade400,
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
+                                onPressed: () {
+                                  setDialogState(() => slots.removeAt(i));
+                                  validateAllSlots();
+                                },
+                              ),
                           ],
                         ),
-                      );
-                    }).toList(),
-                    onChanged: (value) {
-                      setDialogState(() {
-                        selectedLevelId = value;
-                      });
-                    },
+                        const SizedBox(height: 4),
+                        // Début
+                        Text('Début', style: labelStyle),
+                        const SizedBox(height: 4),
+                        InkWell(
+                          borderRadius: BorderRadius.circular(8),
+                          onTap: () async {
+                            final picked = await _pickDateTime(
+                              ctx: ctx,
+                              initial: slots[i].start,
+                              firstDate: planning.startTime,
+                              lastDate: planning.endTime,
+                            );
+                            if (picked != null) {
+                              setDialogState(() => slots[i].start = picked);
+                              validateAllSlots();
+                            }
+                          },
+                          child: buildPickerTile(slots[i].start),
+                        ),
+                        const SizedBox(height: 8),
+                        // Fin
+                        Text('Fin', style: labelStyle),
+                        const SizedBox(height: 4),
+                        InkWell(
+                          borderRadius: BorderRadius.circular(8),
+                          onTap: () async {
+                            final picked = await _pickDateTime(
+                              ctx: ctx,
+                              initial: slots[i].end,
+                              firstDate: planning.startTime,
+                              lastDate: planning.endTime,
+                            );
+                            if (picked != null) {
+                              setDialogState(() => slots[i].end = picked);
+                              validateAllSlots();
+                            }
+                          },
+                          child: buildPickerTile(slots[i].end),
+                        ),
+                        // Erreur du créneau
+                        if (slots[i].error != null) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            slots[i].error!,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.red.shade400,
+                            ),
+                          ),
+                        ],
+                        if (i < slots.length - 1) ...[
+                          const SizedBox(height: 8),
+                          const Divider(height: 1),
+                          const SizedBox(height: 8),
+                        ],
+                      ],
+                      // Erreur globale (chevauchement)
+                      if (globalError != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          globalError!,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.red.shade400,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 4),
+                      // Bouton ajout de créneau
+                      TextButton.icon(
+                        icon: const Icon(
+                          Icons.add_circle_outline,
+                          size: 16,
+                        ),
+                        label: const Text(
+                          'Ajouter un créneau',
+                          style: TextStyle(fontSize: 13),
+                        ),
+                        onPressed: addSlot,
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 4,
+                            vertical: 0,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      // Niveau d'astreinte
+                      Text("Niveau d'astreinte", style: labelStyle),
+                      const SizedBox(height: 4),
+                      DropdownButtonFormField<String>(
+                        value: selectedLevelId,
+                        decoration: InputDecoration(
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        items: _onCallLevels.map((level) {
+                          return DropdownMenuItem<String>(
+                            value: level.id,
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 12,
+                                  height: 12,
+                                  decoration: BoxDecoration(
+                                    color: level.color,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  level.name,
+                                  style: const TextStyle(fontSize: 14),
+                                ),
+                              ],
+                            ),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          setDialogState(() => selectedLevelId = value);
+                        },
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
               actions: [
                 TextButton(
@@ -1394,13 +1431,14 @@ class _HomePageState extends State<HomePage> {
                   child: const Text('Annuler'),
                 ),
                 FilledButton(
-                  onPressed: timeError != null
-                      ? null
-                      : () => Navigator.pop(ctx, {
-                          'start': editStart,
-                          'end': editEnd,
-                          'levelId': selectedLevelId,
-                        }),
+                  onPressed:
+                      (slots.any((s) => s.error != null) ||
+                              globalError != null)
+                          ? null
+                          : () => Navigator.pop(ctx, {
+                                'slots': List<_EditSlot>.from(slots),
+                                'levelId': selectedLevelId,
+                              }),
                   child: const Text('Enregistrer'),
                 ),
               ],
@@ -1413,11 +1451,10 @@ class _HomePageState extends State<HomePage> {
     if (result == null) return;
 
     try {
-      final newStart = result['start'] as DateTime;
-      final newEnd = result['end'] as DateTime;
+      final finalSlots = result['slots'] as List<_EditSlot>;
       final newLevelId = result['levelId'] as String?;
+      finalSlots.sort((a, b) => a.start.compareTo(b.start));
 
-      // Mettre à jour directement dans planning.agents
       final updatedAgents = List<PlanningAgent>.from(planning.agents);
       final idx = updatedAgents.indexWhere(
         (a) =>
@@ -1428,10 +1465,26 @@ class _HomePageState extends State<HomePage> {
       );
 
       if (idx != -1) {
+        // Mettre à jour l'entrée originale avec le premier créneau
         updatedAgents[idx] = updatedAgents[idx].copyWith(
-          start: newStart,
-          end: newEnd,
+          start: finalSlots[0].start,
+          end: finalSlots[0].end,
           levelId: newLevelId ?? entry.levelId,
+        );
+      }
+
+      // Ajouter les créneaux supplémentaires comme nouvelles entrées
+      for (int i = 1; i < finalSlots.length; i++) {
+        updatedAgents.add(
+          PlanningAgent(
+            agentId: entry.agentId,
+            start: finalSlots[i].start,
+            end: finalSlots[i].end,
+            levelId: newLevelId ?? entry.levelId,
+            replacedAgentId: entry.replacedAgentId,
+            isExchange: false,
+            checkedByChief: false,
+          ),
         );
       }
 
@@ -3659,4 +3712,12 @@ extension IndexedMap<E> on Iterable<E> {
       yield f(i++, e);
     }
   }
+}
+
+/// Créneau horaire éditable dans le dialog de modification de présence.
+class _EditSlot {
+  DateTime start;
+  DateTime end;
+  String? error;
+  _EditSlot({required this.start, required this.end});
 }

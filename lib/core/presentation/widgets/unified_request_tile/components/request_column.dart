@@ -63,11 +63,7 @@ class RequestColumn extends StatelessWidget {
                       color: Colors.green.shade600,
                     )
                   else if (chief.hasValidated == false)
-                    Icon(
-                      Icons.cancel,
-                      size: 14,
-                      color: Colors.red.shade600,
-                    )
+                    Icon(Icons.cancel, size: 14, color: Colors.red.shade600)
                   else
                     Icon(
                       Icons.schedule,
@@ -115,7 +111,9 @@ class RequestColumn extends StatelessWidget {
             alignment: Alignment.centerRight,
             child: showBadge == true
                 ? statusBadge
-                : const SizedBox(height: 22), // Hauteur approximative d'un badge compact
+                : const SizedBox(
+                    height: 22,
+                  ), // Hauteur approximative d'un badge compact
           ),
 
           const SizedBox(height: 8),
@@ -129,10 +127,7 @@ class RequestColumn extends StatelessWidget {
         // Nom de l'agent
         Text(
           data.agentName,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.bold,
-          ),
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
@@ -142,15 +137,15 @@ class RequestColumn extends StatelessWidget {
         // Dates (masquables pour les colonnes droites agentQuery)
         if (showDates) ...[
           _buildInfoRow(
-            icon: Icons.calendar_today,
-            text: 'Du ${_formatDateTime(data.startTime)}',
-            iconColor: Colors.blue.shade600,
+            icon: Icons.play_circle_outline_rounded,
+            text: _formatDateTime(data.startTime),
+            iconColor: Colors.blue.shade400,
           ),
           const SizedBox(height: 4),
           _buildInfoRow(
-            icon: Icons.calendar_today,
-            text: 'Au ${_formatDateTime(data.endTime)}',
-            iconColor: Colors.blue.shade600,
+            icon: Icons.stop_circle_outlined,
+            text: _formatDateTime(data.endTime),
+            iconColor: Colors.orange.shade400,
           ),
           const SizedBox(height: 8),
         ],
@@ -186,7 +181,10 @@ class RequestColumn extends StatelessWidget {
                     ? KSkills.getColorForSkillLevel(levelColor, ctx)
                     : KColors.appNameColor;
                 return Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 7,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: color.withValues(alpha: 0.13),
                     borderRadius: BorderRadius.circular(5),
@@ -220,10 +218,7 @@ class RequestColumn extends StatelessWidget {
         Expanded(
           child: Text(
             text,
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey.shade700,
-            ),
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
@@ -233,7 +228,7 @@ class RequestColumn extends StatelessWidget {
   }
 
   String _formatDateTime(DateTime dt) {
-    return DateFormat('dd/MM/yyyy HH:mm').format(dt);
+    return DateFormat('HH:mm dd/MM/yy').format(dt);
   }
 }
 
@@ -243,10 +238,7 @@ class EmptyColumn extends StatelessWidget {
   /// Nombre de lignes de chefs pour alignement
   final int chiefLinesCount;
 
-  const EmptyColumn({
-    super.key,
-    this.chiefLinesCount = 0,
-  });
+  const EmptyColumn({super.key, this.chiefLinesCount = 0});
 
   @override
   Widget build(BuildContext context) {
@@ -263,11 +255,7 @@ class CompactRequestColumn extends StatelessWidget {
   /// Badge de statut (optionnel)
   final Widget? statusBadge;
 
-  const CompactRequestColumn({
-    super.key,
-    required this.data,
-    this.statusBadge,
-  });
+  const CompactRequestColumn({super.key, required this.data, this.statusBadge});
 
   @override
   Widget build(BuildContext context) {
@@ -276,18 +264,12 @@ class CompactRequestColumn extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         // Badge si présent
-        if (statusBadge != null) ...[
-          statusBadge!,
-          const SizedBox(height: 6),
-        ],
+        if (statusBadge != null) ...[statusBadge!, const SizedBox(height: 6)],
 
         // Nom
         Text(
           data.agentName,
-          style: const TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.bold,
-          ),
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
@@ -297,10 +279,7 @@ class CompactRequestColumn extends StatelessWidget {
         // Dates sur une ligne
         Text(
           '${_formatDate(data.startTime)} - ${_formatDate(data.endTime)}',
-          style: TextStyle(
-            fontSize: 11,
-            color: Colors.grey.shade600,
-          ),
+          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),

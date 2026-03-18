@@ -260,7 +260,8 @@ class _ReplacementRequestsListPageState
                               tabs: [
                                 Tab(
                                   child: Row(
-                                    mainAxisSize: MainAxisSize.min,
+                                    mainAxisSize: MainAxisSize.max,
+                                    mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
                                       const Flexible(
                                         child: Text(
@@ -298,7 +299,8 @@ class _ReplacementRequestsListPageState
                                 ),
                                 Tab(
                                   child: Row(
-                                    mainAxisSize: MainAxisSize.min,
+                                    mainAxisSize: MainAxisSize.max,
+                                    mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
                                       const Flexible(
                                         child: Text(
@@ -339,7 +341,8 @@ class _ReplacementRequestsListPageState
                                 ),
                                 Tab(
                                   child: Row(
-                                    mainAxisSize: MainAxisSize.min,
+                                    mainAxisSize: MainAxisSize.max,
+                                    mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
                                       const Flexible(
                                         child: Text(
@@ -1494,7 +1497,7 @@ class _ReplacementRequestsListPageState
                                     borderRadius: BorderRadius.circular(12),
                                   ),
                                   child: Row(
-                                    mainAxisSize: MainAxisSize.min,
+                                    mainAxisSize: MainAxisSize.max,
                                     children: [
                                       Icon(
                                         hasDeclined
@@ -1575,7 +1578,7 @@ class _ReplacementRequestsListPageState
                                         ),
                                       ),
                                       child: Row(
-                                        mainAxisSize: MainAxisSize.min,
+                                        mainAxisSize: MainAxisSize.max,
                                         children: [
                                           Icon(
                                             Icons.visibility_off,
@@ -1636,7 +1639,7 @@ class _ReplacementRequestsListPageState
                                         ),
                                       ),
                                       child: Row(
-                                        mainAxisSize: MainAxisSize.min,
+                                        mainAxisSize: MainAxisSize.max,
                                         children: [
                                           Icon(
                                             request.requestType ==
@@ -2173,7 +2176,7 @@ class _ReplacementRequestsListPageState
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Row(
-                            mainAxisSize: MainAxisSize.min,
+                            mainAxisSize: MainAxisSize.max,
                             children: [
                               Icon(
                                 isReplaced
@@ -3171,7 +3174,7 @@ class _ReplacementRequestsListPageState
             ],
           ),
           content: Column(
-            mainAxisSize: MainAxisSize.min,
+            mainAxisSize: MainAxisSize.max,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
@@ -3333,7 +3336,7 @@ class _AgentQueryAcceptDialogState extends State<_AgentQueryAcceptDialog> {
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
+        mainAxisSize: MainAxisSize.max,
         children: [
           // Header — même structure que ReplacementRequestDialog
           Container(
@@ -3369,7 +3372,7 @@ class _AgentQueryAcceptDialogState extends State<_AgentQueryAcceptDialog> {
               child: Padding(
                 padding: const EdgeInsets.all(24.0),
                 child: Column(
-                  mainAxisSize: MainAxisSize.min,
+                  mainAxisSize: MainAxisSize.max,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // Période demandée
