@@ -79,6 +79,36 @@ class _PlanningCardState extends State<PlanningCard> {
     super.dispose();
   }
 
+  @override
+  void didUpdateWidget(PlanningCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final oldP = oldWidget.planning;
+    final newP = widget.planning;
+    if (oldP.id != newP.id) {
+      // Nouveau planning (changement de semaine) : tout recharger
+      _team = null;
+      _stationName = null;
+      _userOnCallSlots = null;
+      _loadTeam();
+      _loadUserOnCallSlots();
+      _loadStationName();
+    } else if (oldP.agents.length != newP.agents.length ||
+        oldP.agents.any((a) {
+          final match = newP.agents.where(
+            (b) =>
+                b.agentId == a.agentId &&
+                b.start == a.start &&
+                b.end == a.end &&
+                b.replacedAgentId == a.replacedAgentId,
+          );
+          return match.isEmpty;
+        })) {
+      // Contenu changé (ajout/suppression/modification d'agent) : recharger les slots
+      _userOnCallSlots = null;
+      _loadUserOnCallSlots();
+    }
+  }
+
   void _onTeamDataChanged() {
     _loadTeam();
     _loadUserOnCallSlots();

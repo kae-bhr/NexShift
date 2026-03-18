@@ -24,8 +24,6 @@ class SubshiftRepository {
   Future<List<Subshift>> getAll({String? stationId, String? requestId}) async {
     try {
       final collectionPath = _getCollectionPath(stationId, requestId: requestId);
-      debugPrint('🔍 [SubshiftRepository] getAll() - collectionPath: "$collectionPath", stationId: "$stationId"');
-
       final firestore = _directFirestore ?? FirebaseFirestore.instance;
       final snapshot = await firestore.collection(collectionPath).get();
       final subshifts = snapshot.docs.map((doc) {
@@ -33,10 +31,6 @@ class SubshiftRepository {
         data['id'] = doc.id;
         return Subshift.fromJson(data);
       }).toList();
-      debugPrint('🔍 [SubshiftRepository] getAll() - Found ${subshifts.length} subshifts');
-      for (final s in subshifts) {
-        debugPrint('   → Subshift ${s.id}: ${s.replacedId} -> ${s.replacerId} (${s.start} to ${s.end})');
-      }
       return subshifts;
     } catch (e) {
       debugPrint('❌ [SubshiftRepository] Firestore error in getAll: $e');
