@@ -26,6 +26,10 @@ class AgentSuspensionService {
     return EnvironmentConfig.getCollectionPath('replacements/automatic/suspensionTriggers', stationId);
   }
 
+  String _getReinstatementTriggersPath(String stationId) {
+    return EnvironmentConfig.getCollectionPath('replacements/automatic/reinstatementTriggers', stationId);
+  }
+
   // ============================================================================
   // SUSPENSION
   // ============================================================================
@@ -94,13 +98,42 @@ class AgentSuspensionService {
 
   /// Remet un agent en service actif.
   ///
-  /// Seul le statut est réinitialisé. Les plannings retirés lors de la suspension
-  /// ne sont PAS restaurés automatiquement — le leader doit les recréer manuellement.
+  /// Met à jour le statut de l'agent et crée un [reinstatementTrigger] pour que
+  /// la Cloud Function ajoute automatiquement l'agent aux plannings futurs de son équipe.
+  ///
+  /// Throws [Exception('teamRequired')] si l'agent était suspendu avec rupture
+  /// de contrat (suspendedFromDuty) et n'a pas encore été réassigné à une équipe.
   Future<void> reinstateAgent({required User agent}) async {
+    if (agent.agentAvailabilityStatus == AgentAvailabilityStatus.suspendedFromDuty &&
+        agent.team.isEmpty) {
+      throw Exception('teamRequired');
+    }
+
     final updatedAgent = agent.copyWith(
       agentAvailabilityStatus: AgentAvailabilityStatus.active,
       clearSuspensionStartDate: true,
     );
     await _userRepository.upsert(updatedAgent);
+
+    if (agent.team.isNotEmpty) {
+      try {
+        final triggersPath = _getReinstatementTriggersPath(agent.station);
+        final triggerId = 'reinstatement_${agent.id}_${DateTime.now().millisecondsSinceEpoch}';
+        await FirebaseFirestore.instance
+            .collection(triggersPath)
+            .doc(triggerId)
+            .set({
+          'type': 'agent_reinstated',
+          'agentId': agent.id,
+          'station': agent.station,
+          'teamId': agent.team,
+          'reinstatementDate': Timestamp.fromDate(DateTime.now()),
+          'createdAt': FieldValue.serverTimestamp(),
+          'processed': false,
+        });
+      } catch (e) {
+        debugPrint('AgentSuspensionService: reinstatement trigger CF failed: $e');
+      }
+    }
   }
 }

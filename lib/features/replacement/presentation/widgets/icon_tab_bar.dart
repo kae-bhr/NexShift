@@ -343,3 +343,177 @@ class _AdaptiveTabLabel extends StatelessWidget {
     );
   }
 }
+
+// ============================================================
+// ExpandingSubTabBar — sous-onglets avec expansion animée
+// Même comportement que _ExpandingTabBar (principal) mais plus compact
+// ============================================================
+
+class ExpandingSubTabItem {
+  final IconData icon;
+  final String label;
+  final int badgeCount;
+  final Color? badgeColor;
+
+  const ExpandingSubTabItem({
+    required this.icon,
+    required this.label,
+    this.badgeCount = 0,
+    this.badgeColor,
+  });
+}
+
+class ExpandingSubTabBar extends StatefulWidget {
+  final TabController controller;
+  final List<ExpandingSubTabItem> tabs;
+  final Color selectedColor;
+  final Color unselectedColor;
+
+  const ExpandingSubTabBar({
+    super.key,
+    required this.controller,
+    required this.tabs,
+    required this.selectedColor,
+    required this.unselectedColor,
+  });
+
+  @override
+  State<ExpandingSubTabBar> createState() => _ExpandingSubTabBarState();
+}
+
+class _ExpandingSubTabBarState extends State<ExpandingSubTabBar> {
+  // Pas de _selectedIndex : on lit directement controller.animation
+  // pour que le swipe et le clic soient tous les deux fluides.
+
+  @override
+  Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final n = widget.tabs.length;
+    // Largeur minimale (onglet rétracté) et maximale (onglet actif)
+    // On répartit : 1 part inactive, 3 parts active → total = n-1 + 3
+    const collapsedRatio = 1.0;
+    const expandedRatio = 3.0;
+
+    return AnimatedBuilder(
+      animation: widget.controller.animation!,
+      builder: (context, _) {
+        final animValue = widget.controller.animation!.value; // ex: 1.35 pendant swipe
+        // Pour chaque onglet, calculer son "activeFraction" ∈ [0,1]
+        final fractions = List.generate(n, (i) {
+          final dist = (animValue - i).abs();
+          return (1.0 - dist).clamp(0.0, 1.0);
+        });
+        // Largeurs proportionnelles : collapsed + fraction*(expanded-collapsed)
+        final widths = fractions.map((f) =>
+          collapsedRatio + f * (expandedRatio - collapsedRatio)).toList();
+        final totalParts = widths.fold(0.0, (a, b) => a + b);
+
+        return Container(
+          width: screenWidth,
+          height: 44,
+          color: isDark ? Colors.grey.shade900 : Colors.grey.shade100,
+          child: Column(
+            children: [
+              Expanded(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: List.generate(n, (i) {
+                    final tab = widget.tabs[i];
+                    final fraction = fractions[i]; // 0.0 → inactif, 1.0 → actif
+                    final tabWidth = (widths[i] / totalParts) * screenWidth;
+                    final color = Color.lerp(
+                      widget.unselectedColor, widget.selectedColor, fraction)!;
+
+                    return SizedBox(
+                      width: tabWidth,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => widget.controller.animateTo(i),
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          alignment: Alignment.center,
+                          children: [
+                            // Indicateur bas
+                            Positioned(
+                              bottom: 0,
+                              left: 4,
+                              right: 4,
+                              child: Container(
+                                height: 2,
+                                decoration: BoxDecoration(
+                                  color: widget.selectedColor.withValues(alpha: fraction),
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
+                              ),
+                            ),
+                            // Icône + label
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(tab.icon, size: 18, color: color),
+                                ClipRect(
+                                  child: Align(
+                                    alignment: Alignment.centerLeft,
+                                    widthFactor: fraction,
+                                    child: Opacity(
+                                      opacity: fraction.clamp(0.0, 1.0),
+                                      child: Padding(
+                                        padding: const EdgeInsets.only(left: 5),
+                                        child: Text(
+                                          tab.label,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                            color: widget.selectedColor,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.clip,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            // Badge
+                            if (tab.badgeCount > 0 && tab.badgeColor != null)
+                              Positioned(
+                                top: 6,
+                                right: 6,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 4, vertical: 1),
+                                  decoration: BoxDecoration(
+                                    color: tab.badgeColor,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  constraints: const BoxConstraints(
+                                      minWidth: 16, minHeight: 14),
+                                  child: Text(
+                                    tab.badgeCount.toString(),
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }),
+                ),
+              ),
+              Container(height: 1, color: widget.selectedColor.withValues(alpha: 0.15)),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}

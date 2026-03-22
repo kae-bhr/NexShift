@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
+import 'package:nexshift_app/core/data/models/team_event_model.dart';
+import 'package:nexshift_app/core/repositories/team_event_repository.dart';
+import 'package:nexshift_app/core/services/team_event_service.dart';
+import 'package:nexshift_app/features/team_events/presentation/pages/team_event_page.dart';
 import 'package:nexshift_app/core/repositories/local_repositories.dart';
 import 'package:nexshift_app/core/repositories/subshift_repositories.dart';
 import 'package:nexshift_app/core/data/models/planning_model.dart';
@@ -41,6 +45,9 @@ class _PlanningPageState extends State<PlanningPage> {
   Color? _userTeamColor;
   bool _isLoading = false;
   String? _lastLoadedUserId;
+
+  // Événements d'équipe
+  List<TeamEvent> _teamEvents = [];
 
   // Vue mensuelle
   List<Planning> _monthPlannings = [];
@@ -467,6 +474,147 @@ class _PlanningPageState extends State<PlanningPage> {
     );
   }
 
+  void _showEventDetails(TeamEvent event) {
+    _removeTooltip();
+    final fmt = DateFormat('dd/MM HH:mm');
+    final userId = _currentUser?.id ?? '';
+    final hasAccepted = event.acceptedUserIds.contains(userId);
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // En-tête : icône + titre
+            Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: KColors.appNameColor.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    event.iconCodePoint != null
+                        ? IconData(event.iconCodePoint!, fontFamily: 'MaterialIcons')
+                        : Icons.event_rounded,
+                    color: KColors.appNameColor,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    event.title,
+                    style: Theme.of(ctx).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: KColors.appNameColor,
+                        ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            // Horaire
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: KColors.appNameColor.withValues(alpha: 0.07),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: KColors.appNameColor.withValues(alpha: 0.2)),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.schedule_rounded, color: KColors.appNameColor, size: 18),
+                  const SizedBox(width: 10),
+                  Text(
+                    '${fmt.format(event.startTime)} → ${fmt.format(event.endTime)}',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: KColors.appNameColor,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (event.location != null && event.location!.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Icon(Icons.location_on_rounded, size: 15, color: Colors.grey.shade500),
+                  const SizedBox(width: 6),
+                  Text(event.location!, style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                ],
+              ),
+            ],
+            const SizedBox(height: 20),
+            // Bouton afficher la page
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                label: const Text("Afficher la page de l'événement"),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: KColors.appNameColor,
+                  side: BorderSide(color: KColors.appNameColor.withValues(alpha: 0.5)),
+                ),
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => TeamEventPage(event: event)),
+                  );
+                },
+              ),
+            ),
+            // Bouton "Je ne participe plus" si accepté
+            if (hasAccepted) ...[
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.exit_to_app_rounded, size: 16),
+                  label: const Text('Je ne participe plus'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.red.shade400,
+                    side: BorderSide(color: Colors.red.shade300),
+                  ),
+                  onPressed: () async {
+                    Navigator.pop(ctx);
+                    await TeamEventService().respondToEvent(
+                      event: event,
+                      userId: userId,
+                      accepted: false,
+                    );
+                    if (mounted) {
+                      setState(() => _teamEvents.removeWhere((e) => e.id == event.id));
+                    }
+                  },
+                ),
+              ),
+            ],
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () => Navigator.pop(ctx),
+                style: FilledButton.styleFrom(backgroundColor: KColors.appNameColor),
+                child: const Text('Fermer'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _loadUserAndPlanning() async {
     if (_isLoading) return;
     _isLoading = true;
@@ -600,6 +748,24 @@ class _PlanningPageState extends State<PlanningPage> {
         setState(() => _availabilityLevelIds = availLevelIds);
       }
 
+      // Charger les événements d'équipe
+      List<TeamEvent> teamEvents = [];
+      try {
+        final allEvents = await TeamEventRepository().getAll(stationId: user.station);
+        final weekStart2 = currentWeekStartNotifier.value;
+        final weekEnd2 = weekStart2.add(const Duration(days: 7));
+        teamEvents = allEvents.where((e) {
+          if (e.status != TeamEventStatus.upcoming) return false;
+          if (!e.endTime.isAfter(weekStart2) || !e.startTime.isBefore(weekEnd2)) return false;
+          if (isStationView) return true;
+          return e.invitedUserIds.contains(user.id) ||
+              e.acceptedUserIds.contains(user.id) ||
+              e.createdById == user.id;
+        }).toList();
+      } catch (e) {
+        debugPrint('⚠️ [PLANNING_PAGE] Error loading team events: $e');
+      }
+
       debugPrint('📅 [PLANNING_PAGE] setState() - plannings: ${plannings.length}, subshifts: ${subshifts.length}, availabilities: ${availabilities.length}');
       if (!mounted) {
         _isLoading = false;
@@ -609,6 +775,7 @@ class _PlanningPageState extends State<PlanningPage> {
         _plannings = plannings;
         _subshifts = subshifts;
         _availabilities = availabilities;
+        _teamEvents = teamEvents;
         _currentUser = user;
         _userTeamColor = userTeamColor;
         _availableTeams = availableTeams;
@@ -915,7 +1082,41 @@ class _PlanningPageState extends State<PlanningPage> {
       });
     }
 
+    // Ajouter les barres d'événements d'équipe
+    for (final event in _teamEvents) {
+      final segments = _splitEventByDay(event, day);
+      for (final seg in segments) {
+        bars.add({
+          'start': seg['start'],
+          'end': seg['end'],
+          'event': event,
+          'type': 'teamEvent',
+          'color': KColors.appNameColor,
+          'isRealStart': seg['isRealStart'] ?? true,
+          'isRealEnd': seg['isRealEnd'] ?? true,
+        });
+      }
+    }
+
     return bars;
+  }
+
+  List<Map<String, dynamic>> _splitEventByDay(TeamEvent event, DateTime day) {
+    final dayStart = DateTime(day.year, day.month, day.day);
+    final dayEnd = dayStart.add(const Duration(days: 1));
+    if (!event.endTime.isAfter(dayStart) || !event.startTime.isBefore(dayEnd)) {
+      return [];
+    }
+    final segStart = event.startTime.isBefore(dayStart) ? dayStart : event.startTime;
+    final segEnd = event.endTime.isAfter(dayEnd) ? dayEnd : event.endTime;
+    return [
+      {
+        'start': segStart,
+        'end': segEnd,
+        'isRealStart': !event.startTime.isBefore(dayStart),
+        'isRealEnd': !event.endTime.isAfter(dayEnd),
+      }
+    ];
   }
 
   /// Découpe une disponibilité traversant minuit en segments journaliers
@@ -1169,15 +1370,24 @@ class _PlanningPageState extends State<PlanningPage> {
                                     final totalWidth = MediaQuery.of(context).size.width - (leftMargin * 2);
                                     final at = _timeFromLocalDx(details.localPosition.dx, leftMargin, totalWidth, currentDay);
                                     Planning? planning;
+                                    TeamEvent? tappedEvent;
                                     for (final bar in dailyBars) {
                                       final barStart = bar['start'] as DateTime;
                                       final barEnd = bar['end'] as DateTime;
                                       if (at.isAfter(barStart) && at.isBefore(barEnd)) {
-                                        planning = bar['planning'] as Planning?;
+                                        if (bar['type'] == 'teamEvent') {
+                                          tappedEvent = bar['event'] as TeamEvent?;
+                                        } else {
+                                          planning = bar['planning'] as Planning?;
+                                        }
                                         break;
                                       }
                                     }
-                                    _showShiftDetails(at, planning);
+                                    if (tappedEvent != null) {
+                                      _showEventDetails(tappedEvent);
+                                    } else {
+                                      _showShiftDetails(at, planning);
+                                    }
                                   },
                                   child: Stack(
                                     children: [

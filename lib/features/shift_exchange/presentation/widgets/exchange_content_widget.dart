@@ -275,31 +275,16 @@ class _ExchangeContentWidgetState extends State<ExchangeContentWidget>
     return Column(
       children: [
         // Sous-onglets avec icônes et badges (utilise les compteurs cachés)
-        IconTabBar(
+        ExpandingSubTabBar(
           controller: _subTabController,
-          tabs: replacementSubTabs,
-          selectedColor: Theme.of(context).brightness == Brightness.dark
-              ? Colors.white
-              : KColors.appNameColor,
-          unselectedColor: Theme.of(context).brightness == Brightness.dark
-              ? Colors.white70
-              : KColors.appNameColor.withValues(alpha: 0.7),
-          badgeCounts: {
-            ReplacementSubTab.pending: _pendingCount,
-            ReplacementSubTab.myRequests: _myRequestsCount,
-            ReplacementSubTab.toValidate: _validationCount,
-          },
-          badgeColors: {
-            ReplacementSubTab.pending: KColors.appNameColor,
-            ReplacementSubTab.myRequests: KColors.appNameColor,
-            ReplacementSubTab.toValidate: Colors.blue,
-          },
-          secondaryBadgeCounts: {
-            ReplacementSubTab.myRequests: _needingSelectionCount,
-          },
-          secondaryBadgeColors: {
-            ReplacementSubTab.myRequests: KColors.appNameColor,
-          },
+          tabs: [
+            ExpandingSubTabItem(icon: replacementSubTabs[0].icon, label: replacementSubTabs[0].label, badgeCount: _pendingCount, badgeColor: KColors.appNameColor),
+            ExpandingSubTabItem(icon: replacementSubTabs[1].icon, label: replacementSubTabs[1].label, badgeCount: _myRequestsCount + _needingSelectionCount, badgeColor: KColors.appNameColor),
+            ExpandingSubTabItem(icon: replacementSubTabs[2].icon, label: replacementSubTabs[2].label, badgeCount: _validationCount, badgeColor: Colors.blue),
+            ExpandingSubTabItem(icon: replacementSubTabs[3].icon, label: replacementSubTabs[3].label),
+          ],
+          selectedColor: Theme.of(context).brightness == Brightness.dark ? Colors.white : KColors.appNameColor,
+          unselectedColor: Theme.of(context).brightness == Brightness.dark ? Colors.white70 : KColors.appNameColor.withValues(alpha: 0.7),
         ),
         // Contenu des sous-onglets avec RefreshIndicator
         Expanded(

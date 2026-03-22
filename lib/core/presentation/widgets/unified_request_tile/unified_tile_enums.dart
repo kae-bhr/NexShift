@@ -17,6 +17,9 @@ enum UnifiedRequestType {
 
   /// Recherche automatique d'agent
   agentQuery,
+
+  /// Événement d'équipe (manœuvre, FMPA, réunion...)
+  teamEvent,
 }
 
 /// Mode de vue déterminant les actions disponibles
@@ -117,6 +120,8 @@ extension UnifiedRequestTypeDisplay on UnifiedRequestType {
         return 'Échange';
       case UnifiedRequestType.agentQuery:
         return 'Recherche';
+      case UnifiedRequestType.teamEvent:
+        return 'Événement';
     }
   }
 }

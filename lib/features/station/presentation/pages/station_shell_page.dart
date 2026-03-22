@@ -128,17 +128,12 @@ class _StationShellPageState extends State<StationShellPage>
         backgroundColor: Colors.transparent,
         elevation: 0,
         iconTheme: IconThemeData(color: Theme.of(context).colorScheme.primary),
-        bottom: TabBar(
-          controller: _tabController,
-          labelColor: Theme.of(context).colorScheme.primary,
-          unselectedLabelColor: Colors.grey,
-          indicatorColor: Theme.of(context).colorScheme.primary,
-          tabs: const [
-            Tab(icon: Icon(Icons.groups), text: 'Équipes'),
-            Tab(icon: Icon(Icons.people), text: 'Agents'),
-            Tab(icon: Icon(Icons.local_shipping), text: 'Véhicules'),
-            Tab(icon: Icon(Icons.calendar_today), text: 'Astreintes'),
-          ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(48),
+          child: _StationExpandingTabBar(
+            controller: _tabController,
+            color: Theme.of(context).colorScheme.primary,
+          ),
         ),
       ),
       body: _isLoading
@@ -169,6 +164,125 @@ class _StationShellPageState extends State<StationShellPage>
                 const PlanningTabPage(),
               ],
             ),
+    );
+  }
+}
+
+class _StationExpandingTabBar extends StatelessWidget {
+  final TabController controller;
+  final Color color;
+
+  static const _tabs = [
+    (icon: Icons.groups, label: 'Équipes'),
+    (icon: Icons.people, label: 'Agents'),
+    (icon: Icons.local_shipping, label: 'Véhicules'),
+    (icon: Icons.calendar_today, label: 'Astreintes'),
+  ];
+
+  const _StationExpandingTabBar({
+    required this.controller,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final n = _tabs.length;
+    const collapsedRatio = 1.0;
+    const expandedRatio = 3.0;
+
+    return AnimatedBuilder(
+      animation: controller.animation!,
+      builder: (context, _) {
+        final animValue = controller.animation!.value;
+        final fractions = List.generate(n, (i) =>
+          (1.0 - (animValue - i).abs()).clamp(0.0, 1.0));
+        final widths = fractions.map((f) =>
+          collapsedRatio + f * (expandedRatio - collapsedRatio)).toList();
+        final totalParts = widths.fold(0.0, (a, b) => a + b);
+        final inactiveColor = color.withValues(alpha: 0.45);
+
+        return SizedBox(
+          width: screenWidth,
+          height: 48,
+          child: Column(
+            children: [
+              Expanded(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: List.generate(n, (i) {
+                    final tab = _tabs[i];
+                    final fraction = fractions[i];
+                    final tabWidth = (widths[i] / totalParts) * screenWidth;
+                    final iconColor = Color.lerp(inactiveColor, color, fraction)!;
+
+                    return SizedBox(
+                      width: tabWidth,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => controller.animateTo(i),
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          alignment: Alignment.center,
+                          children: [
+                            // Indicateur bas
+                            Positioned(
+                              bottom: 0,
+                              left: 6,
+                              right: 6,
+                              child: Container(
+                                height: 2.5,
+                                decoration: BoxDecoration(
+                                  color: color.withValues(alpha: fraction),
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
+                              ),
+                            ),
+                            // Icône + label
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(tab.icon, size: 20, color: iconColor),
+                                ClipRect(
+                                  child: Align(
+                                    alignment: Alignment.centerLeft,
+                                    widthFactor: fraction,
+                                    child: Opacity(
+                                      opacity: fraction,
+                                      child: Padding(
+                                        padding: const EdgeInsets.only(left: 6),
+                                        child: Text(
+                                          tab.label,
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w600,
+                                            color: color,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.clip,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }),
+                ),
+              ),
+              Container(
+                height: 1.5,
+                color: color.withValues(alpha: 0.15),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

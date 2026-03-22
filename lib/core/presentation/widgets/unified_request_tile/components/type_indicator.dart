@@ -111,6 +111,8 @@ class TypeIndicator extends StatelessWidget {
         return Icons.swap_horiz;
       case UnifiedRequestType.agentQuery:
         return Icons.manage_search_rounded;
+      case UnifiedRequestType.teamEvent:
+        return Icons.event_rounded;
     }
   }
 
@@ -153,6 +155,8 @@ class SimpleTypeIcon extends StatelessWidget {
         return Icons.swap_horiz;
       case UnifiedRequestType.agentQuery:
         return Icons.manage_search_rounded;
+      case UnifiedRequestType.teamEvent:
+        return Icons.event_rounded;
     }
   }
 

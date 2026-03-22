@@ -40,6 +40,10 @@ import 'package:nexshift_app/core/repositories/agent_query_repository.dart';
 import 'package:nexshift_app/core/services/agent_query_service.dart';
 import 'package:nexshift_app/core/data/models/team_model.dart';
 import 'package:nexshift_app/features/planning/presentation/widgets/view_mode.dart';
+import 'package:nexshift_app/core/data/models/team_event_model.dart';
+import 'package:nexshift_app/core/repositories/team_event_repository.dart';
+import 'package:nexshift_app/features/team_events/presentation/pages/team_event_page.dart';
+import 'package:nexshift_app/features/team_events/presentation/widgets/event_planning_card.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -73,6 +77,10 @@ class _HomePageState extends State<HomePage> {
   // Filtre équipe (mode Centre)
   List<Team> _availableTeams = [];
 
+  // Événements d'équipe
+  List<TeamEvent> _teamEvents = [];
+  final Map<String, bool> _expandedEvents = {};
+
   final noneUser = User(
     id: "",
     firstName: "Inconnu",
@@ -82,7 +90,6 @@ class _HomePageState extends State<HomePage> {
     team: "",
     skills: [],
   );
-
 
   @override
   void initState() {
@@ -118,7 +125,8 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _onViewModeChanged() {
-    if (viewModeNotifier.value == ViewMode.month && _allMonthPlannings.isEmpty) {
+    if (viewModeNotifier.value == ViewMode.month &&
+        _allMonthPlannings.isEmpty) {
       _reloadPlanningsForMonth(currentMonthNotifier.value);
     } else {
       setState(() {});
@@ -171,7 +179,9 @@ class _HomePageState extends State<HomePage> {
 
       final repo = LocalRepository();
       // Charger les plannings de la semaine courante (on filtrera ensuite côté client)
-      final weekEnd = currentWeekStartNotifier.value.add(const Duration(days: 7));
+      final weekEnd = currentWeekStartNotifier.value.add(
+        const Duration(days: 7),
+      );
 
       final allPlannings = await repo.getPlanningsByStationInRange(
         user.station,
@@ -195,7 +205,15 @@ class _HomePageState extends State<HomePage> {
         availableTeams = teams;
         final userTeam = teams.firstWhere(
           (t) => t.id == user.team,
-          orElse: () => teams.isNotEmpty ? teams.first : Team(id: '', name: '', stationId: '', color: Colors.grey, order: 0),
+          orElse: () => teams.isNotEmpty
+              ? teams.first
+              : Team(
+                  id: '',
+                  name: '',
+                  stationId: '',
+                  color: Colors.grey,
+                  order: 0,
+                ),
         );
         teamColor = userTeam.id.isNotEmpty ? userTeam.color : null;
       } catch (_) {
@@ -261,6 +279,23 @@ class _HomePageState extends State<HomePage> {
         debugPrint('⚠️ [HOME_PAGE] Error loading pending agent queries: $e');
       }
 
+      // Charger les événements d'équipe
+      List<TeamEvent> teamEvents = [];
+      try {
+        final allEvents = await TeamEventRepository()
+            .getAll(stationId: user.station);
+        final now = DateTime.now();
+        teamEvents = allEvents.where((e) {
+          if (e.status != TeamEventStatus.upcoming) return false;
+          if (e.endTime.isBefore(now.subtract(const Duration(days: 1)))) return false;
+          return e.invitedUserIds.contains(user.id) ||
+              e.acceptedUserIds.contains(user.id) ||
+              e.createdById == user.id;
+        }).toList();
+      } catch (e) {
+        debugPrint('⚠️ [HOME_PAGE] Error loading team events: $e');
+      }
+
       // Charger la station séparément des niveaux d'astreinte
       Station? station;
       try {
@@ -292,12 +327,14 @@ class _HomePageState extends State<HomePage> {
         _user = user;
         _userTeamColor = teamColor;
         _availableTeams = availableTeams;
+        _teamEvents = teamEvents;
         _lastUserId = user.id;
         _isLoading = false;
       });
       // Si on arrive en mode mois, charger les plannings du mois maintenant
       // que _user est initialisé (l'appel depuis initState était trop tôt)
-      if (viewModeNotifier.value == ViewMode.month && _allMonthPlannings.isEmpty) {
+      if (viewModeNotifier.value == ViewMode.month &&
+          _allMonthPlannings.isEmpty) {
         _reloadPlanningsForMonth(currentMonthNotifier.value);
       }
     }
@@ -360,7 +397,6 @@ class _HomePageState extends State<HomePage> {
       _isMonthLoading = false;
     });
   }
-
 
   Color _statusToColor(VehicleStatus status) {
     switch (status) {
@@ -436,7 +472,8 @@ class _HomePageState extends State<HomePage> {
         if (a.replacedAgentId != null) continue;
         final aStart = a.start.toUtc();
         final aEnd = a.end.toUtc();
-        if ((aStart.isBefore(sampleUtc) || aStart.isAtSameMomentAs(sampleUtc)) &&
+        if ((aStart.isBefore(sampleUtc) ||
+                aStart.isAtSameMomentAs(sampleUtc)) &&
             aEnd.isAfter(sampleUtc)) {
           activeBaseIds.add(a.agentId);
         }
@@ -448,10 +485,13 @@ class _HomePageState extends State<HomePage> {
         if (a.replacedAgentId == null) continue;
         final aStart = a.start.toUtc();
         final aEnd = a.end.toUtc();
-        if ((aStart.isBefore(sampleUtc) || aStart.isAtSameMomentAs(sampleUtc)) &&
+        if ((aStart.isBefore(sampleUtc) ||
+                aStart.isAtSameMomentAs(sampleUtc)) &&
             aEnd.isAfter(sampleUtc)) {
           activeReplacementMap[a.replacedAgentId!] = a.agentId;
-          activeBaseIds.add(a.replacedAgentId!); // ensure the replaced slot is included
+          activeBaseIds.add(
+            a.replacedAgentId!,
+          ); // ensure the replaced slot is included
         }
       }
 
@@ -520,7 +560,8 @@ class _HomePageState extends State<HomePage> {
               ? '${truck.type}_${truck.id}_$suffix'
               : '${truck.type}_${truck.id}_DEF';
 
-          if (r.status == VehicleStatus.orange || r.status == VehicleStatus.red) {
+          if (r.status == VehicleStatus.orange ||
+              r.status == VehicleStatus.red) {
             timeRangesByVehicle.putIfAbsent(vehicleKey, () => []);
             timeRangesByVehicle[vehicleKey]!.add({
               'start': sampleTime,
@@ -627,6 +668,33 @@ class _HomePageState extends State<HomePage> {
     return CrewAllocator.sortVehicleSpecs(specs);
   }
 
+  List<TeamEvent> _getFilteredTeamEvents() {
+    final weekStart = currentWeekStartNotifier.value;
+    final weekEnd = weekStart.add(const Duration(days: 7));
+    final stationView = stationViewNotifier.value;
+    final userId = _user.id;
+    final isAdminOrLeader = _user.admin || _user.status == KConstants.statusLeader;
+
+    return _teamEvents.where((e) {
+      // Filtre temporel
+      if (!e.endTime.isAfter(weekStart) || !e.startTime.isBefore(weekEnd)) {
+        return false;
+      }
+      if (stationView) {
+        // Vue Centre : admins/leaders voient tout, sinon invité ou organisateur
+        if (isAdminOrLeader) return true;
+        return e.createdById == userId ||
+            e.invitedUserIds.contains(userId) ||
+            e.acceptedUserIds.contains(userId) ||
+            e.declinedUserIds.contains(userId);
+      } else {
+        // Vue Personnelle : uniquement les events acceptés
+        return e.acceptedUserIds.contains(userId);
+      }
+    }).toList()
+      ..sort((a, b) => a.startTime.compareTo(b.startTime));
+  }
+
   List<Planning> _getFilteredPlannings() {
     final weekEnd = currentWeekStartNotifier.value.add(const Duration(days: 7));
     final stationView = stationViewNotifier.value;
@@ -658,10 +726,15 @@ class _HomePageState extends State<HomePage> {
           // Vérifier si toutes ses entrées actives sont en niveau isAvailability
           if (availabilityLevelIds.isNotEmpty) {
             final userEntries = planning.agents
-                .where((a) => a.agentId == _user.id && a.replacedAgentId == null)
+                .where(
+                  (a) => a.agentId == _user.id && a.replacedAgentId == null,
+                )
                 .toList();
-            final allDispo = userEntries.isNotEmpty &&
-                userEntries.every((a) => availabilityLevelIds.contains(a.levelId));
+            final allDispo =
+                userEntries.isNotEmpty &&
+                userEntries.every(
+                  (a) => availabilityLevelIds.contains(a.levelId),
+                );
             if (allDispo) {
               chiefAssignedAvailPlannings.add(planning);
               return false; // exclure des plannings réguliers
@@ -703,7 +776,10 @@ class _HomePageState extends State<HomePage> {
 
       // Ajouter les disponibilités comme des plannings virtuels en mode personnel
       // (exclure celles déjà couvertes par un planning réel)
-      final availabilityPlannings = _getAvailabilityPlannings(weekEnd, userPlannings);
+      final availabilityPlannings = _getAvailabilityPlannings(
+        weekEnd,
+        userPlannings,
+      );
 
       // Trier par ordre chronologique (startTime)
       final allPlannings = [...userPlannings, ...availabilityPlannings];
@@ -727,8 +803,19 @@ class _HomePageState extends State<HomePage> {
   }
 
   List<Planning> _getFilteredPlanningsForMonth() {
-    final monthStart = DateTime(currentMonthNotifier.value.year, currentMonthNotifier.value.month, 1);
-    final monthEnd = DateTime(currentMonthNotifier.value.year, currentMonthNotifier.value.month + 1, 0, 23, 59, 59);
+    final monthStart = DateTime(
+      currentMonthNotifier.value.year,
+      currentMonthNotifier.value.month,
+      1,
+    );
+    final monthEnd = DateTime(
+      currentMonthNotifier.value.year,
+      currentMonthNotifier.value.month + 1,
+      0,
+      23,
+      59,
+      59,
+    );
     final stationView = stationViewNotifier.value;
 
     final planningsInMonth = _allMonthPlannings.where((p) {
@@ -764,15 +851,19 @@ class _HomePageState extends State<HomePage> {
     return stationPlannings;
   }
 
-  List<Planning> _getAvailabilityPlannings(DateTime weekEnd, List<Planning> realPlannings) {
+  List<Planning> _getAvailabilityPlannings(
+    DateTime weekEnd,
+    List<Planning> realPlannings,
+  ) {
     // Filtrer les disponibilités de l'utilisateur dans la semaine
     final userAvailabilities = _allAvailabilities.where((a) {
       if (a.agentId != _user.id) return false;
       if (!a.end.isAfter(currentWeekStartNotifier.value)) return false;
       if (!a.start.isBefore(weekEnd)) return false;
       // Exclure si la disponibilité chevauche un planning réel où l'utilisateur est agent
-      final overlapsReal = realPlannings.any((p) =>
-          p.startTime.isBefore(a.end) && p.endTime.isAfter(a.start));
+      final overlapsReal = realPlannings.any(
+        (p) => p.startTime.isBefore(a.end) && p.endTime.isAfter(a.start),
+      );
       return !overlapsReal;
     }).toList();
 
@@ -917,6 +1008,7 @@ class _HomePageState extends State<HomePage> {
       }
     });
   }
+
 
   Future<void> _openAddSubPlanningDialog(Planning planning) async {
     final sub = await Navigator.push(
@@ -1364,10 +1456,7 @@ class _HomePageState extends State<HomePage> {
                       const SizedBox(height: 4),
                       // Bouton ajout de créneau
                       TextButton.icon(
-                        icon: const Icon(
-                          Icons.add_circle_outline,
-                          size: 16,
-                        ),
+                        icon: const Icon(Icons.add_circle_outline, size: 16),
                         label: const Text(
                           'Ajouter un créneau',
                           style: TextStyle(fontSize: 13),
@@ -1432,13 +1521,12 @@ class _HomePageState extends State<HomePage> {
                 ),
                 FilledButton(
                   onPressed:
-                      (slots.any((s) => s.error != null) ||
-                              globalError != null)
-                          ? null
-                          : () => Navigator.pop(ctx, {
-                                'slots': List<_EditSlot>.from(slots),
-                                'levelId': selectedLevelId,
-                              }),
+                      (slots.any((s) => s.error != null) || globalError != null)
+                      ? null
+                      : () => Navigator.pop(ctx, {
+                          'slots': List<_EditSlot>.from(slots),
+                          'levelId': selectedLevelId,
+                        }),
                   child: const Text('Enregistrer'),
                 ),
               ],
@@ -2360,7 +2448,11 @@ class _HomePageState extends State<HomePage> {
   /// Relance les notifications pour une recherche d'agent
   Future<void> _resendAgentQueryNotifications(AgentQuery query) async {
     final targetIds = query.notifiedUserIds
-        .where((id) => !query.declinedByUserIds.contains(id) && id != query.matchedAgentId)
+        .where(
+          (id) =>
+              !query.declinedByUserIds.contains(id) &&
+              id != query.matchedAgentId,
+        )
         .toList();
     if (targetIds.isEmpty) return;
     try {
@@ -2371,7 +2463,9 @@ class _HomePageState extends State<HomePage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Notifications renvoyées à ${targetIds.length} agent${targetIds.length > 1 ? 's' : ''}.'),
+            content: Text(
+              'Notifications renvoyées à ${targetIds.length} agent${targetIds.length > 1 ? 's' : ''}.',
+            ),
             backgroundColor: Colors.orange.shade700,
           ),
         );
@@ -2649,6 +2743,20 @@ class _HomePageState extends State<HomePage> {
           final filteredPlannings = viewModeNotifier.value == ViewMode.week
               ? _getFilteredPlannings()
               : <Planning>[];
+          final filteredTeamEvents = viewModeNotifier.value == ViewMode.week
+              ? _getFilteredTeamEvents()
+              : <TeamEvent>[];
+
+          // Fusion chronologique plannings + events (Object = Planning | TeamEvent)
+          final mergedItems = <Object>[
+            ...filteredPlannings,
+            ...filteredTeamEvents,
+          ]..sort((a, b) {
+              final aStart = a is Planning ? a.startTime : (a as TeamEvent).startTime;
+              final bStart = b is Planning ? b.startTime : (b as TeamEvent).startTime;
+              return aStart.compareTo(bStart);
+            });
+          final totalItems = mergedItems.length;
 
           return Column(
             children: [
@@ -2659,449 +2767,503 @@ class _HomePageState extends State<HomePage> {
               if (viewModeNotifier.value == ViewMode.month)
                 _buildMonthView(stationView, isDark)
               else
-              Expanded(
-                child: RefreshIndicator(
-                  color: KColors.appNameColor,
-                  onRefresh: _loadData,
-                  child: filteredPlannings.isEmpty
-                      ? ListView(
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          padding: const EdgeInsets.only(bottom: 16),
-                          children: [
-                            const SizedBox(height: 80),
-                            Center(
-                              child: Column(
-                                children: [
-                                  Container(
-                                    width: 72,
-                                    height: 72,
-                                    decoration: BoxDecoration(
-                                      color: isDark
-                                          ? Colors.white.withValues(alpha: 0.06)
-                                          : Colors.grey.shade50,
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: Icon(
-                                      Icons.event_available_rounded,
-                                      size: 32,
-                                      color: isDark
-                                          ? Colors.grey.shade500
-                                          : Colors.grey.shade400,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  Text(
-                                    "Aucune astreinte",
-                                    style: TextStyle(
-                                      fontSize: 17,
-                                      fontWeight: FontWeight.w600,
-                                      color: isDark
-                                          ? Colors.grey.shade400
-                                          : Colors.grey.shade600,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    "Aucune astreinte pr\u00e9vue cette semaine.",
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      color: isDark
-                                          ? Colors.grey.shade500
-                                          : Colors.grey.shade400,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        )
-                      : ListView.builder(
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          key: ValueKey(filteredPlannings.length),
-                          padding: const EdgeInsets.only(
-                            left: 12,
-                            right: 12,
-                            top: 4,
-                            bottom: 16,
-                          ),
-                          itemCount: filteredPlannings.length,
-                          itemBuilder: (context, i) {
-                            final planning = filteredPlannings[i];
-                            final id = "${planning.team}_${planning.startTime}";
-                            final isExpanded = _expanded[id] ?? false;
-
-                            final subList =
-                                _allSubshifts
-                                    .where(
-                                      (s) =>
-                                          s.planningId == planning.id &&
-                                          s.end.isAfter(planning.startTime) &&
-                                          s.start.isBefore(planning.endTime),
-                                    )
-                                    .toList()
-                                  ..sort((a, b) => a.start.compareTo(b.start));
-
-                            final isAvailability = planning.id.startsWith(
-                              'availability_',
-                            );
-                            // Vérifier si l'utilisateur est en garde effective (non uniquement en niveau dispo)
-                            final guardAvailLevelIds = _onCallLevels
-                                .where((l) => l.isAvailability)
-                                .map((l) => l.id)
-                                .toSet();
-                            final userRealEntries = planning.agents
-                                .where((a) =>
-                                    a.agentId == _user.id &&
-                                    a.replacedAgentId == null &&
-                                    !guardAvailLevelIds.contains(a.levelId))
-                                .toList();
-                            final isOnGuard = userRealEntries.isNotEmpty;
-                            final isReplacedFully = _isUserReplacedEntirely(
-                              planning,
-                              _user.id,
-                            );
-
-                            Subshift? replacerSubshift;
-                            for (final s in subList) {
-                              if (s.replacerId == _user.id) {
-                                replacerSubshift = s;
-                                break;
-                              }
-                            }
-
-                            return AnimatedSize(
-                              duration: const Duration(milliseconds: 300),
-                              curve: Curves.easeInOut,
-                              alignment: Alignment.topCenter,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.center,
-                                children: [
-                                  FutureBuilder<List<Map<String, dynamic>>>(
-                                    future: _buildVehicleIconSpecs(
-                                      planning,
-                                    ),
-                                    builder: (context, snapshotIcons) {
-                                      final specs =
-                                          snapshotIcons.data ?? const [];
-                                      // Calculer le compteur d'agents depuis planning.agents
-                                      int? agentCountMin;
-                                      int? agentCountMax;
-                                      List<AgentCountIssue> agentCountIssues =
-                                          [];
-                                      final availLevelIds = _onCallLevels
-                                          .where((l) => l.isAvailability)
-                                          .map((l) => l.id)
-                                          .toSet();
-                                      if (_onCallLevels.isNotEmpty) {
-                                        final countResult =
-                                            OnCallDispositionService.computeAgentCount(
-                                              planning: planning,
-                                              availabilityLevelIds: availLevelIds,
-                                            );
-                                        agentCountMin = countResult.min;
-                                        agentCountMax = countResult.max;
-                                        agentCountIssues = countResult.issues;
-                                      }
-
-                                      // Le badge est vert si TOUS les agents (hors dispo) sont checkés
-                                      bool allChecked = false;
-                                      if (_onCallLevels.isNotEmpty) {
-                                        final checkableAgents = planning.agents
-                                            .where((a) => !availLevelIds.contains(a.levelId))
-                                            .toList();
-                                        allChecked = checkableAgents.isNotEmpty &&
-                                            checkableAgents.every((a) => a.checkedByChief);
-                                      } else {
-                                        allChecked =
-                                            subList.isNotEmpty &&
-                                            subList.every(
-                                              (s) => s.checkedByChief,
-                                            );
-                                      }
-
-                                      return PlanningCard(
-                                        planning: planning,
-                                        onTap: () => _toggleExpanded(id),
-                                        isExpanded: isExpanded,
-                                        replacementCount: subList.length,
-                                        pendingRequestCount:
-                                            _getPendingRequestCount(planning),
-                                        vehicleIconSpecs: specs,
-                                        availabilityColor: _userTeamColor,
-                                        allReplacementsChecked: allChecked,
-                                        agentCountMin: agentCountMin,
-                                        agentCountMax: agentCountMax,
-                                        agentCountIssues: agentCountIssues,
-                                      );
-                                    },
-                                  ),
-                                  // Expanded content
-                                  if (!isAvailability && isExpanded)
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 12.0,
+                Expanded(
+                  child: RefreshIndicator(
+                    color: KColors.appNameColor,
+                    onRefresh: _loadData,
+                    child: totalItems == 0
+                        ? ListView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            padding: const EdgeInsets.only(bottom: 16),
+                            children: [
+                              const SizedBox(height: 80),
+                              Center(
+                                child: Column(
+                                  children: [
+                                    Container(
+                                      width: 72,
+                                      height: 72,
+                                      decoration: BoxDecoration(
+                                        color: isDark
+                                            ? Colors.white.withValues(
+                                                alpha: 0.06,
+                                              )
+                                            : Colors.grey.shade50,
+                                        shape: BoxShape.circle,
                                       ),
-                                      child: Container(
-                                        width: double.infinity,
-                                        decoration: BoxDecoration(
-                                          color: isDark
-                                              ? Colors.white.withValues(
-                                                  alpha: 0.04,
-                                                )
-                                              : Colors.grey.shade50,
-                                          borderRadius: const BorderRadius.only(
-                                            bottomLeft: Radius.circular(16),
-                                            bottomRight: Radius.circular(16),
-                                          ),
-                                          border: Border.all(
+                                      child: Icon(
+                                        Icons.event_available_rounded,
+                                        size: 32,
+                                        color: isDark
+                                            ? Colors.grey.shade500
+                                            : Colors.grey.shade400,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    Text(
+                                      "Aucune astreinte",
+                                      style: TextStyle(
+                                        fontSize: 17,
+                                        fontWeight: FontWeight.w600,
+                                        color: isDark
+                                            ? Colors.grey.shade400
+                                            : Colors.grey.shade600,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      "Aucune astreinte pr\u00e9vue cette semaine.",
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: isDark
+                                            ? Colors.grey.shade500
+                                            : Colors.grey.shade400,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          )
+                        : ListView.builder(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            key: ValueKey(totalItems),
+                            padding: const EdgeInsets.only(
+                              left: 12,
+                              right: 12,
+                              top: 4,
+                              bottom: 16,
+                            ),
+                            itemCount: totalItems,
+                            itemBuilder: (context, i) {
+                              final item = mergedItems[i];
+                              // Team event
+                              if (item is TeamEvent) {
+                                final event = item;
+                                final eventId = 'event_${event.id}';
+                                final isEventExpanded =
+                                    _expandedEvents[eventId] ?? false;
+                                return _buildEventItem(
+                                    event, eventId, isEventExpanded);
+                              }
+                              final planning = item as Planning;
+                              final id =
+                                  "${planning.team}_${planning.startTime}";
+                              final isExpanded = _expanded[id] ?? false;
+
+                              final subList =
+                                  _allSubshifts
+                                      .where(
+                                        (s) =>
+                                            s.planningId == planning.id &&
+                                            s.end.isAfter(planning.startTime) &&
+                                            s.start.isBefore(planning.endTime),
+                                      )
+                                      .toList()
+                                    ..sort(
+                                      (a, b) => a.start.compareTo(b.start),
+                                    );
+
+                              final isAvailability = planning.id.startsWith(
+                                'availability_',
+                              );
+                              // Vérifier si l'utilisateur est en garde effective (non uniquement en niveau dispo)
+                              final guardAvailLevelIds = _onCallLevels
+                                  .where((l) => l.isAvailability)
+                                  .map((l) => l.id)
+                                  .toSet();
+                              final userRealEntries = planning.agents
+                                  .where(
+                                    (a) =>
+                                        a.agentId == _user.id &&
+                                        a.replacedAgentId == null &&
+                                        !guardAvailLevelIds.contains(a.levelId),
+                                  )
+                                  .toList();
+                              final isOnGuard = userRealEntries.isNotEmpty;
+                              final isReplacedFully = _isUserReplacedEntirely(
+                                planning,
+                                _user.id,
+                              );
+
+                              Subshift? replacerSubshift;
+                              for (final s in subList) {
+                                if (s.replacerId == _user.id) {
+                                  replacerSubshift = s;
+                                  break;
+                                }
+                              }
+
+                              return AnimatedSize(
+                                duration: const Duration(milliseconds: 300),
+                                curve: Curves.easeInOut,
+                                alignment: Alignment.topCenter,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    FutureBuilder<List<Map<String, dynamic>>>(
+                                      future: _buildVehicleIconSpecs(planning),
+                                      builder: (context, snapshotIcons) {
+                                        final specs =
+                                            snapshotIcons.data ?? const [];
+                                        // Calculer le compteur d'agents depuis planning.agents
+                                        int? agentCountMin;
+                                        int? agentCountMax;
+                                        List<AgentCountIssue> agentCountIssues =
+                                            [];
+                                        final availLevelIds = _onCallLevels
+                                            .where((l) => l.isAvailability)
+                                            .map((l) => l.id)
+                                            .toSet();
+                                        if (_onCallLevels.isNotEmpty) {
+                                          final countResult =
+                                              OnCallDispositionService.computeAgentCount(
+                                                planning: planning,
+                                                availabilityLevelIds:
+                                                    availLevelIds,
+                                              );
+                                          agentCountMin = countResult.min;
+                                          agentCountMax = countResult.max;
+                                          agentCountIssues = countResult.issues;
+                                        }
+
+                                        // Le badge est vert si TOUS les agents (hors dispo) sont checkés
+                                        bool allChecked = false;
+                                        if (_onCallLevels.isNotEmpty) {
+                                          final checkableAgents = planning
+                                              .agents
+                                              .where(
+                                                (a) => !availLevelIds.contains(
+                                                  a.levelId,
+                                                ),
+                                              )
+                                              .toList();
+                                          allChecked =
+                                              checkableAgents.isNotEmpty &&
+                                              checkableAgents.every(
+                                                (a) => a.checkedByChief,
+                                              );
+                                        } else {
+                                          allChecked =
+                                              subList.isNotEmpty &&
+                                              subList.every(
+                                                (s) => s.checkedByChief,
+                                              );
+                                        }
+
+                                        return PlanningCard(
+                                          planning: planning,
+                                          onTap: () => _toggleExpanded(id),
+                                          isExpanded: isExpanded,
+                                          replacementCount: subList.length,
+                                          pendingRequestCount:
+                                              _getPendingRequestCount(planning),
+                                          vehicleIconSpecs: specs,
+                                          availabilityColor: _userTeamColor,
+                                          allReplacementsChecked: allChecked,
+                                          agentCountMin: agentCountMin,
+                                          agentCountMax: agentCountMax,
+                                          agentCountIssues: agentCountIssues,
+                                        );
+                                      },
+                                    ),
+                                    // Expanded content
+                                    if (!isAvailability && isExpanded)
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 12.0,
+                                        ),
+                                        child: Container(
+                                          width: double.infinity,
+                                          decoration: BoxDecoration(
                                             color: isDark
                                                 ? Colors.white.withValues(
-                                                    alpha: 0.06,
+                                                    alpha: 0.04,
                                                   )
-                                                : Colors.grey.shade200,
+                                                : Colors.grey.shade50,
+                                            borderRadius:
+                                                const BorderRadius.only(
+                                                  bottomLeft: Radius.circular(
+                                                    16,
+                                                  ),
+                                                  bottomRight: Radius.circular(
+                                                    16,
+                                                  ),
+                                                ),
+                                            border: Border.all(
+                                              color: isDark
+                                                  ? Colors.white.withValues(
+                                                      alpha: 0.06,
+                                                    )
+                                                  : Colors.grey.shade200,
+                                            ),
+                                          ),
+                                          padding: const EdgeInsets.all(16),
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.center,
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              if (!isAvailability &&
+                                                  ((isOnGuard &&
+                                                          !isReplacedFully) ||
+                                                      replacerSubshift != null))
+                                                _AbsenceMenuButton(
+                                                  planning: planning,
+                                                  user: _user,
+                                                  replacerSubshift:
+                                                      replacerSubshift,
+                                                )
+                                              else if (!isAvailability &&
+                                                  stationView &&
+                                                  (!isOnGuard ||
+                                                      isReplacedFully) &&
+                                                  (_user.admin ||
+                                                      _user.status ==
+                                                          KConstants
+                                                              .statusLeader ||
+                                                      (_user.status ==
+                                                              KConstants
+                                                                  .statusChief &&
+                                                          _user.team
+                                                                  .toLowerCase() ==
+                                                              planning.team
+                                                                  .toLowerCase())))
+                                                _AdminReplaceButton(
+                                                  planning: planning,
+                                                  user: _user,
+                                                ),
+                                              const SizedBox(height: 12),
+                                              // Section présence par niveau d'astreinte
+                                              if (!isAvailability &&
+                                                  _station != null &&
+                                                  _onCallLevels.isNotEmpty)
+                                                OnCallPresenceSection(
+                                                  planning: planning,
+                                                  levels: _onCallLevels,
+                                                  station: _station!,
+                                                  allUsers: _allUsers,
+                                                  currentUser: _user,
+                                                  availabilities:
+                                                      _allAvailabilities
+                                                          .where(
+                                                            (a) =>
+                                                                a.planningId ==
+                                                                planning.id,
+                                                          )
+                                                          .toList(),
+                                                  canManage:
+                                                      _user.admin ||
+                                                      _user.status ==
+                                                          KConstants
+                                                              .statusLeader ||
+                                                      (_user.status ==
+                                                              KConstants
+                                                                  .statusChief &&
+                                                          _user.team
+                                                                  .toLowerCase() ==
+                                                              planning.team
+                                                                  .toLowerCase()),
+                                                  onToggleCheck: (entry) async {
+                                                    await _toggleAgentCheck(
+                                                      planning,
+                                                      entry,
+                                                    );
+                                                  },
+                                                  onRemoveEntry: (entry) async {
+                                                    await _removeEntryFromPlanning(
+                                                      planning,
+                                                      entry,
+                                                    );
+                                                  },
+                                                  onEditEntry: (entry) async {
+                                                    await _showEditPresenceDialog(
+                                                      planning,
+                                                      entry,
+                                                    );
+                                                  },
+                                                  onAddAgent: () =>
+                                                      _showAddAgentDialog(
+                                                        planning,
+                                                      ),
+                                                )
+                                              // Fallback si pas de niveaux configurés : afficher les remplacements classiques
+                                              else if (!isAvailability &&
+                                                  _onCallLevels.isEmpty)
+                                                ...subList.mapIndexed((
+                                                  index,
+                                                  s,
+                                                ) {
+                                                  final isFirst = index == 0;
+                                                  final isLast =
+                                                      index ==
+                                                      subList.length - 1;
+                                                  final canDelete =
+                                                      _user.id ==
+                                                          s.replacedId ||
+                                                      _user.admin ||
+                                                      _user.status ==
+                                                          KConstants
+                                                              .statusLeader ||
+                                                      ((_user.status ==
+                                                              KConstants
+                                                                  .statusChief) &&
+                                                          _user.team ==
+                                                              planning.team);
+                                                  final canSeeCheck =
+                                                      _user.admin ||
+                                                      _user.status ==
+                                                          KConstants
+                                                              .statusLeader ||
+                                                      ((_user.status ==
+                                                              KConstants
+                                                                  .statusChief) &&
+                                                          _user.team ==
+                                                              planning.team);
+                                                  final item = Padding(
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          vertical: 4.0,
+                                                        ),
+                                                    child: SubShiftItem(
+                                                      subShift: s,
+                                                      planning: planning,
+                                                      allUsers: _allUsers,
+                                                      noneUser: noneUser,
+                                                      isFirst: isFirst,
+                                                      isLast: isLast,
+                                                      highlight:
+                                                          s.replacerId ==
+                                                              _user.id ||
+                                                          s.replacedId ==
+                                                              _user.id,
+                                                      showCheckIcon:
+                                                          canSeeCheck,
+                                                      onCheckTap: canSeeCheck
+                                                          ? () async {
+                                                              // Fallback : toggle check sur le subshift directement
+                                                              final subRepo =
+                                                                  SubshiftRepository();
+                                                              final newChecked =
+                                                                  !s.checkedByChief;
+                                                              await subRepo.toggleCheck(
+                                                                s.id,
+                                                                checked:
+                                                                    newChecked,
+                                                                checkedBy:
+                                                                    _user.id,
+                                                                stationId: _user
+                                                                    .station,
+                                                              );
+                                                              if (!mounted)
+                                                                return;
+                                                              setState(() {
+                                                                final idx = _allSubshifts
+                                                                    .indexWhere(
+                                                                      (x) =>
+                                                                          x.id ==
+                                                                          s.id,
+                                                                    );
+                                                                if (idx != -1) {
+                                                                  _allSubshifts[idx] =
+                                                                      s.copyWith(
+                                                                        checkedByChief:
+                                                                            newChecked,
+                                                                      );
+                                                                }
+                                                              });
+                                                            }
+                                                          : null,
+                                                    ),
+                                                  );
+
+                                                  if (canDelete) {
+                                                    return Dismissible(
+                                                      key: ValueKey(s.id),
+                                                      direction:
+                                                          DismissDirection
+                                                              .endToStart,
+                                                      background: Container(
+                                                        alignment: Alignment
+                                                            .centerRight,
+                                                        padding:
+                                                            const EdgeInsets.symmetric(
+                                                              horizontal: 20,
+                                                            ),
+                                                        decoration: BoxDecoration(
+                                                          color: Colors
+                                                              .red
+                                                              .shade400,
+                                                          borderRadius:
+                                                              BorderRadius.circular(
+                                                                8,
+                                                              ),
+                                                        ),
+                                                        child: const Icon(
+                                                          Icons
+                                                              .delete_outline_rounded,
+                                                          color: Colors.white,
+                                                        ),
+                                                      ),
+                                                      confirmDismiss: (_) async {
+                                                        // Fallback : supprimer le subshift directement
+                                                        await SubshiftRepository()
+                                                            .delete(
+                                                              s.id,
+                                                              stationId:
+                                                                  _user.station,
+                                                            );
+                                                        if (mounted) {
+                                                          setState(() {
+                                                            _allSubshifts
+                                                                .removeWhere(
+                                                                  (x) =>
+                                                                      x.id ==
+                                                                      s.id,
+                                                                );
+                                                          });
+                                                        }
+                                                        return false;
+                                                      },
+                                                      child: item,
+                                                    );
+                                                  } else {
+                                                    return item;
+                                                  }
+                                                }),
+                                              ..._buildPendingRequestsSection(
+                                                planning,
+                                              ),
+                                            ],
                                           ),
                                         ),
-                                        padding: const EdgeInsets.all(16),
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.center,
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            if (!isAvailability &&
-                                                ((isOnGuard &&
-                                                        !isReplacedFully) ||
-                                                    replacerSubshift != null))
-                                              _AbsenceMenuButton(
-                                                planning: planning,
-                                                user: _user,
-                                                replacerSubshift:
-                                                    replacerSubshift,
-                                              )
-                                            else if (!isAvailability &&
-                                                stationView &&
-                                                (!isOnGuard ||
-                                                    isReplacedFully) &&
-                                                (_user.admin ||
-                                                    _user.status ==
-                                                        KConstants
-                                                            .statusLeader ||
-                                                    (_user.status ==
-                                                            KConstants
-                                                                .statusChief &&
-                                                        _user.team
-                                                                .toLowerCase() ==
-                                                            planning.team
-                                                                .toLowerCase())))
-                                              _AdminReplaceButton(
-                                                planning: planning,
-                                                user: _user,
-                                              ),
-                                            const SizedBox(height: 12),
-                                            // Section présence par niveau d'astreinte
-                                            if (!isAvailability &&
-                                                _station != null &&
-                                                _onCallLevels.isNotEmpty)
-                                              OnCallPresenceSection(
-                                                planning: planning,
-                                                levels: _onCallLevels,
-                                                station: _station!,
-                                                allUsers: _allUsers,
-                                                currentUser: _user,
-                                                availabilities: _allAvailabilities
-                                                    .where((a) => a.planningId == planning.id)
-                                                    .toList(),
-                                                canManage:
-                                                    _user.admin ||
-                                                    _user.status ==
-                                                        KConstants
-                                                            .statusLeader ||
-                                                    (_user.status ==
-                                                            KConstants
-                                                                .statusChief &&
-                                                        _user.team
-                                                                .toLowerCase() ==
-                                                            planning.team
-                                                                .toLowerCase()),
-                                                onToggleCheck: (entry) async {
-                                                  await _toggleAgentCheck(
-                                                    planning,
-                                                    entry,
-                                                  );
-                                                },
-                                                onRemoveEntry: (entry) async {
-                                                  await _removeEntryFromPlanning(
-                                                    planning,
-                                                    entry,
-                                                  );
-                                                },
-                                                onEditEntry: (entry) async {
-                                                  await _showEditPresenceDialog(
-                                                    planning,
-                                                    entry,
-                                                  );
-                                                },
-                                                onAddAgent: () =>
-                                                    _showAddAgentDialog(
-                                                      planning,
-                                                    ),
-                                              )
-                                            // Fallback si pas de niveaux configurés : afficher les remplacements classiques
-                                            else if (!isAvailability &&
-                                                _onCallLevels.isEmpty)
-                                              ...subList.mapIndexed((index, s) {
-                                                final isFirst = index == 0;
-                                                final isLast =
-                                                    index == subList.length - 1;
-                                                final canDelete =
-                                                    _user.id == s.replacedId ||
-                                                    _user.admin ||
-                                                    _user.status ==
-                                                        KConstants
-                                                            .statusLeader ||
-                                                    ((_user.status ==
-                                                            KConstants
-                                                                .statusChief) &&
-                                                        _user.team ==
-                                                            planning.team);
-                                                final canSeeCheck =
-                                                    _user.admin ||
-                                                    _user.status ==
-                                                        KConstants
-                                                            .statusLeader ||
-                                                    ((_user.status ==
-                                                            KConstants
-                                                                .statusChief) &&
-                                                        _user.team ==
-                                                            planning.team);
-                                                final item = Padding(
-                                                  padding:
-                                                      const EdgeInsets.symmetric(
-                                                        vertical: 4.0,
-                                                      ),
-                                                  child: SubShiftItem(
-                                                    subShift: s,
-                                                    planning: planning,
-                                                    allUsers: _allUsers,
-                                                    noneUser: noneUser,
-                                                    isFirst: isFirst,
-                                                    isLast: isLast,
-                                                    highlight:
-                                                        s.replacerId ==
-                                                            _user.id ||
-                                                        s.replacedId ==
-                                                            _user.id,
-                                                    showCheckIcon: canSeeCheck,
-                                                    onCheckTap: canSeeCheck
-                                                        ? () async {
-                                                            // Fallback : toggle check sur le subshift directement
-                                                            final subRepo =
-                                                                SubshiftRepository();
-                                                            final newChecked = !s
-                                                                .checkedByChief;
-                                                            await subRepo
-                                                                .toggleCheck(
-                                                                  s.id,
-                                                                  checked:
-                                                                      newChecked,
-                                                                  checkedBy:
-                                                                      _user.id,
-                                                                  stationId: _user
-                                                                      .station,
-                                                                );
-                                                            if (!mounted)
-                                                              return;
-                                                            setState(() {
-                                                              final idx =
-                                                                  _allSubshifts
-                                                                      .indexWhere(
-                                                                        (x) =>
-                                                                            x.id ==
-                                                                            s.id,
-                                                                      );
-                                                              if (idx != -1) {
-                                                                _allSubshifts[idx] =
-                                                                    s.copyWith(
-                                                                      checkedByChief:
-                                                                          newChecked,
-                                                                    );
-                                                              }
-                                                            });
-                                                          }
-                                                        : null,
-                                                  ),
-                                                );
-
-                                                if (canDelete) {
-                                                  return Dismissible(
-                                                    key: ValueKey(s.id),
-                                                    direction: DismissDirection
-                                                        .endToStart,
-                                                    background: Container(
-                                                      alignment:
-                                                          Alignment.centerRight,
-                                                      padding:
-                                                          const EdgeInsets.symmetric(
-                                                            horizontal: 20,
-                                                          ),
-                                                      decoration: BoxDecoration(
-                                                        color:
-                                                            Colors.red.shade400,
-                                                        borderRadius:
-                                                            BorderRadius.circular(
-                                                              8,
-                                                            ),
-                                                      ),
-                                                      child: const Icon(
-                                                        Icons
-                                                            .delete_outline_rounded,
-                                                        color: Colors.white,
-                                                      ),
-                                                    ),
-                                                    confirmDismiss: (_) async {
-                                                      // Fallback : supprimer le subshift directement
-                                                      await SubshiftRepository()
-                                                          .delete(
-                                                            s.id,
-                                                            stationId:
-                                                                _user.station,
-                                                          );
-                                                      if (mounted) {
-                                                        setState(() {
-                                                          _allSubshifts
-                                                              .removeWhere(
-                                                                (x) =>
-                                                                    x.id ==
-                                                                    s.id,
-                                                              );
-                                                        });
-                                                      }
-                                                      return false;
-                                                    },
-                                                    child: item,
-                                                  );
-                                                } else {
-                                                  return item;
-                                                }
-                                              }),
-                                            ..._buildPendingRequestsSection(
-                                              planning,
-                                            ),
-                                          ],
-                                        ),
                                       ),
-                                    ),
-                                  if (!isAvailability && isExpanded)
-                                    const SizedBox(height: 40),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
+                                    if (!isAvailability && isExpanded)
+                                      const SizedBox(height: 40),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                  ),
                 ),
-              ),
             ],
           );
         },
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // ÉVÉNEMENTS D'ÉQUIPE
+  // ─────────────────────────────────────────────────────────
+
+  Widget _buildEventItem(TeamEvent event, String eventId, bool isExpanded) {
+    return EventPlanningCard(
+      event: event,
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => TeamEventPage(event: event)),
       ),
     );
   }
@@ -3207,15 +3369,16 @@ class _HomePageState extends State<HomePage> {
             final id = "${planning.team}_${planning.startTime}";
             final isExpanded = _expanded[id] ?? false;
 
-            final subList = _allSubshifts
-                .where(
-                  (s) =>
-                      s.planningId == planning.id &&
-                      s.end.isAfter(planning.startTime) &&
-                      s.start.isBefore(planning.endTime),
-                )
-                .toList()
-              ..sort((a, b) => a.start.compareTo(b.start));
+            final subList =
+                _allSubshifts
+                    .where(
+                      (s) =>
+                          s.planningId == planning.id &&
+                          s.end.isAfter(planning.startTime) &&
+                          s.start.isBefore(planning.endTime),
+                    )
+                    .toList()
+                  ..sort((a, b) => a.start.compareTo(b.start));
 
             final isAvailability = planning.id.startsWith('availability_');
             final guardAvailLevelIds2 = _onCallLevels
@@ -3223,10 +3386,12 @@ class _HomePageState extends State<HomePage> {
                 .map((l) => l.id)
                 .toSet();
             final userRealEntries2 = planning.agents
-                .where((a) =>
-                    a.agentId == _user.id &&
-                    a.replacedAgentId == null &&
-                    !guardAvailLevelIds2.contains(a.levelId))
+                .where(
+                  (a) =>
+                      a.agentId == _user.id &&
+                      a.replacedAgentId == null &&
+                      !guardAvailLevelIds2.contains(a.levelId),
+                )
                 .toList();
             final isOnGuard = userRealEntries2.isNotEmpty;
             final isReplacedFully = _isUserReplacedEntirely(planning, _user.id);
@@ -3273,10 +3438,12 @@ class _HomePageState extends State<HomePage> {
                         final checkableAgents = planning.agents
                             .where((a) => !availLevelIds.contains(a.levelId))
                             .toList();
-                        allChecked = checkableAgents.isNotEmpty &&
+                        allChecked =
+                            checkableAgents.isNotEmpty &&
                             checkableAgents.every((a) => a.checkedByChief);
                       } else {
-                        allChecked = subList.isNotEmpty &&
+                        allChecked =
+                            subList.isNotEmpty &&
                             subList.every((s) => s.checkedByChief);
                       }
 
@@ -3354,7 +3521,8 @@ class _HomePageState extends State<HomePage> {
                                 availabilities: _allAvailabilities
                                     .where((a) => a.planningId == planning.id)
                                     .toList(),
-                                canManage: _user.admin ||
+                                canManage:
+                                    _user.admin ||
                                     _user.status == KConstants.statusLeader ||
                                     (_user.status == KConstants.statusChief &&
                                         _user.team.toLowerCase() ==
@@ -3364,32 +3532,38 @@ class _HomePageState extends State<HomePage> {
                                 },
                                 onRemoveEntry: (entry) async {
                                   await _removeEntryFromPlanning(
-                                      planning, entry);
+                                    planning,
+                                    entry,
+                                  );
                                 },
                                 onEditEntry: (entry) async {
                                   await _showEditPresenceDialog(
-                                      planning, entry);
+                                    planning,
+                                    entry,
+                                  );
                                 },
-                                onAddAgent: () =>
-                                    _showAddAgentDialog(planning),
+                                onAddAgent: () => _showAddAgentDialog(planning),
                               )
                             // Fallback si pas de niveaux configurés : afficher les remplacements classiques
                             else if (!isAvailability && _onCallLevels.isEmpty)
                               ...subList.mapIndexed((index, s) {
                                 final isFirst = index == 0;
                                 final isLast = index == subList.length - 1;
-                                final canDelete = _user.id == s.replacedId ||
+                                final canDelete =
+                                    _user.id == s.replacedId ||
                                     _user.admin ||
                                     _user.status == KConstants.statusLeader ||
                                     ((_user.status == KConstants.statusChief) &&
                                         _user.team == planning.team);
-                                final canSeeCheck = _user.admin ||
+                                final canSeeCheck =
+                                    _user.admin ||
                                     _user.status == KConstants.statusLeader ||
                                     ((_user.status == KConstants.statusChief) &&
                                         _user.team == planning.team);
                                 final item = Padding(
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 4.0),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 4.0,
+                                  ),
                                   child: SubShiftItem(
                                     subShift: s,
                                     planning: planning,
@@ -3397,12 +3571,14 @@ class _HomePageState extends State<HomePage> {
                                     noneUser: noneUser,
                                     isFirst: isFirst,
                                     isLast: isLast,
-                                    highlight: s.replacerId == _user.id ||
+                                    highlight:
+                                        s.replacerId == _user.id ||
                                         s.replacedId == _user.id,
                                     showCheckIcon: canSeeCheck,
                                     onCheckTap: canSeeCheck
                                         ? () async {
-                                            final subRepo = SubshiftRepository();
+                                            final subRepo =
+                                                SubshiftRepository();
                                             final newChecked =
                                                 !s.checkedByChief;
                                             await subRepo.toggleCheck(
@@ -3413,13 +3589,12 @@ class _HomePageState extends State<HomePage> {
                                             );
                                             if (!mounted) return;
                                             setState(() {
-                                              final idx =
-                                                  _allSubshifts.indexWhere(
-                                                (x) => x.id == s.id,
-                                              );
+                                              final idx = _allSubshifts
+                                                  .indexWhere(
+                                                    (x) => x.id == s.id,
+                                                  );
                                               if (idx != -1) {
-                                                _allSubshifts[idx] =
-                                                    s.copyWith(
+                                                _allSubshifts[idx] = s.copyWith(
                                                   checkedByChief: newChecked,
                                                 );
                                               }
@@ -3436,11 +3611,11 @@ class _HomePageState extends State<HomePage> {
                                     background: Container(
                                       alignment: Alignment.centerRight,
                                       padding: const EdgeInsets.symmetric(
-                                          horizontal: 20),
+                                        horizontal: 20,
+                                      ),
                                       decoration: BoxDecoration(
                                         color: Colors.red.shade400,
-                                        borderRadius:
-                                            BorderRadius.circular(8),
+                                        borderRadius: BorderRadius.circular(8),
                                       ),
                                       child: const Icon(
                                         Icons.delete_outline_rounded,
@@ -3455,7 +3630,8 @@ class _HomePageState extends State<HomePage> {
                                       if (mounted) {
                                         setState(() {
                                           _allSubshifts.removeWhere(
-                                              (x) => x.id == s.id);
+                                            (x) => x.id == s.id,
+                                          );
                                         });
                                       }
                                       return false;
@@ -3471,8 +3647,7 @@ class _HomePageState extends State<HomePage> {
                         ),
                       ),
                     ),
-                  if (!isAvailability && isExpanded)
-                    const SizedBox(height: 40),
+                  if (!isAvailability && isExpanded) const SizedBox(height: 40),
                 ],
               ),
             );
@@ -3481,7 +3656,6 @@ class _HomePageState extends State<HomePage> {
       ),
     );
   }
-
 }
 
 /// Widget pour le bouton "Je souhaite m'absenter" avec menu déroulant
@@ -3631,8 +3805,9 @@ class _AdminReplaceButtonState extends State<_AdminReplaceButton>
                 opacity: _animation,
                 child: ScaleTransition(
                   scale: _animation,
-                  alignment:
-                      fitsBelow ? Alignment.topCenter : Alignment.bottomCenter,
+                  alignment: fitsBelow
+                      ? Alignment.topCenter
+                      : Alignment.bottomCenter,
                   child: Material(
                     elevation: 8,
                     borderRadius: BorderRadius.circular(12),
@@ -3659,48 +3834,51 @@ class _AdminReplaceButtonState extends State<_AdminReplaceButton>
   @override
   Widget build(BuildContext context) {
     return Container(
-        width: double.infinity,
-        height: 44,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Colors.deepPurple, Colors.deepPurple.shade400],
-          ),
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.deepPurple.withValues(alpha: 0.3),
-              blurRadius: 8,
-              offset: const Offset(0, 3),
-            ),
+      width: double.infinity,
+      height: 44,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            KColors.appNameColor,
+            KColors.appNameColor.withValues(alpha: 0.85),
           ],
         ),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: _toggleMenu,
-            borderRadius: BorderRadius.circular(12),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(
-                  Icons.admin_panel_settings_rounded,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: KColors.appNameColor.withValues(alpha: 0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: _toggleMenu,
+          borderRadius: BorderRadius.circular(12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.admin_panel_settings_rounded,
+                color: Colors.white,
+                size: 20,
+              ),
+              const SizedBox(width: 10),
+              const Text(
+                "Faire remplacer un agent",
+                style: TextStyle(
                   color: Colors.white,
-                  size: 20,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: -0.2,
                 ),
-                const SizedBox(width: 10),
-                const Text(
-                  "Faire remplacer un agent",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: -0.2,
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
+      ),
     );
   }
 }
@@ -3713,6 +3891,7 @@ extension IndexedMap<E> on Iterable<E> {
     }
   }
 }
+
 
 /// Créneau horaire éditable dans le dialog de modification de présence.
 class _EditSlot {

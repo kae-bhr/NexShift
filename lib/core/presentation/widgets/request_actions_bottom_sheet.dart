@@ -170,6 +170,8 @@ class RequestActionsBottomSheet extends StatelessWidget {
         return Icons.swap_horiz;
       case UnifiedRequestType.agentQuery:
         return Icons.manage_search_rounded;
+      case UnifiedRequestType.teamEvent:
+        return Icons.event_rounded;
     }
   }
 
@@ -185,6 +187,8 @@ class RequestActionsBottomSheet extends StatelessWidget {
       case UnifiedRequestType.exchange:
       case UnifiedRequestType.agentQuery:
         return Colors.teal;
+      case UnifiedRequestType.teamEvent:
+        return const Color.fromARGB(255, 144, 74, 68);
     }
   }
 

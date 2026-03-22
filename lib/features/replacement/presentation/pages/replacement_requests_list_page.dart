@@ -28,6 +28,9 @@ import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:nexshift_app/core/config/environment_config.dart';
 import 'package:nexshift_app/core/services/shift_exchange_service.dart';
 import 'package:nexshift_app/core/services/badge_count_service.dart';
+import 'package:nexshift_app/core/data/models/team_event_model.dart';
+import 'package:nexshift_app/core/repositories/team_event_repository.dart';
+import 'package:nexshift_app/features/team_events/presentation/widgets/team_event_tile_wrapper.dart';
 import 'package:nexshift_app/core/presentation/widgets/request_actions_bottom_sheet.dart';
 import 'package:nexshift_app/core/presentation/widgets/notified_agents_sheet.dart';
 import 'package:nexshift_app/core/presentation/widgets/availability_picker_section.dart';
@@ -56,9 +59,11 @@ class _ReplacementRequestsListPageState
   String? _currentStationId;
   User? _currentUser;
   DateTime _selectedDate = DateTime.now();
+  DateTime _selectedEventDate = DateTime.now();
   TabController? _mainTabController;
   TabController? _replacementSubTabController;
   TabController? _agentQuerySubTabController;
+  TabController? _eventSubTabController;
   bool _isChief = false;
   final _agentQueryService = AgentQueryService();
 
@@ -73,6 +78,7 @@ class _ReplacementRequestsListPageState
     _mainTabController?.dispose();
     _replacementSubTabController?.dispose();
     _agentQuerySubTabController?.dispose();
+    _eventSubTabController?.dispose();
     super.dispose();
   }
 
@@ -90,10 +96,14 @@ class _ReplacementRequestsListPageState
         _currentUser = user;
         _isChief = user.status == 'chief' || user.status == 'leader';
         // Initialiser les TabControllers
-        _mainTabController = TabController(length: 3, vsync: this);
+        _mainTabController = TabController(length: 4, vsync: this);
         _replacementSubTabController = TabController(length: 4, vsync: this);
         _agentQuerySubTabController = TabController(length: 3, vsync: this);
+        _eventSubTabController = TabController(length: 2, vsync: this);
       });
+
+      // Réparer les éventuels documents corrompus (startTime/endTime en String)
+      TeamEventRepository().repairCorruptedDocuments(stationId: user.station);
     }
   }
 
@@ -189,12 +199,30 @@ class _ReplacementRequestsListPageState
     }
   }
 
+  Future<void> _selectEventMonthYear() async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedEventDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2030),
+      locale: const Locale('fr', 'FR'),
+      helpText: 'Sélectionner un mois',
+    );
+
+    if (picked != null && mounted) {
+      setState(() {
+        _selectedEventDate = DateTime(picked.year, picked.month, 1);
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_currentUserId == null ||
         _mainTabController == null ||
         _replacementSubTabController == null ||
-        _agentQuerySubTabController == null) {
+        _agentQuerySubTabController == null ||
+        _eventSubTabController == null) {
       return Scaffold(
         appBar: CustomAppBar(
           title: 'Demandes de remplacement',
@@ -209,7 +237,7 @@ class _ReplacementRequestsListPageState
         title: 'Demandes de remplacement',
         bottomColor: KColors.appNameColor,
         bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(kToolbarHeight),
+          preferredSize: const Size.fromHeight(48),
           child: _buildMainTabBar(),
         ),
       ),
@@ -219,6 +247,7 @@ class _ReplacementRequestsListPageState
           _buildReplacementsContent(),
           _buildExchangesContent(),
           _buildAgentQueriesContent(),
+          _buildTeamEventsContent(),
         ],
       ),
     );
@@ -226,155 +255,38 @@ class _ReplacementRequestsListPageState
 
   Widget _buildMainTabBar() {
     final badgeService = BadgeCountService();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final tabColor = isDark ? Colors.white : KColors.appNameColor;
 
-    return ValueListenableBuilder<bool>(
-      valueListenable: badgeService.hasReplacementPending,
-      builder: (context, hasReplacementPending, _) {
-        return ValueListenableBuilder<bool>(
-          valueListenable: badgeService.hasReplacementValidation,
-          builder: (context, hasReplacementValidation, _) {
-            return ValueListenableBuilder<bool>(
-              valueListenable: badgeService.hasExchangePending,
-              builder: (context, hasExchangePending, _) {
-                return ValueListenableBuilder<bool>(
-                  valueListenable: badgeService.hasExchangeValidation,
-                  builder: (context, hasExchangeValidation, _) {
-                    return ValueListenableBuilder<bool>(
-                      valueListenable: badgeService.hasExchangeNeedingSelection,
-                      builder: (context, hasExchangeNeedingSelection, _) {
-                        return ValueListenableBuilder<bool>(
-                          valueListenable: badgeService.hasAgentQueryPending,
-                          builder: (context, hasAgentQueryPending, _) {
-                            final isDark =
-                                Theme.of(context).brightness == Brightness.dark;
-                            final tabColor = isDark
-                                ? Colors.white
-                                : KColors.appNameColor;
-                            return TabBar(
-                              controller: _mainTabController,
-                              labelColor: tabColor,
-                              unselectedLabelColor: tabColor.withValues(
-                                alpha: 0.7,
-                              ),
-                              indicatorColor: tabColor,
-                              tabs: [
-                                Tab(
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.max,
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      const Flexible(
-                                        child: Text(
-                                          'Remplacements',
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      if (hasReplacementPending ||
-                                          hasReplacementValidation) ...[
-                                        const SizedBox(width: 8),
-                                        if (hasReplacementPending)
-                                          Container(
-                                            width: 12,
-                                            height: 12,
-                                            decoration: BoxDecoration(
-                                              color: KColors.appNameColor,
-                                              shape: BoxShape.circle,
-                                            ),
-                                          ),
-                                        if (hasReplacementPending &&
-                                            hasReplacementValidation)
-                                          const SizedBox(width: 6),
-                                        if (hasReplacementValidation)
-                                          Container(
-                                            width: 12,
-                                            height: 12,
-                                            decoration: const BoxDecoration(
-                                              color: Colors.purple,
-                                              shape: BoxShape.circle,
-                                            ),
-                                          ),
-                                      ],
-                                    ],
-                                  ),
-                                ),
-                                Tab(
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.max,
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      const Flexible(
-                                        child: Text(
-                                          'Échanges',
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      if (hasExchangePending ||
-                                          hasExchangeNeedingSelection ||
-                                          hasExchangeValidation) ...[
-                                        const SizedBox(width: 8),
-                                        if (hasExchangePending ||
-                                            hasExchangeNeedingSelection)
-                                          Container(
-                                            width: 12,
-                                            height: 12,
-                                            decoration: BoxDecoration(
-                                              color: KColors.appNameColor,
-                                              shape: BoxShape.circle,
-                                            ),
-                                          ),
-                                        if ((hasExchangePending ||
-                                                hasExchangeNeedingSelection) &&
-                                            hasExchangeValidation)
-                                          const SizedBox(width: 6),
-                                        if (hasExchangeValidation)
-                                          Container(
-                                            width: 12,
-                                            height: 12,
-                                            decoration: const BoxDecoration(
-                                              color: Colors.blue,
-                                              shape: BoxShape.circle,
-                                            ),
-                                          ),
-                                      ],
-                                    ],
-                                  ),
-                                ),
-                                Tab(
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.max,
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      const Flexible(
-                                        child: Text(
-                                          'Recherches',
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      if (hasAgentQueryPending) ...[
-                                        const SizedBox(width: 8),
-                                        Container(
-                                          width: 12,
-                                          height: 12,
-                                          decoration: BoxDecoration(
-                                            color: KColors.appNameColor,
-                                            shape: BoxShape.circle,
-                                          ),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            );
-                          },
-                        );
-                      },
-                    );
-                  },
-                );
-              },
-            );
-          },
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        badgeService.hasReplacementPending,
+        badgeService.hasReplacementValidation,
+        badgeService.hasExchangePending,
+        badgeService.hasExchangeNeedingSelection,
+        badgeService.hasExchangeValidation,
+        badgeService.hasAgentQueryPending,
+        badgeService.hasTeamEventPending,
+      ]),
+      builder: (context, _) {
+        final hasBadge1 = badgeService.hasReplacementPending.value ||
+            badgeService.hasReplacementValidation.value;
+        final hasBadge2 = badgeService.hasExchangePending.value ||
+            badgeService.hasExchangeNeedingSelection.value ||
+            badgeService.hasExchangeValidation.value;
+        final hasBadge3 = badgeService.hasAgentQueryPending.value;
+        final hasBadge4 = badgeService.hasTeamEventPending.value;
+
+        return _ExpandingTabBar(
+          controller: _mainTabController!,
+          color: tabColor,
+          tabs: const [
+            _TabConfig(label: 'Remplacements', icon: Icons.refresh_rounded),
+            _TabConfig(label: 'Échanges', icon: Icons.swap_horiz_rounded),
+            _TabConfig(label: 'Recherches', icon: Icons.search_rounded),
+            _TabConfig(label: 'Événements', icon: Icons.event_rounded),
+          ],
+          badges: [hasBadge1, hasBadge2, hasBadge3, hasBadge4],
         );
       },
     );
@@ -384,15 +296,14 @@ class _ReplacementRequestsListPageState
     if (_currentUserId == null || _currentStationId == null) {
       return Column(
         children: [
-          IconTabBar(
+          ExpandingSubTabBar(
             controller: _replacementSubTabController!,
-            tabs: replacementSubTabs,
+            tabs: replacementSubTabs.map((t) => ExpandingSubTabItem(
+              icon: t.icon, label: t.label)).toList(),
             selectedColor: Theme.of(context).brightness == Brightness.dark
-                ? Colors.white
-                : KColors.appNameColor,
+                ? Colors.white : KColors.appNameColor,
             unselectedColor: Theme.of(context).brightness == Brightness.dark
-                ? Colors.white70
-                : KColors.appNameColor.withValues(alpha: 0.7),
+                ? Colors.white70 : KColors.appNameColor.withValues(alpha: 0.7),
           ),
           Expanded(child: Container()),
         ],
@@ -414,27 +325,16 @@ class _ReplacementRequestsListPageState
                 return Column(
                   children: [
                     // Sous-onglets avec icônes et badges
-                    IconTabBar(
+                    ExpandingSubTabBar(
                       controller: _replacementSubTabController!,
-                      tabs: replacementSubTabs,
-                      selectedColor:
-                          Theme.of(context).brightness == Brightness.dark
-                          ? Colors.white
-                          : KColors.appNameColor,
-                      unselectedColor:
-                          Theme.of(context).brightness == Brightness.dark
-                          ? Colors.white70
-                          : KColors.appNameColor.withValues(alpha: 0.7),
-                      badgeCounts: {
-                        ReplacementSubTab.pending: pendingCount,
-                        ReplacementSubTab.myRequests: myRequestsCount,
-                        ReplacementSubTab.toValidate: validationCount,
-                      },
-                      badgeColors: {
-                        ReplacementSubTab.pending: KColors.appNameColor,
-                        ReplacementSubTab.myRequests: KColors.appNameColor,
-                        ReplacementSubTab.toValidate: Colors.blue,
-                      },
+                      tabs: [
+                        ExpandingSubTabItem(icon: replacementSubTabs[0].icon, label: replacementSubTabs[0].label, badgeCount: pendingCount, badgeColor: KColors.appNameColor),
+                        ExpandingSubTabItem(icon: replacementSubTabs[1].icon, label: replacementSubTabs[1].label, badgeCount: myRequestsCount, badgeColor: KColors.appNameColor),
+                        ExpandingSubTabItem(icon: replacementSubTabs[2].icon, label: replacementSubTabs[2].label, badgeCount: validationCount, badgeColor: Colors.blue),
+                        ExpandingSubTabItem(icon: replacementSubTabs[3].icon, label: replacementSubTabs[3].label),
+                      ],
+                      selectedColor: Theme.of(context).brightness == Brightness.dark ? Colors.white : KColors.appNameColor,
+                      unselectedColor: Theme.of(context).brightness == Brightness.dark ? Colors.white70 : KColors.appNameColor.withValues(alpha: 0.7),
                     ),
                     // Contenu des sous-onglets
                     Expanded(
@@ -567,6 +467,196 @@ class _ReplacementRequestsListPageState
   }
 
   // ============================================================
+  // ONGLET ÉVÉNEMENTS
+  // ============================================================
+
+  Widget _buildTeamEventsContent() {
+    if (_currentUserId == null || _currentStationId == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final selectedColor = isDark ? Colors.white : KColors.appNameColor;
+    final unselectedColor = isDark
+        ? Colors.white70
+        : KColors.appNameColor.withValues(alpha: 0.6);
+
+    return Column(
+      children: [
+        ExpandingSubTabBar(
+          controller: _eventSubTabController!,
+          tabs: const [
+            ExpandingSubTabItem(icon: Icons.event_available_rounded, label: 'À venir'),
+            ExpandingSubTabItem(icon: Icons.history_rounded, label: 'Historique'),
+          ],
+          selectedColor: selectedColor,
+          unselectedColor: unselectedColor,
+        ),
+        Expanded(
+          child: TabBarView(
+            controller: _eventSubTabController,
+            children: [
+              _buildEventTab(upcoming: true),
+              _buildEventTab(upcoming: false),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEventTab({required bool upcoming}) {
+    if (!upcoming) return _buildEventHistoryTab();
+
+    return StreamBuilder<List<TeamEvent>>(
+      stream: TeamEventRepository().watchAll(stationId: _currentStationId!),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final now = DateTime.now();
+        final all = snapshot.data ?? [];
+        final isAdminOrLeader = _currentUser?.admin == true ||
+            _currentUser?.status == KConstants.statusLeader;
+        final events = all.where((e) {
+          if (e.status != TeamEventStatus.upcoming || !e.endTime.isAfter(now)) {
+            return false;
+          }
+          if (isAdminOrLeader) return true;
+          final uid = _currentUserId;
+          return e.createdById == uid ||
+              e.invitedUserIds.contains(uid) ||
+              e.acceptedUserIds.contains(uid) ||
+              e.declinedUserIds.contains(uid);
+        }).toList()
+          ..sort((a, b) => a.startTime.compareTo(b.startTime));
+
+        if (events.isEmpty) {
+          return const AppEmptyState(
+            icon: Icons.event_rounded,
+            headline: 'Aucun événement à venir',
+            subtitle: 'Les événements créés par votre caserne apparaîtront ici.',
+          );
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          itemCount: events.length,
+          itemBuilder: (_, i) => TeamEventTileWrapper(
+            event: events[i],
+            currentUserId: _currentUserId,
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildEventHistoryTab() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Column(
+      children: [
+        // Navigateur mensuel
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+          decoration: BoxDecoration(
+            color: isDark
+                ? KColors.appNameColor.withValues(alpha: 0.12)
+                : KColors.appNameColor.withValues(alpha: 0.06),
+            border: Border(
+              bottom: BorderSide(
+                color: KColors.appNameColor.withValues(alpha: 0.2),
+                width: 1,
+              ),
+            ),
+          ),
+          child: Row(
+            children: [
+              IconButton(
+                icon: Icon(Icons.chevron_left_rounded, color: KColors.appNameColor),
+                onPressed: () => setState(() {
+                  _selectedEventDate = DateTime(
+                    _selectedEventDate.year,
+                    _selectedEventDate.month - 1,
+                  );
+                }),
+                tooltip: 'Mois précédent',
+              ),
+              Expanded(
+                child: GestureDetector(
+                  onTap: _selectEventMonthYear,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.calendar_month_rounded,
+                          size: 16, color: KColors.appNameColor),
+                      const SizedBox(width: 6),
+                      Text(
+                        _formatMonthYear(_selectedEventDate),
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: KColors.appNameColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: Icon(Icons.chevron_right_rounded, color: KColors.appNameColor),
+                onPressed: () => setState(() {
+                  _selectedEventDate = DateTime(
+                    _selectedEventDate.year,
+                    _selectedEventDate.month + 1,
+                  );
+                }),
+                tooltip: 'Mois suivant',
+              ),
+            ],
+          ),
+        ),
+        // Liste filtrée par mois
+        Expanded(
+          child: StreamBuilder<List<TeamEvent>>(
+            stream: TeamEventRepository().watchAll(stationId: _currentStationId!),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final now = DateTime.now();
+              final all = snapshot.data ?? [];
+              final events = all
+                  .where((e) =>
+                      (e.status == TeamEventStatus.cancelled ||
+                          e.endTime.isBefore(now)) &&
+                      e.startTime.year == _selectedEventDate.year &&
+                      e.startTime.month == _selectedEventDate.month)
+                  .toList()
+                ..sort((a, b) => b.startTime.compareTo(a.startTime));
+
+              if (events.isEmpty) {
+                return const AppEmptyState(
+                  icon: Icons.event_rounded,
+                  headline: 'Aucun événement ce mois',
+                  subtitle: 'Les événements passés ou annulés apparaîtront ici.',
+                );
+              }
+
+              return ListView.builder(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                itemCount: events.length,
+                itemBuilder: (_, i) => TeamEventTileWrapper(
+                  event: events[i],
+                  currentUserId: _currentUserId,
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ============================================================
   // ONGLET RECHERCHES (AgentQuery)
   // ============================================================
 
@@ -582,9 +672,10 @@ class _ReplacementRequestsListPageState
     if (_currentUserId == null || _currentStationId == null) {
       return Column(
         children: [
-          AgentQueryIconTabBar(
+          ExpandingSubTabBar(
             controller: _agentQuerySubTabController!,
-            tabs: agentQuerySubTabs,
+            tabs: agentQuerySubTabs.map((t) => ExpandingSubTabItem(
+              icon: t.icon, label: t.label)).toList(),
             selectedColor: agentQuerySelectedColor,
             unselectedColor: agentQueryUnselectedColor,
           ),
@@ -603,19 +694,15 @@ class _ReplacementRequestsListPageState
           builder: (context, myRequestsCount, _) {
             return Column(
               children: [
-                AgentQueryIconTabBar(
+                ExpandingSubTabBar(
                   controller: _agentQuerySubTabController!,
-                  tabs: agentQuerySubTabs,
+                  tabs: [
+                    ExpandingSubTabItem(icon: agentQuerySubTabs[0].icon, label: agentQuerySubTabs[0].label, badgeCount: pendingCount, badgeColor: KColors.appNameColor),
+                    ExpandingSubTabItem(icon: agentQuerySubTabs[1].icon, label: agentQuerySubTabs[1].label, badgeCount: myRequestsCount, badgeColor: KColors.appNameColor),
+                    ExpandingSubTabItem(icon: agentQuerySubTabs[2].icon, label: agentQuerySubTabs[2].label),
+                  ],
                   selectedColor: agentQuerySelectedColor,
                   unselectedColor: agentQueryUnselectedColor,
-                  badgeCounts: {
-                    AgentQuerySubTab.pending: pendingCount,
-                    AgentQuerySubTab.myRequests: myRequestsCount,
-                  },
-                  badgeColors: {
-                    AgentQuerySubTab.pending: KColors.appNameColor,
-                    AgentQuerySubTab.myRequests: KColors.appNameColor,
-                  },
                 ),
                 Expanded(
                   child: TabBarView(
@@ -864,9 +951,11 @@ class _ReplacementRequestsListPageState
         // Agents couvrant TOTALEMENT la période de la query (start ≤ query.start ET end ≥ query.end)
         planningAgentIds = planning.agents
             .where((a) => a.replacedAgentId == null)
-            .where((a) =>
-                !a.start.isAfter(query.startTime) &&
-                !a.end.isBefore(query.endTime))
+            .where(
+              (a) =>
+                  !a.start.isAfter(query.startTime) &&
+                  !a.end.isBefore(query.endTime),
+            )
             .map((a) => a.agentId)
             .toSet()
             .toList();
@@ -2822,7 +2911,8 @@ class _ReplacementRequestsListPageState
         if (rawAgents != null) {
           for (final raw in rawAgents) {
             final map = raw as Map<String, dynamic>;
-            if (map['replacedAgentId'] != null) continue; // exclure les remplaçants
+            if (map['replacedAgentId'] != null)
+              continue; // exclure les remplaçants
             final agentId = map['agentId'] as String?;
             if (agentId == null) continue;
             final agentStart = (map['start'] as Timestamp).toDate();
@@ -3982,8 +4072,9 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
                                           widget.request.waveUserIds[wave];
                                       final isNotified = waveSpecificIds != null
                                           ? waveSpecificIds.contains(user.id)
-                                          : widget.notifiedUserIds
-                                              .contains(user.id);
+                                          : widget.notifiedUserIds.contains(
+                                              user.id,
+                                            );
                                       final hasDeclined = _declinedUserIds
                                           .contains(user.id);
                                       final hasSeen = widget
@@ -4228,6 +4319,154 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
             })
             .toList(),
       ),
+    );
+  }
+}
+
+// ============================================================
+// EXPANDING TAB BAR — onglet actif étendu (icône + label),
+// onglets inactifs rétractés (icône seule)
+// ============================================================
+
+class _TabConfig {
+  final String label;
+  final IconData icon;
+  const _TabConfig({required this.label, required this.icon});
+}
+
+class _ExpandingTabBar extends StatefulWidget {
+  final TabController controller;
+  final List<_TabConfig> tabs;
+  final List<bool> badges;
+  final Color color;
+
+  const _ExpandingTabBar({
+    required this.controller,
+    required this.tabs,
+    required this.badges,
+    required this.color,
+  });
+
+  @override
+  State<_ExpandingTabBar> createState() => _ExpandingTabBarState();
+}
+
+class _ExpandingTabBarState extends State<_ExpandingTabBar> {
+  // Pas de _selectedIndex : on lit controller.animation pour suivre le swipe.
+
+  @override
+  Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final n = widget.tabs.length;
+    const collapsedRatio = 1.0;
+    const expandedRatio = 3.0;
+
+    return AnimatedBuilder(
+      animation: widget.controller.animation!,
+      builder: (context, _) {
+        final animValue = widget.controller.animation!.value;
+        final fractions = List.generate(n, (i) =>
+          (1.0 - (animValue - i).abs()).clamp(0.0, 1.0));
+        final widths = fractions.map((f) =>
+          collapsedRatio + f * (expandedRatio - collapsedRatio)).toList();
+        final totalParts = widths.fold(0.0, (a, b) => a + b);
+
+        return SizedBox(
+          width: screenWidth,
+          height: 48,
+          child: Column(
+            children: [
+              Expanded(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: List.generate(n, (i) {
+                    final cfg = widget.tabs[i];
+                    final fraction = fractions[i];
+                    final tabWidth = (widths[i] / totalParts) * screenWidth;
+                    final color = Color.lerp(
+                      widget.color.withValues(alpha: 0.55),
+                      widget.color,
+                      fraction,
+                    )!;
+
+                    return SizedBox(
+                      width: tabWidth,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => widget.controller.animateTo(i),
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          alignment: Alignment.center,
+                          children: [
+                            Positioned(
+                              bottom: 0,
+                              left: 6,
+                              right: 6,
+                              child: Container(
+                                height: 2.5,
+                                decoration: BoxDecoration(
+                                  color: widget.color.withValues(alpha: fraction),
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
+                              ),
+                            ),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(cfg.icon, size: 20, color: color),
+                                ClipRect(
+                                  child: Align(
+                                    alignment: Alignment.centerLeft,
+                                    widthFactor: fraction,
+                                    child: Opacity(
+                                      opacity: fraction,
+                                      child: Padding(
+                                        padding: const EdgeInsets.only(left: 6),
+                                        child: Text(
+                                          cfg.label,
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w600,
+                                            color: widget.color,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.clip,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (widget.badges[i])
+                              Positioned(
+                                top: 8,
+                                right: 8,
+                                child: Container(
+                                  width: 7,
+                                  height: 7,
+                                  decoration: BoxDecoration(
+                                    color: widget.color,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }),
+                ),
+              ),
+              Container(
+                height: 1.5,
+                color: widget.color.withValues(alpha: 0.15),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

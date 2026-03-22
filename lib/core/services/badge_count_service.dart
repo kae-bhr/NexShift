@@ -24,6 +24,13 @@ class BadgeCountService {
   /// Nombre de demandes de remplacement à valider (pour les chefs)
   final ValueNotifier<int> replacementToValidateCount = ValueNotifier(0);
 
+  // === COMPTEURS ÉVÉNEMENTS D'ÉQUIPE ===
+  /// Nombre d'événements en attente de réponse (invité, pas encore accepté/décliné)
+  final ValueNotifier<int> teamEventPendingCount = ValueNotifier(0);
+
+  /// True si au moins un événement attend une réponse
+  final ValueNotifier<bool> hasTeamEventPending = ValueNotifier(false);
+
   // === COMPTEURS RECHERCHES D'AGENT (AgentQuery) ===
   /// Nombre de recherches en attente nécessitant une action (notifié, pas encore répondu)
   final ValueNotifier<int> agentQueryPendingCount = ValueNotifier(0);
@@ -67,6 +74,7 @@ class BadgeCountService {
   StreamSubscription? _replacementSubscription;
   StreamSubscription? _manualProposalsSubscription;
   StreamSubscription? _agentQuerySubscription;
+  StreamSubscription? _teamEventSubscription;
   StreamSubscription? _exchangeRequestsSubscription;
   StreamSubscription? _exchangeProposalsSubscription;
   StreamSubscription? _myExchangeRequestsSubscription;
@@ -104,6 +112,7 @@ class BadgeCountService {
     _subscribeToReplacements();
     _subscribeToManualProposals();
     _subscribeToAgentQueries();
+    _subscribeToTeamEvents();
     _subscribeToExchanges();
     _subscribeToValidations();
   }
@@ -133,6 +142,11 @@ class BadgeCountService {
   /// Retourne le chemin Firestore pour les propositions d'échange.
   String _getExchangeProposalsPath() {
     return EnvironmentConfig.getCollectionPath('replacements/exchange/shiftExchangeProposals', _currentStationId);
+  }
+
+  /// Retourne le chemin Firestore pour les événements d'équipe.
+  String _getTeamEventsPath() {
+    return EnvironmentConfig.getCollectionPath('teamEvents', _currentStationId);
   }
 
   /// Retourne le chemin Firestore pour les recherches automatiques d'agent.
@@ -389,6 +403,57 @@ class BadgeCountService {
     hasAgentQueryPending.value = pending > 0;
 
     debugPrint('🔔 [BadgeCountService] AgentQuery counts: pending=$pending, myRequests=$myRequests');
+  }
+
+  // ============================================================
+  // ÉVÉNEMENTS D'ÉQUIPE
+  // ============================================================
+
+  void _subscribeToTeamEvents() {
+    final path = _getTeamEventsPath();
+    debugPrint('🔔 [BadgeCountService] Subscribing to teamEvents at: $path');
+
+    _teamEventSubscription = FirebaseFirestore.instance
+        .collection(path)
+        .where('status', isEqualTo: 'upcoming')
+        .snapshots()
+        .listen(
+          _updateTeamEventCounts,
+          onError: (e) => debugPrint('🔔 [BadgeCountService] TeamEvent stream error: $e'),
+        );
+  }
+
+  void _updateTeamEventCounts(QuerySnapshot snapshot) {
+    if (_currentUserId == null) return;
+    final now = DateTime.now();
+    int pending = 0;
+
+    for (final doc in snapshot.docs) {
+      try {
+        final data = doc.data() as Map<String, dynamic>;
+        final endRaw = data['endTime'];
+        final endTime = endRaw is Timestamp ? endRaw.toDate() : null;
+        if (endTime == null || endTime.isBefore(now)) continue;
+
+        final invitedUserIds = List<String>.from(data['invitedUserIds'] ?? []);
+        final acceptedUserIds = List<String>.from(data['acceptedUserIds'] ?? []);
+        final declinedUserIds = List<String>.from(data['declinedUserIds'] ?? []);
+        final createdById = data['createdById'] as String?;
+
+        if (createdById != _currentUserId &&
+            invitedUserIds.contains(_currentUserId) &&
+            !acceptedUserIds.contains(_currentUserId) &&
+            !declinedUserIds.contains(_currentUserId)) {
+          pending++;
+        }
+      } catch (e) {
+        debugPrint('⚠️ [BadgeCountService] TeamEvent parse error on ${doc.id}: $e');
+      }
+    }
+
+    teamEventPendingCount.value = pending;
+    hasTeamEventPending.value = pending > 0;
+    debugPrint('🔔 [BadgeCountService] TeamEvent counts: pending=$pending');
   }
 
   // ============================================================
@@ -682,6 +747,7 @@ class BadgeCountService {
     _replacementSubscription?.cancel();
     _manualProposalsSubscription?.cancel();
     _agentQuerySubscription?.cancel();
+    _teamEventSubscription?.cancel();
     _exchangeRequestsSubscription?.cancel();
     _exchangeProposalsSubscription?.cancel();
     _myExchangeRequestsSubscription?.cancel();
@@ -691,6 +757,7 @@ class BadgeCountService {
     _replacementSubscription = null;
     _manualProposalsSubscription = null;
     _agentQuerySubscription = null;
+    _teamEventSubscription = null;
     _exchangeRequestsSubscription = null;
     _exchangeProposalsSubscription = null;
     _myExchangeRequestsSubscription = null;
@@ -711,6 +778,8 @@ class BadgeCountService {
     hasReplacementPending.value = false;
     hasReplacementValidation.value = false;
     hasAgentQueryPending.value = false;
+    teamEventPendingCount.value = 0;
+    hasTeamEventPending.value = false;
     hasExchangePending.value = false;
     hasExchangeNeedingSelection.value = false;
     hasExchangeValidation.value = false;

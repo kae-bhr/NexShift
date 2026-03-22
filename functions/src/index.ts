@@ -2032,3 +2032,84 @@ export const handleAgentSuspension = onDocumentCreated(
     }
   },
 );
+
+// ─────────────────────────────────────────────────────────────────────────────
+// handleAgentReinstatement
+// Déclenché à la création d'un reinstatementTrigger (depuis AgentSuspensionService).
+// Actions :
+//   1. Ajoute l'agent aux plannings futurs de son équipe (>= reinstatementDate)
+//      si non déjà présent
+//   2. Marque le trigger comme traité
+// ─────────────────────────────────────────────────────────────────────────────
+export const handleAgentReinstatement = onDocumentCreated(
+  {
+    region: "europe-west1",
+    document: "sdis/{sdisId}/stations/{stationId}/replacements/automatic/reinstatementTriggers/{triggerId}",
+  },
+  async (event) => {
+    const trigger = event.data?.data();
+    if (!trigger || trigger.processed) return;
+
+    const {sdisId, stationId} = event.params;
+    const {agentId, teamId, reinstatementDate} = trigger;
+
+    if (!agentId || !teamId) {
+      console.error("❌ [handleAgentReinstatement] Missing agentId or teamId");
+      return;
+    }
+
+    const db = getFirestore();
+    const stationPath = `sdis/${sdisId}/stations/${stationId}`;
+    const now: Date = reinstatementDate.toDate();
+
+    console.log(
+      `🔄 [handleAgentReinstatement] Processing reinstatement for agent ${agentId} in team ${teamId}`,
+    );
+
+    try {
+      const planningsSnap = await db
+        .collection(`${stationPath}/plannings`)
+        .where("team", "==", teamId)
+        .where("startTime", ">=", Timestamp.fromDate(now))
+        .get();
+
+      const batch = db.batch();
+      let planningUpdates = 0;
+
+      for (const planningDoc of planningsSnap.docs) {
+        const planning = planningDoc.data();
+        const agents: Array<{agentId: string}> = planning.agents ?? [];
+
+        if (agents.some((a) => a.agentId === agentId)) continue;
+
+        // replacedAgentId omis — cohérent avec PlanningAgent.toJson() qui l'omet si null
+        const newEntry: Record<string, unknown> = {
+          agentId: agentId,
+          start: planning.startTime,
+          end: planning.endTime,
+          levelId: "",
+          isExchange: false,
+          checkedByChief: false,
+        };
+
+        batch.update(planningDoc.ref, {
+          agents: [...agents, newEntry],
+        });
+        planningUpdates++;
+      }
+
+      await batch.commit();
+      console.log(`✅ [handleAgentReinstatement] Added agent to ${planningUpdates} plannings`);
+
+      await event.data!.ref.update({
+        processed: true,
+        processedAt: Timestamp.now(),
+        planningsUpdated: planningUpdates,
+      });
+
+      console.log("✅ [handleAgentReinstatement] Reinstatement processed successfully");
+    } catch (error) {
+      console.error("❌ [handleAgentReinstatement] Error:", error);
+    }
+  },
+);

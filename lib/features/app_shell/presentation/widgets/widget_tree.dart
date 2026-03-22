@@ -14,6 +14,9 @@ import 'package:nexshift_app/features/teams/presentation/pages/team_page.dart';
 import 'package:nexshift_app/features/teams/presentation/pages/team_dashboard_page.dart';
 import 'package:nexshift_app/features/availability/presentation/pages/add_availability_page.dart';
 import 'package:nexshift_app/features/replacement/presentation/pages/replacement_requests_list_page.dart';
+import 'package:nexshift_app/features/team_events/presentation/widgets/create_team_event_dialog.dart';
+import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
+import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 import 'package:nexshift_app/core/services/badge_count_service.dart';
 import 'package:nexshift_app/core/services/subscription_service.dart';
 import 'package:nexshift_app/core/services/cloud_functions_service.dart';
@@ -377,9 +380,8 @@ class _WidgetTreeState extends State<WidgetTree> with WidgetsBindingObserver {
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (context) => TeamDashboardPage(
-                                  currentUser: user,
-                                ),
+                                builder: (context) =>
+                                    TeamDashboardPage(currentUser: user),
                               ),
                             );
                           },
@@ -393,9 +395,12 @@ class _WidgetTreeState extends State<WidgetTree> with WidgetsBindingObserver {
                               "Tableau de bord",
                               style: TextStyle(
                                 color: Theme.of(context).colorScheme.tertiary,
-                                fontSize: KTextStyle.descriptionTextStyle.fontSize,
-                                fontFamily: KTextStyle.descriptionTextStyle.fontFamily,
-                                fontWeight: KTextStyle.descriptionTextStyle.fontWeight,
+                                fontSize:
+                                    KTextStyle.descriptionTextStyle.fontSize,
+                                fontFamily:
+                                    KTextStyle.descriptionTextStyle.fontFamily,
+                                fontWeight:
+                                    KTextStyle.descriptionTextStyle.fontWeight,
                               ),
                             ),
                           ),
@@ -482,88 +487,93 @@ class _WidgetTreeState extends State<WidgetTree> with WidgetsBindingObserver {
                                       builder: (context, hasExchangeNeedingSelection, _) {
                                         return ValueListenableBuilder<bool>(
                                           valueListenable: BadgeCountService()
-                                              .hasReplacementValidation,
-                                          builder: (context, hasReplacementValidation, _) {
+                                              .hasTeamEventPending,
+                                          builder: (context, hasTeamEventPending, _) {
                                             return ValueListenableBuilder<bool>(
-                                              valueListenable:
-                                                  BadgeCountService()
-                                                      .hasExchangeValidation,
-                                              builder: (context, hasExchangeValidation, _) {
-                                                // Pastille 1 : appNameColor si n'importe quelle demande pending ou sélection à faire
-                                                final hasPending =
-                                                    hasReplacementPending ||
-                                                    hasExchangePending ||
-                                                    hasAgentQueryPending ||
-                                                    hasExchangeNeedingSelection;
-                                                // Pastille 2 : blue si validation en attente
-                                                final hasValidation =
-                                                    hasReplacementValidation ||
-                                                    hasExchangeValidation;
+                                              valueListenable: BadgeCountService()
+                                                  .hasReplacementValidation,
+                                              builder: (context, hasReplacementValidation, _) {
+                                                return ValueListenableBuilder<bool>(
+                                                  valueListenable:
+                                                      BadgeCountService()
+                                                          .hasExchangeValidation,
+                                                  builder: (context, hasExchangeValidation, _) {
+                                                    // Pastille 1 : appNameColor si n'importe quelle demande pending ou sélection à faire
+                                                    final hasPending =
+                                                        hasReplacementPending ||
+                                                        hasExchangePending ||
+                                                        hasAgentQueryPending ||
+                                                        hasExchangeNeedingSelection ||
+                                                        hasTeamEventPending;
+                                                    // Pastille 2 : blue si validation en attente
+                                                    final hasValidation =
+                                                        hasReplacementValidation ||
+                                                        hasExchangeValidation;
 
-                                                return ListTile(
-                                                  minTileHeight: 0.0,
-                                                  leading: Icon(
-                                                    Icons.swap_horiz,
-                                                    color: Theme.of(
-                                                      context,
-                                                    ).colorScheme.primary,
-                                                  ),
-                                                  title: Text(
-                                                    "Demandes",
-                                                    style: TextStyle(
-                                                      color: Theme.of(
-                                                        context,
-                                                      ).colorScheme.tertiary,
-                                                      fontSize: KTextStyle
-                                                          .descriptionTextStyle
-                                                          .fontSize,
-                                                      fontFamily: KTextStyle
-                                                          .descriptionTextStyle
-                                                          .fontFamily,
-                                                      fontWeight: KTextStyle
-                                                          .descriptionTextStyle
-                                                          .fontWeight,
-                                                    ),
-                                                  ),
-                                                  trailing:
-                                                      (!hasPending &&
-                                                          !hasValidation)
-                                                      ? const SizedBox.shrink()
-                                                      : Row(
-                                                          mainAxisSize:
-                                                              MainAxisSize.min,
-                                                          children: [
-                                                            // Pastille appNameColor : demandes en attente
-                                                            if (hasPending)
-                                                              Container(
-                                                                width: 12,
-                                                                height: 12,
-                                                                decoration: BoxDecoration(
-                                                                  color: KColors
-                                                                      .appNameColor,
-                                                                  shape: BoxShape
-                                                                      .circle,
-                                                                ),
-                                                              ),
-                                                            if (hasPending &&
-                                                                hasValidation)
-                                                              const SizedBox(
-                                                                width: 6,
-                                                              ),
-                                                            // Pastille blue : validations en attente
-                                                            if (hasValidation)
-                                                              Container(
-                                                                width: 12,
-                                                                height: 12,
-                                                                decoration: const BoxDecoration(
-                                                                  color: Colors
-                                                                      .blue,
-                                                                  shape: BoxShape
-                                                                      .circle,
-                                                                ),
-                                                              ),
-                                                          ],
+                                                    return ListTile(
+                                                      minTileHeight: 0.0,
+                                                      leading: Icon(
+                                                        Icons.swap_horiz,
+                                                        color: Theme.of(
+                                                          context,
+                                                        ).colorScheme.primary,
+                                                      ),
+                                                      title: Text(
+                                                        "Demandes",
+                                                        style: TextStyle(
+                                                          color: Theme.of(
+                                                            context,
+                                                          ).colorScheme.tertiary,
+                                                          fontSize: KTextStyle
+                                                              .descriptionTextStyle
+                                                              .fontSize,
+                                                          fontFamily: KTextStyle
+                                                              .descriptionTextStyle
+                                                              .fontFamily,
+                                                          fontWeight: KTextStyle
+                                                              .descriptionTextStyle
+                                                              .fontWeight,
                                                         ),
+                                                      ),
+                                                      trailing:
+                                                          (!hasPending &&
+                                                              !hasValidation)
+                                                          ? const SizedBox.shrink()
+                                                          : Row(
+                                                              mainAxisSize:
+                                                                  MainAxisSize.min,
+                                                              children: [
+                                                                if (hasPending)
+                                                                  Container(
+                                                                    width: 12,
+                                                                    height: 12,
+                                                                    decoration: BoxDecoration(
+                                                                      color: KColors
+                                                                          .appNameColor,
+                                                                      shape: BoxShape
+                                                                          .circle,
+                                                                    ),
+                                                                  ),
+                                                                if (hasPending &&
+                                                                    hasValidation)
+                                                                  const SizedBox(
+                                                                    width: 6,
+                                                                  ),
+                                                                if (hasValidation)
+                                                                  Container(
+                                                                    width: 12,
+                                                                    height: 12,
+                                                                    decoration: const BoxDecoration(
+                                                                      color: Colors
+                                                                          .blue,
+                                                                      shape: BoxShape
+                                                                          .circle,
+                                                                    ),
+                                                                  ),
+                                                              ],
+                                                            ),
+                                                    );
+                                                  },
                                                 );
                                               },
                                             );
@@ -604,25 +614,7 @@ class _WidgetTreeState extends State<WidgetTree> with WidgetsBindingObserver {
             if (selectedPage != 0 && selectedPage != 1) {
               return const SizedBox.shrink();
             }
-
-            return FloatingActionButton.extended(
-              backgroundColor: Theme.of(context).colorScheme.primary,
-              onPressed: () async {
-                final result = await Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const AddAvailabilityPage(),
-                  ),
-                );
-                // Si une disponibilité a été ajoutée, on pourrait recharger les données ici
-                if (result == true) {
-                  // Notifier les pages pour qu'elles se rechargent
-                  // Pour l'instant on ne fait rien, les pages se rechargeront d'elles-mêmes
-                }
-              },
-              label: const Icon(Icons.volunteer_activism),
-              tooltip: 'Ajouter une disponibilité',
-            );
+            return _FabMenu(key: const ValueKey('fab_menu'));
           },
         ),
         bottomNavigationBar: const NavbarWidget(),
@@ -630,6 +622,223 @@ class _WidgetTreeState extends State<WidgetTree> with WidgetsBindingObserver {
     );
   }
 }
+
+// ============================================================================
+// FAB OVERLAY MENU
+// ============================================================================
+
+/// FAB qui ouvre un overlay multi-choix au-dessus du bouton.
+class _FabMenu extends StatefulWidget {
+  const _FabMenu({super.key});
+
+  @override
+  State<_FabMenu> createState() => _FabMenuState();
+}
+
+class _FabMenuState extends State<_FabMenu>
+    with SingleTickerProviderStateMixin {
+  OverlayEntry? _overlayEntry;
+  late AnimationController _animationController;
+  late Animation<double> _animation;
+  final _fabKey = GlobalKey();
+
+  @override
+  void initState() {
+    super.initState();
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 180),
+    );
+    _animation = CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeOut,
+    );
+  }
+
+  @override
+  void dispose() {
+    _removeOverlay();
+    _animationController.dispose();
+    super.dispose();
+  }
+
+  void _removeOverlay() {
+    _animationController.reverse().then((_) {
+      _overlayEntry?.remove();
+      _overlayEntry = null;
+    });
+  }
+
+  void _toggleMenu() {
+    if (_overlayEntry != null) {
+      _removeOverlay();
+    } else {
+      _showMenu();
+    }
+  }
+
+  void _showMenu() {
+    final overlay = Overlay.of(context);
+    final renderBox = _fabKey.currentContext?.findRenderObject() as RenderBox?;
+    if (renderBox == null) return;
+    final offset = renderBox.localToGlobal(Offset.zero);
+    final size = renderBox.size;
+    final screenWidth = MediaQuery.of(context).size.width;
+    const menuWidth = 220.0;
+
+    // Positionnement : au-dessus du FAB, aligné à droite
+    final left = (offset.dx + size.width - menuWidth).clamp(
+      8.0,
+      screenWidth - menuWidth - 8,
+    );
+    final bottom = MediaQuery.of(context).size.height - offset.dy + 8;
+
+    _overlayEntry = OverlayEntry(
+      builder: (_) => GestureDetector(
+        onTap: _removeOverlay,
+        behavior: HitTestBehavior.translucent,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: Container(color: Colors.black.withValues(alpha: 0.25)),
+            ),
+            Positioned(
+              left: left,
+              bottom: bottom,
+              width: menuWidth,
+              child: FadeTransition(
+                opacity: _animation,
+                child: ScaleTransition(
+                  scale: _animation,
+                  alignment: Alignment.bottomRight,
+                  child: Material(
+                    elevation: 8,
+                    borderRadius: BorderRadius.circular(14),
+                    child: _FabMenuContent(
+                      stationId: userNotifier.value?.station ?? '',
+                      onClose: _removeOverlay,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    overlay.insert(_overlayEntry!);
+    _animationController.forward();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FloatingActionButton(
+      key: _fabKey,
+      backgroundColor: Theme.of(context).colorScheme.primary,
+      onPressed: _toggleMenu,
+      tooltip: 'Actions',
+      child: const Icon(Icons.add),
+    );
+  }
+}
+
+/// Contenu du menu overlay du FAB.
+class _FabMenuContent extends StatelessWidget {
+  final String stationId;
+  final VoidCallback onClose;
+
+  const _FabMenuContent({required this.stationId, required this.onClose});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _FabMenuItem(
+            icon: Icons.volunteer_activism_rounded,
+            label: 'Ajouter ma disponibilité',
+            onTap: () async {
+              onClose();
+              await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const AddAvailabilityPage()),
+              );
+            },
+          ),
+          Divider(
+            height: 1,
+            thickness: 1,
+            color: isDark ? Colors.white12 : Colors.grey.shade200,
+          ),
+          _FabMenuItem(
+            icon: Icons.event_rounded,
+            label: 'Créer un évènement',
+            onTap: () async {
+              onClose();
+              if (stationId.isEmpty) return;
+              await showCreateTeamEventDialog(
+                context: context,
+                stationId: stationId,
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FabMenuItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color? color;
+  final VoidCallback onTap;
+
+  const _FabMenuItem({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final effectiveColor =
+        color ?? (isDark ? Colors.white70 : Colors.grey.shade700);
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        child: Row(
+          children: [
+            Icon(icon, size: 20, color: effectiveColor),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: effectiveColor,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
 
 /// Bannière affichée sous l'AppBar quand l'abonnement expire bientôt
 class _SubscriptionBanner extends StatefulWidget {

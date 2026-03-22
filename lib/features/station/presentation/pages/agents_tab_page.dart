@@ -1774,7 +1774,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
         ),
         content: Text(
           'Remettre ${user.displayName} en service actif ?\n\n'
-          'Note : les plannings supprimés lors de la suspension ne sont pas restaurés automatiquement.',
+          'L\'agent sera automatiquement ajouté aux astreintes futures de son équipe.',
         ),
         actions: [
           TextButton(
@@ -1804,7 +1804,19 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
         );
       }
     } catch (e) {
-      if (mounted) {
+      if (!mounted) return;
+      if (e.toString().contains('teamRequired')) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Cet agent doit être assigné à une équipe avant d\'être réintégré. '
+              'Utilisez "Changer d\'équipe" puis relancez la réintégration.',
+            ),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 5),
+          ),
+        );
+      } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Erreur : $e'), backgroundColor: Colors.red),
         );
