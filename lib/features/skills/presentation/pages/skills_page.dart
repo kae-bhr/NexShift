@@ -100,10 +100,14 @@ class _SkillsPageState extends State<SkillsPage> {
     if (levels == null) return [];
 
     final priorityOrder = [
+      SkillLevelColor.siteLead,
+      SkillLevelColor.columnLeader,
+      SkillLevelColor.groupLeader,
       SkillLevelColor.chiefOfficer,
       SkillLevelColor.teamLeader,
       SkillLevelColor.equipier,
       SkillLevelColor.apprentice,
+      SkillLevelColor.specialty,
     ];
 
     final result = <String>[];
@@ -633,6 +637,20 @@ class _SkillCategoryTileState extends State<_SkillCategoryTile>
                             ],
                           ],
                         ),
+                        if (KSkills.skillCategoryDescriptions[widget.category] != null)
+                          Text(
+                            KSkills.skillCategoryDescriptions[widget.category]!,
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: widget.isAcquired
+                                  ? (isDark
+                                      ? Colors.grey.shade400
+                                      : Colors.grey.shade600)
+                                  : (isDark
+                                      ? Colors.grey.shade700
+                                      : Colors.grey.shade500),
+                            ),
+                          ),
                         const SizedBox(height: 3),
                         Container(
                           padding: const EdgeInsets.symmetric(
@@ -698,12 +716,10 @@ class _SkillCategoryTileState extends State<_SkillCategoryTile>
                     final skillName = entry.value;
                     final skillLevel = KSkills.skillColors[skillName];
                     final skillColor = widget.getLevelColor(skillLevel);
-                    final skillLabel = widget.getLevelLabel(skillLevel);
                     final isKey = widget.keySkills.contains(skillName);
 
                     return _SkillRow(
                       skillName: skillName,
-                      skillLabel: skillLabel,
                       skillColor: skillColor,
                       isKey: isKey,
                       isLast: i == widget.skills.length - 1,
@@ -722,7 +738,6 @@ class _SkillCategoryTileState extends State<_SkillCategoryTile>
 
 class _SkillRow extends StatelessWidget {
   final String skillName;
-  final String skillLabel;
   final Color skillColor;
   final bool isKey;
   final bool isLast;
@@ -730,7 +745,6 @@ class _SkillRow extends StatelessWidget {
 
   const _SkillRow({
     required this.skillName,
-    required this.skillLabel,
     required this.skillColor,
     required this.isKey,
     required this.isLast,
@@ -761,7 +775,7 @@ class _SkillRow extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        skillName,
+                        KSkills.skillShortNames[skillName] ?? skillName,
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
@@ -779,15 +793,18 @@ class _SkillRow extends StatelessWidget {
                       ),
                   ],
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  skillLabel,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: skillColor,
-                    fontWeight: FontWeight.w500,
+                if (KSkills.skillDescriptions[skillName] != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    KSkills.skillDescriptions[skillName]!,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: skillColor,
+                      fontWeight: FontWeight.w500,
+                      fontStyle: FontStyle.italic,
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),

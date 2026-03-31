@@ -172,12 +172,12 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
       if (levels == null) continue;
 
       // Les catégories avec logique apprenant/équipier/chef n'ont pas de prérequis hiérarchiques
-      if (['SUAP', 'PPBE', 'INC'].contains(category)) continue;
+      if (['SUAP', 'PPBE', 'INC', 'SR', 'FDF', 'RAD', 'RCH', 'SAV', 'TRS', 'IBNB', 'CYNO'].contains(category)) continue;
 
-      // Les catégories standalone (COD) n'ont pas de prérequis non plus
+      // Les catégories standalone n'ont pas de prérequis non plus
       if (KSkills.standaloneCategories.contains(category)) continue;
 
-      // Pour VPS : vérifier qu'un niveau supérieur n'est pas sélectionné sans les niveaux inférieurs
+      // Vérifier qu'un niveau supérieur n'est pas sélectionné sans les niveaux inférieurs
       for (int i = levels.length - 1; i > 0; i--) {
         final higherSkill = levels[i];
         if (higherSkill.isEmpty) continue;
@@ -432,14 +432,14 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
         }
       } else {
         _selectedSkills.add(skill);
-        if (['SUAP', 'PPBE', 'INC'].contains(category)) {
+        if (['SUAP', 'PPBE', 'INC', 'SR', 'FDF', 'RAD', 'RCH', 'SAV', 'TRS', 'IBNB', 'CYNO'].contains(category)) {
           // Logique mutuellement exclusive apprenant / équipier / chef
           _handleApprenticeEquipierLogic(category, skill);
         } else if (!KSkills.standaloneCategories.contains(category)) {
-          // Pour VPS : auto-sélection des niveaux inférieurs
+          // Auto-sélection des niveaux inférieurs
           _selectLowerLevels(category, skill);
         }
-        // Pour les catégories standalone (COD) : aucun auto-check
+        // Pour les catégories standalone : aucun auto-check
       }
     });
   }
@@ -478,11 +478,32 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
     }
     // Si on coche "Chef d'agrès", on auto-coche les niveaux inférieurs
     else if (skillLevel == SkillLevelColor.chiefOfficer) {
+      _addSkillsWithLevel(levels, SkillLevelColor.teamLeader);
       _addSkillsWithLevel(levels, SkillLevelColor.equipier);
-      // Pour INC, auto-sélectionner aussi Chef d'équipe
-      if (category == 'INC') {
-        _addSkillsWithLevel(levels, SkillLevelColor.teamLeader);
-      }
+      _removeSkillsWithLevel(levels, SkillLevelColor.apprentice);
+    }
+    // Si on coche "Chef de groupe", on auto-coche les niveaux inférieurs
+    else if (skillLevel == SkillLevelColor.groupLeader) {
+      _addSkillsWithLevel(levels, SkillLevelColor.chiefOfficer);
+      _addSkillsWithLevel(levels, SkillLevelColor.teamLeader);
+      _addSkillsWithLevel(levels, SkillLevelColor.equipier);
+      _removeSkillsWithLevel(levels, SkillLevelColor.apprentice);
+    }
+    // Si on coche "Chef de colonne", on auto-coche les niveaux inférieurs
+    else if (skillLevel == SkillLevelColor.columnLeader) {
+      _addSkillsWithLevel(levels, SkillLevelColor.groupLeader);
+      _addSkillsWithLevel(levels, SkillLevelColor.chiefOfficer);
+      _addSkillsWithLevel(levels, SkillLevelColor.teamLeader);
+      _addSkillsWithLevel(levels, SkillLevelColor.equipier);
+      _removeSkillsWithLevel(levels, SkillLevelColor.apprentice);
+    }
+    // Si on coche "Chef de site", on auto-coche les niveaux inférieurs
+    else if (skillLevel == SkillLevelColor.siteLead) {
+      _addSkillsWithLevel(levels, SkillLevelColor.columnLeader);
+      _addSkillsWithLevel(levels, SkillLevelColor.groupLeader);
+      _addSkillsWithLevel(levels, SkillLevelColor.chiefOfficer);
+      _addSkillsWithLevel(levels, SkillLevelColor.teamLeader);
+      _addSkillsWithLevel(levels, SkillLevelColor.equipier);
       _removeSkillsWithLevel(levels, SkillLevelColor.apprentice);
     }
     // Si on coche "Apprenant", on décoche tous les niveaux supérieurs
@@ -490,6 +511,9 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
       _removeSkillsWithLevel(levels, SkillLevelColor.equipier);
       _removeSkillsWithLevel(levels, SkillLevelColor.teamLeader);
       _removeSkillsWithLevel(levels, SkillLevelColor.chiefOfficer);
+      _removeSkillsWithLevel(levels, SkillLevelColor.groupLeader);
+      _removeSkillsWithLevel(levels, SkillLevelColor.columnLeader);
+      _removeSkillsWithLevel(levels, SkillLevelColor.siteLead);
     }
   }
 
@@ -879,12 +903,27 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
                   child: Icon(icon, color: accentColor, size: 18),
                 ),
                 const SizedBox(width: 12),
-                Text(
-                  category,
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: accentColor,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        category,
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: accentColor,
+                        ),
+                      ),
+                      if (KSkills.skillCategoryDescriptions[category] != null)
+                        Text(
+                          KSkills.skillCategoryDescriptions[category]!,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: accentColor.withValues(alpha: 0.7),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
               ],
@@ -911,7 +950,6 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
   Widget _buildSkillCheckbox(String skill, String category) {
     final isChecked = _selectedSkills.contains(skill);
     final isKeySkill = _selectedKeySkills.contains(skill);
-    final levelLabel = _getSkillLevelLabel(skill, category);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     // Couleur du niveau de compétence
@@ -968,7 +1006,7 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    skill,
+                    KSkills.skillShortNames[skill] ?? skill,
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: isChecked
@@ -979,9 +1017,9 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
                           : (isDark ? Colors.grey.shade500 : Colors.grey.shade500),
                     ),
                   ),
-                  if (levelLabel.isNotEmpty)
+                  if (KSkills.skillDescriptions[skill] != null)
                     Text(
-                      levelLabel,
+                      KSkills.skillDescriptions[skill]!,
                       style: TextStyle(
                         fontSize: 11,
                         fontStyle: FontStyle.italic,
@@ -1012,10 +1050,4 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
     );
   }
 
-  String _getSkillLevelLabel(String skill, String category) {
-    final skillLevel = KSkills.skillColors[skill];
-    if (skillLevel == null) return '';
-
-    return KSkills.getLabelForSkillLevel(skillLevel, category);
-  }
 }

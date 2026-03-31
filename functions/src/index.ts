@@ -9,7 +9,8 @@ import {checkIfFullyCovered} from "./planning-utils.js";
 // Re-export des nouvelles Cloud Functions
 export {cleanupOldData} from "./cleanup";
 export {sendPendingWavesAfterNightPause} from "./night-pause";
-export {sendDailyShiftReminder} from "./alerts";
+// Désactivé : remplacé par les rappels locaux dans l'app Flutter
+// export {sendDailyShiftReminder} from "./alerts";
 
 // Auth & User Management Functions
 export {

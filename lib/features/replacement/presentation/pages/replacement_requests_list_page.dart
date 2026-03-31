@@ -31,7 +31,8 @@ import 'package:nexshift_app/core/services/badge_count_service.dart';
 import 'package:nexshift_app/core/data/models/team_event_model.dart';
 import 'package:nexshift_app/core/repositories/team_event_repository.dart';
 import 'package:nexshift_app/features/team_events/presentation/widgets/team_event_tile_wrapper.dart';
-import 'package:nexshift_app/core/presentation/widgets/request_actions_bottom_sheet.dart';
+import 'package:nexshift_app/core/presentation/widgets/unlock_key_skills_dialog.dart';
+import 'package:nexshift_app/core/presentation/widgets/tile_confirm_dialog.dart';
 import 'package:nexshift_app/core/presentation/widgets/notified_agents_sheet.dart';
 import 'package:nexshift_app/core/presentation/widgets/availability_picker_section.dart';
 import 'package:nexshift_app/core/utils/station_name_cache.dart';
@@ -1194,6 +1195,79 @@ class _ReplacementRequestsListPageState
         .toList();
     if (targetIds.isEmpty) return;
 
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
+        return AlertDialog(
+          title: Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: isDark ? 0.2 : 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(Icons.notifications_active_rounded, size: 18, color: Colors.orange.shade400),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(child: Text('Relancer les notifications')),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Voulez-vous relancer une notification à tous les agents qui n\'ont pas encore répondu ?',
+                style: TextStyle(color: isDark ? Colors.grey[400] : Colors.grey[700]),
+              ),
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: isDark ? 0.12 : 0.07),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.orange.withValues(alpha: isDark ? 0.35 : 0.25)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.people_rounded, color: Colors.orange.shade400, size: 18),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${targetIds.length} agent${targetIds.length > 1 ? 's' : ''} ser${targetIds.length > 1 ? 'ont' : 'a'} notifié${targetIds.length > 1 ? 's' : ''}',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: isDark ? Colors.orange[300] : Colors.orange.shade800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Annuler'),
+            ),
+            FilledButton.icon(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              icon: const Icon(Icons.send_rounded, size: 16),
+              label: const Text('Relancer'),
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.orange.shade600,
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true || !mounted) return;
+
     try {
       await _agentQueryService.resendNotifications(
         query: query,
@@ -1243,24 +1317,14 @@ class _ReplacementRequestsListPageState
     if (accepted) {
       final confirm = await showDialog<bool>(
         context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Accepter la recherche ?'),
-          content: Text(
-            'Vous allez rejoindre l\'astreinte "${query.onCallLevelName}" du ${_formatDateTime(query.startTime)}.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Annuler'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              style: FilledButton.styleFrom(
-                backgroundColor: KColors.appNameColor,
-              ),
-              child: const Text('Confirmer'),
-            ),
-          ],
+        builder: (ctx) => TileConfirmDialog(
+          icon: Icons.manage_search_rounded,
+          iconColor: Colors.teal,
+          title: 'Accepter la recherche',
+          message: 'Vous allez rejoindre l\'astreinte "${query.onCallLevelName}" du ${_formatDateTime(query.startTime)}.',
+          confirmLabel: 'Confirmer',
+          confirmColor: Colors.teal,
+          confirmIcon: Icons.check_rounded,
         ),
       );
       if (confirm != true || !mounted) return;
@@ -1305,22 +1369,14 @@ class _ReplacementRequestsListPageState
   Future<void> _cancelAgentQuery(AgentQuery query) async {
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Annuler la recherche ?'),
-        content: const Text(
-          'Les agents notifiés ne pourront plus accepter cette recherche.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Retour'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Annuler la recherche'),
-          ),
-        ],
+      builder: (ctx) => TileConfirmDialog(
+        icon: Icons.delete_outline_rounded,
+        iconColor: Colors.red,
+        title: 'Annuler la recherche',
+        message: 'Les agents notifiés ne pourront plus accepter cette recherche.',
+        confirmLabel: 'Annuler la recherche',
+        confirmColor: Colors.red,
+        confirmIcon: Icons.delete_rounded,
       ),
     );
 
@@ -1346,22 +1402,14 @@ class _ReplacementRequestsListPageState
   Future<void> _deleteRequest(ReplacementRequest request) async {
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("Supprimer la demande ?"),
-        content: const Text(
-          "Cette action est irréversible. Voulez-vous vraiment supprimer cette demande de remplacement ?",
-        ),
-        actions: [
-          TextButton(
-            child: const Text("Annuler"),
-            onPressed: () => Navigator.pop(ctx, false),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text("Supprimer"),
-          ),
-        ],
+      builder: (ctx) => TileConfirmDialog(
+        icon: Icons.delete_outline_rounded,
+        iconColor: Colors.red,
+        title: 'Supprimer la demande',
+        message: 'Cette action est irréversible. La demande de remplacement sera définitivement supprimée.',
+        confirmLabel: 'Supprimer',
+        confirmColor: Colors.red,
+        confirmIcon: Icons.delete_rounded,
       ),
     );
 
@@ -1413,18 +1461,11 @@ class _ReplacementRequestsListPageState
   ) {
     final viewMode = _subTabToViewMode(subTab);
 
-    // En mode "Mes demandes", le tap ouvre le BottomSheet d'actions
-    VoidCallback? onTapCallback;
-    if (viewMode == TileViewMode.myRequests) {
-      onTapCallback = () => _showRequestActionsBottomSheet(request);
-    }
-
     return ReplacementTileWrapper(
       request: request,
       currentUserId: _currentUserId ?? '',
       stationId: _currentStationId ?? '',
       viewMode: viewMode,
-      onTap: onTapCallback,
       onDelete: () => _deleteRequest(request),
       onAccept: () =>
           _handleRequestTap(request), // Ouvre le dialog de confirmation
@@ -1437,48 +1478,306 @@ class _ReplacementRequestsListPageState
       onMarkAsSeen: () => _markRequestAsSeen(request.id),
       onSkipToNextWave: () => _skipToNextWave(request),
       onResendNotifications: () => _showResendNotificationsDialog(request),
+      onUnlockKeySkills: _canUnlockKeySkills(request)
+          ? () => _showUnlockKeySkillsDialog(request)
+          : null,
     );
   }
 
-  /// Affiche le BottomSheet d'actions pour une demande de remplacement automatique
-  Future<void> _showRequestActionsBottomSheet(
-    ReplacementRequest request,
-  ) async {
-    // Charger le nom du demandeur
-    final requesterName = await _getRequesterName(request.requesterId);
+  // ---------------------------------------------------------------------------
+  // Déblocage des compétences-clés
+  // ---------------------------------------------------------------------------
 
-    // Résoudre le nom de la station
-    String stationName = request.station;
-    final sdisId = SDISContext().currentSDISId;
-    if (sdisId != null && request.station.isNotEmpty) {
-      stationName = await StationNameCache().getStationName(
-        sdisId,
-        request.station,
-      );
+  /// Vérifie si l'utilisateur courant est habilité à débloquer les compétences-clés
+  /// pour la demande donnée, et si la condition de vague est remplie.
+  bool _canUnlockKeySkills(ReplacementRequest request) {
+    if (_currentUser == null) return false;
+    if (request.currentWave < 5) return false;
+    final user = _currentUser!;
+    if (user.admin || user.status == KConstants.statusLeader) return true;
+    if (user.status == KConstants.statusChief &&
+        request.team != null &&
+        request.team == user.team) {
+      return true;
+    }
+    return false;
+  }
+
+  /// Orchestre le déblocage : charge le demandeur, affiche le dialog de sélection,
+  /// calcule les agents nouvellement éligibles, puis met à jour Firestore.
+  Future<void> _showUnlockKeySkillsDialog(ReplacementRequest request) async {
+    // 1. Charger le demandeur
+    final requester = await _userRepository.getById(
+      request.requesterId,
+      stationId: request.station,
+    );
+    if (requester == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Impossible de charger les données du demandeur.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
+    // 2. Guard : pas de keySkills → rien à débloquer
+    if (requester.keySkills.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Ce demandeur n\'a pas de compétences-clés définies.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
     }
 
     if (!mounted) return;
 
-    // Déterminer si le bouton de renotification doit être affiché
-    // Pour les remplacements automatiques : seulement à partir de la vague 5
-    final showResendButton = request.currentWave >= 5;
+    // 3. Afficher le dialog de sélection
+    final selectedKeySkills = await UnlockKeySkillsDialog.show(
+      context,
+      requesterSkills: requester.skills,
+      // Si un déblocage a déjà eu lieu, montrer les keySkills effectives de la demande
+      originalKeySkills: request.effectiveKeySkills ?? requester.keySkills,
+    );
 
-    RequestActionsBottomSheet.show(
-      context: context,
-      requestType: request.isSOS
-          ? UnifiedRequestType.sosReplacement
-          : UnifiedRequestType.automaticReplacement,
-      initiatorName: requesterName,
-      team: request.team,
-      station: stationName,
-      startTime: request.startTime,
-      endTime: request.endTime,
-      onResendNotifications: showResendButton
-          ? () => _showResendNotificationsDialog(request)
-          : null,
-      onDelete: () => _deleteRequest(request),
+    // 4. Annulé
+    if (selectedKeySkills == null || !mounted) return;
+
+    // 5. Charger le planning pour planningTeam et agentsInPlanning
+    final planningsPath = EnvironmentConfig.getCollectionPath(
+      'plannings',
+      request.station,
+    );
+    final planningDoc = await _notificationService.firestore
+        .collection(planningsPath)
+        .doc(request.planningId)
+        .get();
+
+    final agentsInPlanning = <String>[];
+    String planningTeam = request.team ?? '';
+    if (planningDoc.exists) {
+      final data = planningDoc.data();
+      planningTeam = data?['team'] as String? ?? request.team ?? '';
+      final rawAgents = data?['agents'] as List<dynamic>?;
+      if (rawAgents != null) {
+        for (final raw in rawAgents) {
+          final map = raw as Map<String, dynamic>;
+          if (map['replacedAgentId'] != null) continue;
+          final agentId = map['agentId'] as String?;
+          if (agentId == null) continue;
+          final agentStart = (map['start'] as Timestamp).toDate();
+          final agentEnd = (map['end'] as Timestamp).toDate();
+          if (!agentStart.isAfter(request.startTime) &&
+              !agentEnd.isBefore(request.endTime)) {
+            agentsInPlanning.add(agentId);
+          }
+        }
+      } else {
+        agentsInPlanning.addAll(
+          List<String>.from(data?['agentsId'] ?? []),
+        );
+      }
+    }
+
+    // 6. Charger tous les utilisateurs de la station
+    final allUsers = await _userRepository.getByStation(request.station);
+
+    // 7. Trouver les agents nouvellement éligibles
+    final newlyEligibleIds = _findNewlyEligibleAgents(
+      allUsers: allUsers,
+      request: request,
+      requester: requester,
+      planningTeam: planningTeam,
+      agentsInPlanning: agentsInPlanning,
+      newKeySkills: selectedKeySkills,
+    );
+
+    if (newlyEligibleIds.isEmpty) {
+      // Persister la sélection même sans agent éligible,
+      // pour que le dialog reflète la bonne sélection à la prochaine ouverture.
+      final requestsPath = EnvironmentConfig.getCollectionPath(
+        'replacements/automatic/replacementRequests',
+        request.station,
+      );
+      await _notificationService.firestore
+          .collection(requestsPath)
+          .doc(request.id)
+          .update({'effectiveKeySkills': selectedKeySkills});
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Aucun nouvel agent disponible avec cette sélection de compétences.',
+            ),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    // 8. Appliquer en Firestore
+    try {
+      await _applyKeySkillsUnlock(
+        request: request,
+        newlyEligibleIds: newlyEligibleIds,
+        effectiveKeySkills: selectedKeySkills,
+      );
+
+      if (mounted) {
+        final count = newlyEligibleIds.length;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '$count agent${count > 1 ? 's débloqués et notifiés' : ' débloqué et notifié'}.',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error unlocking key skills: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur lors du déblocage : $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  /// Identifie les agents qui étaient exclus UNIQUEMENT à cause des keySkills
+  /// et qui passent désormais la nouvelle sélection relaxée.
+  List<String> _findNewlyEligibleAgents({
+    required List<User> allUsers,
+    required ReplacementRequest request,
+    required User requester,
+    required String planningTeam,
+    required List<String> agentsInPlanning,
+    required List<String> newKeySkills,
+  }) {
+    // La CF place TOUS les agents calculés dans waveUserIds, y compris ceux en vague 5
+    // qui sont exclus des notifications à cause des keySkills. On ne peut donc pas
+    // se baser sur waveUserIds ni notifiedUserIds pour détecter les agents "débloquables".
+    //
+    // Critère correct : un agent est débloquable s'il :
+    // 1. N'a pas encore été débloqué (absent de unlockedAgentIds)
+    // 2. Échoue les keySkills ORIGINALES du demandeur (c'est ce qui l'a exclu)
+    // 3. Passe la nouvelle sélection relaxée
+    // Les filtres d'inactivité et d'astreinte s'appliquent en plus.
+    final alreadyUnlocked = Set<String>.from(request.unlockedAgentIds);
+    final result = <String>[];
+
+    for (final candidate in allUsers) {
+      // Ignorer le demandeur lui-même
+      if (candidate.id == request.requesterId) continue;
+      // Ignorer les agents déjà débloqués lors d'une opération précédente
+      if (alreadyUnlocked.contains(candidate.id)) continue;
+      // Ignorer les agents inactifs
+      if (!candidate.isActiveForReplacement) continue;
+      // Ignorer les agents en astreinte pendant la plage
+      if (agentsInPlanning.contains(candidate.id)) continue;
+      // Ignorer les agents de la même équipe (vague 1, déjà notifiés normalement)
+      if (candidate.team == planningTeam) continue;
+
+      // L'agent doit avoir été exclu par les keySkills originales du demandeur
+      if (requester.keySkills.isEmpty) continue;
+      final failedOriginal = requester.keySkills.any(
+        (k) => !candidate.skills.contains(k),
+      );
+      if (!failedOriginal) continue;
+
+      // Vérifier que l'agent passe la NOUVELLE sélection relaxée
+      final passesNew = newKeySkills.every(
+        (k) => candidate.skills.contains(k),
+      );
+      if (passesNew) result.add(candidate.id);
+    }
+
+    return result;
+  }
+
+  /// Applique le déblocage en Firestore via un batch :
+  /// - met à jour waveUserIds[5] et notifiedUserIds sur la demande
+  /// - crée un notificationTrigger pour notifier les nouveaux agents
+  Future<void> _applyKeySkillsUnlock({
+    required ReplacementRequest request,
+    required List<String> newlyEligibleIds,
+    required List<String> effectiveKeySkills,
+  }) async {
+    final firestore = _notificationService.firestore;
+
+    final requestsPath = EnvironmentConfig.getCollectionPath(
+      'replacements/automatic/replacementRequests',
+      request.station,
+    );
+    final notificationTriggersPath = EnvironmentConfig.getCollectionPath(
+      'notificationTriggers',
+      request.station,
+    );
+
+    // Construire le waveUserIds mis à jour (clés string, convention existante)
+    final updatedWaveUserIds = <String, dynamic>{
+      for (final e in request.waveUserIds.entries)
+        e.key.toString(): List<String>.from(e.value),
+    };
+    final existingWave5 =
+        List<String>.from(updatedWaveUserIds['5'] as List? ?? []);
+    updatedWaveUserIds['5'] = [...existingWave5, ...newlyEligibleIds];
+
+    final batch = firestore.batch();
+
+    // unlockedAgentIds : union des débloqués précédents + nouveaux
+    final updatedUnlockedAgentIds = [
+      ...request.unlockedAgentIds,
+      ...newlyEligibleIds,
+    ];
+
+    // 1. Mise à jour de la demande de remplacement.
+    // notifiedUserIds n'est PAS mis à jour ici : c'est la Cloud Function qui
+    // l'incrémente après avoir effectivement envoyé la notification.
+    batch.update(
+      firestore.collection(requestsPath).doc(request.id),
+      {
+        'waveUserIds': updatedWaveUserIds,
+        'unlockedAgentIds': updatedUnlockedAgentIds,
+        'effectiveKeySkills': effectiveKeySkills,
+      },
+    );
+
+    // 2. Trigger de notification pour les nouveaux agents
+    final triggerRef = firestore.collection(notificationTriggersPath).doc();
+    batch.set(triggerRef, {
+      'type': 'replacement_request',
+      'requestId': request.id,
+      'requesterId': request.requesterId,
+      'targetUserIds': newlyEligibleIds,
+      'wave': 5,
+      'startTime': Timestamp.fromDate(request.startTime),
+      'endTime': Timestamp.fromDate(request.endTime),
+      'planningId': request.planningId,
+      'team': request.team ?? '',
+      'createdAt': FieldValue.serverTimestamp(),
+      'processed': false,
+    });
+
+    await batch.commit();
+
+    debugPrint(
+      '🔓 Key skills unlocked for request ${request.id}: '
+      '${newlyEligibleIds.length} new agents added to wave 5',
     );
   }
+
+  // ---------------------------------------------------------------------------
 
   // Ancienne méthode _buildRequestCard conservée temporairement pour référence
   Widget _buildRequestCardOld(ReplacementRequest request) {
@@ -2139,61 +2438,15 @@ class _ReplacementRequestsListPageState
   ) {
     final viewMode = _subTabToViewMode(subTab);
 
-    // En mode "Mes demandes", le tap ouvre le BottomSheet d'actions
-    VoidCallback? onTapCallback;
-    if (viewMode == TileViewMode.myRequests) {
-      onTapCallback = () => _showManualProposalActionsBottomSheet(proposal);
-    }
-
     return ManualProposalTileWrapper(
       proposal: proposal,
       currentUserId: _currentUserId ?? '',
       viewMode: viewMode,
       station: _currentStationId,
-      onTap: onTapCallback,
       onDelete: () => _deleteManualProposal(proposal),
       onAccept: () => _acceptManualProposal(proposal),
       onRefuse: () => _declineManualProposal(proposal),
       onResendNotifications: () => _resendManualProposalNotification(proposal),
-    );
-  }
-
-  /// Affiche le BottomSheet d'actions pour une proposition de remplacement manuel
-  Future<void> _showManualProposalActionsBottomSheet(
-    ManualReplacementProposal proposal,
-  ) async {
-    // Résoudre le nom de la station et l'équipe (non stockée en Firestore)
-    String stationName = _currentStationId ?? '';
-    String? teamName = proposal.replacedTeam;
-
-    final sdisId = SDISContext().currentSDISId;
-    if (sdisId != null &&
-        _currentStationId != null &&
-        _currentStationId!.isNotEmpty) {
-      stationName = await StationNameCache().getStationName(
-        sdisId,
-        _currentStationId!,
-      );
-    }
-
-    // Charger l'équipe depuis le profil utilisateur si non disponible dans le document
-    if (teamName == null && proposal.replacedId.isNotEmpty) {
-      final user = await _userRepository.getById(proposal.replacedId);
-      teamName = user?.team;
-    }
-
-    if (!mounted) return;
-
-    RequestActionsBottomSheet.show(
-      context: context,
-      requestType: UnifiedRequestType.manualReplacement,
-      initiatorName: proposal.replacedName,
-      team: teamName,
-      station: stationName,
-      startTime: proposal.startTime,
-      endTime: proposal.endTime,
-      onResendNotifications: () => _resendManualProposalNotification(proposal),
-      onDelete: () => _deleteManualProposal(proposal),
     );
   }
 
@@ -2210,224 +2463,6 @@ class _ReplacementRequestsListPageState
     );
   }
 
-  // Ancienne méthode _buildManualProposalCard conservée temporairement pour référence
-  Widget _buildManualProposalCardOld(ManualReplacementProposal proposal) {
-    // Déterminer si l'utilisateur est le remplacé
-    final bool isReplaced = proposal.replacedId == _currentUserId;
-    // Déterminer si l'utilisateur est le remplaçant désigné
-    final bool isDesignatedReplacer = proposal.replacerId == _currentUserId;
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      elevation: 2,
-      child: InkWell(
-        onTap: () => _handleManualProposalTap(proposal),
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // En-tête avec badge "Proposition manuelle"
-              Row(
-                children: [
-                  CircleAvatar(
-                    backgroundColor: isReplaced ? Colors.green : Colors.purple,
-                    radius: 20,
-                    child: Icon(
-                      isReplaced ? Icons.person_search : Icons.person_add,
-                      color: Colors.white,
-                      size: 20,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          proposal.proposerName,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: isReplaced
-                                ? Colors.green.shade100
-                                : Colors.purple.shade100,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.max,
-                            children: [
-                              Icon(
-                                isReplaced
-                                    ? Icons.check_circle
-                                    : Icons.touch_app,
-                                size: 14,
-                                color: isReplaced
-                                    ? Colors.green.shade700
-                                    : Colors.purple.shade700,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                isReplaced
-                                    ? 'Remplacement proposé'
-                                    : 'Proposition manuelle',
-                                style: TextStyle(
-                                  color: isReplaced
-                                      ? Colors.green.shade700
-                                      : Colors.purple.shade700,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  // Icône de suppression pour le propriétaire (remplacé)
-                  if (isReplaced) ...[
-                    const SizedBox(width: 8),
-                    IconButton(
-                      icon: const Icon(
-                        Icons.delete_outline,
-                        color: Colors.red,
-                        size: 20,
-                      ),
-                      onPressed: () => _deleteManualProposal(proposal),
-                      tooltip: 'Supprimer la proposition',
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                    ),
-                  ],
-                ],
-              ),
-              const SizedBox(height: 12),
-              const Divider(height: 1),
-              const SizedBox(height: 12),
-
-              // Informations sur le remplacement
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: isReplaced
-                      ? Colors.green.shade50
-                      : Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: isReplaced
-                        ? Colors.green.shade200
-                        : Colors.blue.shade200,
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.swap_horiz,
-                          size: 16,
-                          color: isReplaced
-                              ? Colors.green.shade700
-                              : Colors.blue.shade700,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          isReplaced
-                              ? '${proposal.replacerName} vous remplacera'
-                              : 'Remplacer ${proposal.replacedName}',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: isReplaced
-                                ? Colors.green.shade900
-                                : Colors.blue.shade900,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 12),
-
-              // Période
-              Row(
-                children: [
-                  Icon(
-                    Icons.calendar_today,
-                    size: 16,
-                    color: Colors.blue.shade700,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Du ${_formatDateTime(proposal.startTime)}',
-                          style: const TextStyle(fontSize: 14),
-                        ),
-                        Text(
-                          'Au ${_formatDateTime(proposal.endTime)}',
-                          style: const TextStyle(fontSize: 14),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 12),
-
-              // Boutons d'action (uniquement pour le remplaçant désigné)
-              // Convention UX : [ Refuser (gauche) ]  [ Accepter (droite) ]
-              if (isDesignatedReplacer)
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () => _declineManualProposal(proposal),
-                        icon: const Icon(Icons.close, size: 18),
-                        label: const Text('Refuser'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.red,
-                          side: const BorderSide(color: Colors.red),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: FilledButton.icon(
-                        onPressed: () => _acceptManualProposal(proposal),
-                        icon: const Icon(Icons.check, size: 18),
-                        label: const Text('Accepter'),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: Colors.green,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Future<String> _getRequesterName(String userId) async {
     try {
       final user = await _userRepository.getById(userId);
@@ -2435,11 +2470,6 @@ class _ReplacementRequestsListPageState
     } catch (e) {
       return 'Agent $userId';
     }
-  }
-
-  /// Gère le tap sur une proposition manuelle (actuellement ne fait rien)
-  void _handleManualProposalTap(ManualReplacementProposal proposal) {
-    // Optionnel : afficher un dialog avec plus de détails
   }
 
   /// Accepte une proposition de remplacement manuel
@@ -2585,22 +2615,14 @@ class _ReplacementRequestsListPageState
   Future<void> _deleteManualProposal(ManualReplacementProposal proposal) async {
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("Supprimer la proposition ?"),
-        content: const Text(
-          "Cette action est irréversible. Voulez-vous vraiment supprimer cette proposition de remplacement ?",
-        ),
-        actions: [
-          TextButton(
-            child: const Text("Annuler"),
-            onPressed: () => Navigator.pop(ctx, false),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text("Supprimer"),
-          ),
-        ],
+      builder: (ctx) => TileConfirmDialog(
+        icon: Icons.delete_outline_rounded,
+        iconColor: Colors.red,
+        title: 'Supprimer la proposition',
+        message: 'Cette action est irréversible. La proposition de remplacement sera définitivement supprimée.',
+        confirmLabel: 'Supprimer',
+        confirmColor: Colors.red,
+        confirmIcon: Icons.delete_rounded,
       ),
     );
 
@@ -2649,29 +2671,6 @@ class _ReplacementRequestsListPageState
           );
         }
       }
-    }
-  }
-
-  /// Vérifie si l'utilisateur courant peut voir cette demande
-  /// Phase 3 - Visibilité étendue : Tous les agents de la station peuvent voir toutes les demandes
-  Future<bool> _canViewRequest(ReplacementRequest request) async {
-    if (_currentUserId == null) return false;
-
-    try {
-      // Récupérer l'utilisateur courant
-      final currentUser = await UserStorageHelper.loadUser();
-      if (currentUser == null) return false;
-
-      // Phase 3 : TOUS les agents de la même station peuvent voir la demande
-      // La station est stockée directement dans la demande
-      if (request.station == currentUser.station) {
-        return true;
-      }
-
-      return false;
-    } catch (e) {
-      debugPrint('Error checking view permission: $e');
-      return false;
     }
   }
 
@@ -2972,6 +2971,23 @@ class _ReplacementRequestsListPageState
         waveGroups.putIfAbsent(wave, () => []).add(user);
       }
 
+      // Surcharger uniquement pour les agents débloqués manuellement :
+      // ils ont été placés en vague 5 via le déblocage de keySkills et doivent
+      // y rester même si le recalcul local (basé sur les keySkills originales)
+      // les placerait en vague 0.
+      if (request.unlockedAgentIds.isNotEmpty) {
+        final userById = {for (final u in stationUsers) u.id: u};
+        for (final agentId in request.unlockedAgentIds) {
+          for (final users in waveGroups.values) {
+            users.removeWhere((u) => u.id == agentId);
+          }
+          final user = userById[agentId];
+          if (user != null) {
+            waveGroups.putIfAbsent(5, () => []).add(user);
+          }
+        }
+      }
+
       // Trier chaque vague par nom
       waveGroups.forEach((wave, users) {
         users.sort((a, b) {
@@ -2999,6 +3015,7 @@ class _ReplacementRequestsListPageState
           request: request,
           waveGroups: waveGroups,
           notifiedUserIds: request.notifiedUserIds,
+          unlockedAgentIds: request.unlockedAgentIds,
           replacementMode: replacementMode,
           allowUnderQualified: allowUnderQualified,
           requester: requester,
@@ -3264,7 +3281,7 @@ class _ReplacementRequestsListPageState
             ],
           ),
           content: Column(
-            mainAxisSize: MainAxisSize.max,
+            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
@@ -3393,7 +3410,6 @@ class _ReplacementRequestsListPageState
 
 /// Dialog d'acceptation d'une AgentQuery avec sélection de disponibilité.
 /// Retourne true si l'utilisateur confirme, false/null sinon.
-/// Structure identique à ReplacementRequestDialog.
 class _AgentQueryAcceptDialog extends StatefulWidget {
   final AgentQuery query;
   final String stationName;
@@ -3421,14 +3437,15 @@ class _AgentQueryAcceptDialogState extends State<_AgentQueryAcceptDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primary = Theme.of(context).colorScheme.primary;
+
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Column(
-        mainAxisSize: MainAxisSize.max,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          // Header — même structure que ReplacementRequestDialog
+          // Header — identique à ReplacementRequestDialog
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
             decoration: BoxDecoration(
@@ -3462,60 +3479,39 @@ class _AgentQueryAcceptDialogState extends State<_AgentQueryAcceptDialog> {
               child: Padding(
                 padding: const EdgeInsets.all(24.0),
                 child: Column(
-                  mainAxisSize: MainAxisSize.max,
+                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Période demandée
+                    // Période — même style que ReplacementRequestDialog
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: isDark
-                            ? Colors.blue.shade900
-                            : Colors.blue.shade50,
+                        color: isDark ? Colors.blue.shade900 : Colors.blue.shade50,
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
-                          color: isDark
-                              ? Colors.blue.shade700
-                              : Colors.blue.shade200,
+                          color: isDark ? Colors.blue.shade700 : Colors.blue.shade200,
                         ),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
+                          const Row(
                             children: [
-                              const Icon(Icons.calendar_today, size: 16),
-                              const SizedBox(width: 8),
-                              const Text(
-                                'Période:',
-                                style: TextStyle(fontWeight: FontWeight.bold),
-                              ),
+                              Icon(Icons.calendar_today, size: 16),
+                              SizedBox(width: 8),
+                              Text('Période:', style: TextStyle(fontWeight: FontWeight.bold)),
                             ],
                           ),
                           const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              const Text('Du: '),
-                              Text(
-                                _fmt(widget.query.startTime),
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
+                          Row(children: [
+                            const Text('Du: '),
+                            Text(_fmt(widget.query.startTime), style: const TextStyle(fontWeight: FontWeight.bold)),
+                          ]),
                           const SizedBox(height: 4),
-                          Row(
-                            children: [
-                              const Text('Au: '),
-                              Text(
-                                _fmt(widget.query.endTime),
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
+                          Row(children: [
+                            const Text('Au: '),
+                            Text(_fmt(widget.query.endTime), style: const TextStyle(fontWeight: FontWeight.bold)),
+                          ]),
                         ],
                       ),
                     ),
@@ -3530,34 +3526,20 @@ class _AgentQueryAcceptDialogState extends State<_AgentQueryAcceptDialog> {
                     // Station
                     if (widget.stationName.isNotEmpty) ...[
                       const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.location_on,
-                            size: 16,
-                            color: Colors.grey,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            widget.stationName,
-                            style: const TextStyle(fontSize: 14),
-                          ),
-                        ],
-                      ),
+                      Row(children: [
+                        const Icon(Icons.location_on, size: 16, color: Colors.grey),
+                        const SizedBox(width: 8),
+                        Text(widget.stationName, style: const TextStyle(fontSize: 14)),
+                      ]),
                     ],
                     // Équipe
                     if (widget.team.isNotEmpty) ...[
                       const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          const Icon(Icons.group, size: 16, color: Colors.grey),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Équipe ${widget.team}',
-                            style: const TextStyle(fontSize: 14),
-                          ),
-                        ],
-                      ),
+                      Row(children: [
+                        const Icon(Icons.group, size: 16, color: Colors.grey),
+                        const SizedBox(width: 8),
+                        Text('Équipe ${widget.team}', style: const TextStyle(fontSize: 14)),
+                      ]),
                     ],
                   ],
                 ),
@@ -3568,14 +3550,10 @@ class _AgentQueryAcceptDialogState extends State<_AgentQueryAcceptDialog> {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Theme.of(context).brightness == Brightness.dark
-                  ? Colors.grey.shade900
-                  : Colors.grey.shade50,
+              color: isDark ? Colors.grey.shade900 : Colors.grey.shade50,
               border: Border(
                 top: BorderSide(
-                  color: Theme.of(context).brightness == Brightness.dark
-                      ? Colors.grey.shade800
-                      : Colors.grey.shade200,
+                  color: isDark ? Colors.grey.shade800 : Colors.grey.shade200,
                 ),
               ),
               borderRadius: const BorderRadius.only(
@@ -3594,9 +3572,7 @@ class _AgentQueryAcceptDialogState extends State<_AgentQueryAcceptDialog> {
                       foregroundColor: Colors.red.shade700,
                       side: BorderSide(color: Colors.red.shade300),
                       padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     ),
                   ),
                 ),
@@ -3610,9 +3586,7 @@ class _AgentQueryAcceptDialogState extends State<_AgentQueryAcceptDialog> {
                       backgroundColor: primary,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     ),
                   ),
                 ),
@@ -3630,6 +3604,7 @@ class _WaveDetailsDialog extends StatefulWidget {
   final ReplacementRequest request;
   final Map<int, List<User>> waveGroups;
   final List<String> notifiedUserIds;
+  final List<String> unlockedAgentIds;
   final ReplacementMode replacementMode;
   final bool allowUnderQualified;
   final User requester;
@@ -3641,6 +3616,7 @@ class _WaveDetailsDialog extends StatefulWidget {
     required this.request,
     required this.waveGroups,
     required this.notifiedUserIds,
+    required this.unlockedAgentIds,
     required this.replacementMode,
     required this.allowUnderQualified,
     required this.requester,
@@ -4056,143 +4032,22 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
                         if (isExpanded)
                           wave == 0
                               ? _buildNonNotifiedUsersSection(users, isDark)
-                              : Padding(
-                                  padding: const EdgeInsets.fromLTRB(
-                                    20,
-                                    0,
-                                    20,
-                                    10,
-                                  ),
-                                  child: Column(
-                                    children: users.map((user) {
-                                      // Utiliser waveUserIds si disponible (stocké lors de l'envoi)
-                                      // pour éviter le désalignement dû au recalcul côté UI.
-                                      // Fallback sur notifiedUserIds pour les demandes legacy.
-                                      final waveSpecificIds =
-                                          widget.request.waveUserIds[wave];
-                                      final isNotified = waveSpecificIds != null
-                                          ? waveSpecificIds.contains(user.id)
-                                          : widget.notifiedUserIds.contains(
-                                              user.id,
-                                            );
-                                      final hasDeclined = _declinedUserIds
-                                          .contains(user.id);
-                                      final hasSeen = widget
-                                          .request
-                                          .seenByUserIds
-                                          .contains(user.id);
-                                      final isValidated =
-                                          _validatedUserIds.contains(user.id) ||
-                                          (widget.request.status ==
-                                                  ReplacementRequestStatus
-                                                      .accepted &&
-                                              widget.request.replacerId ==
-                                                  user.id);
-                                      final isPendingValidation = widget
-                                          .request
-                                          .pendingValidationUserIds
-                                          .contains(user.id);
-
-                                      String statusLabel;
-                                      Color statusColor;
-                                      IconData statusIcon;
-
-                                      if (hasDeclined) {
-                                        statusLabel = 'Refusé';
-                                        statusColor = Colors.red.shade400;
-                                        statusIcon = Icons.cancel_rounded;
-                                      } else if (isValidated) {
-                                        statusLabel = 'Validé';
-                                        statusColor = Colors.green.shade400;
-                                        statusIcon = Icons.check_circle_rounded;
-                                      } else if (isPendingValidation) {
-                                        statusLabel = 'En attente valid.';
-                                        statusColor = Colors.green.shade400;
-                                        statusIcon = Icons.schedule_rounded;
-                                      } else if (hasSeen) {
-                                        statusLabel = 'Vu';
-                                        statusColor = isDark
-                                            ? Colors.grey[400]!
-                                            : Colors.grey.shade600;
-                                        statusIcon = Icons.visibility_rounded;
-                                      } else if (isNotified) {
-                                        statusLabel = 'En attente';
-                                        statusColor = Colors.orange.shade400;
-                                        statusIcon = Icons.schedule_rounded;
-                                      } else {
-                                        statusLabel = 'Non notifié';
-                                        statusColor = isDark
-                                            ? Colors.grey[500]!
-                                            : Colors.grey.shade500;
-                                        statusIcon =
-                                            Icons.person_outline_rounded;
-                                      }
-
-                                      return Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                          vertical: 3,
-                                        ),
-                                        child: Row(
-                                          children: [
-                                            Icon(
-                                              statusIcon,
-                                              size: 15,
-                                              color: statusColor,
-                                            ),
-                                            const SizedBox(width: 8),
-                                            Expanded(
-                                              child: Text(
-                                                user.displayName,
-                                                style: TextStyle(
-                                                  fontSize: 13,
-                                                  color: hasDeclined
-                                                      ? (isDark
-                                                            ? Colors.grey[500]
-                                                            : Colors
-                                                                  .grey
-                                                                  .shade500)
-                                                      : null,
-                                                  fontWeight:
-                                                      isNotified ||
-                                                          isValidated ||
-                                                          isPendingValidation
-                                                      ? FontWeight.w600
-                                                      : FontWeight.normal,
-                                                  decoration: hasDeclined
-                                                      ? TextDecoration
-                                                            .lineThrough
-                                                      : null,
-                                                ),
-                                              ),
-                                            ),
-                                            Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 6,
-                                                    vertical: 2,
-                                                  ),
-                                              decoration: BoxDecoration(
-                                                color: statusColor.withValues(
-                                                  alpha: isDark ? 0.18 : 0.1,
-                                                ),
-                                                borderRadius:
-                                                    BorderRadius.circular(6),
-                                              ),
-                                              child: Text(
-                                                statusLabel,
-                                                style: TextStyle(
-                                                  fontSize: 10,
-                                                  color: statusColor,
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      );
-                                    }).toList(),
-                                  ),
-                                ),
+                              : wave == 5 &&
+                                    widget.unlockedAgentIds.isNotEmpty
+                                  ? _buildWave5WithUnlocked(users, isDark)
+                                  : Padding(
+                                      padding: const EdgeInsets.fromLTRB(
+                                        20,
+                                        0,
+                                        20,
+                                        10,
+                                      ),
+                                      child: Column(
+                                        children: users
+                                            .map((u) => _buildUserTile(u, isDark))
+                                            .toList(),
+                                      ),
+                                    ),
                       ],
                     );
                   },
@@ -4201,6 +4056,135 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// Construit une ligne d'agent avec son badge de statut (réutilisé dans plusieurs sections)
+  Widget _buildUserTile(User user, bool isDark) {
+    // Le statut "notifié" se base sur notifiedUserIds (qui a réellement reçu
+    // une notification), pas sur waveUserIds (qui indique l'appartenance à une vague).
+    final isNotified = widget.notifiedUserIds.contains(user.id);
+    final hasDeclined = _declinedUserIds.contains(user.id);
+    final hasSeen = widget.request.seenByUserIds.contains(user.id);
+    final isValidated = _validatedUserIds.contains(user.id) ||
+        (widget.request.status == ReplacementRequestStatus.accepted &&
+            widget.request.replacerId == user.id);
+    final isPendingValidation =
+        widget.request.pendingValidationUserIds.contains(user.id);
+
+    String statusLabel;
+    Color statusColor;
+    IconData statusIcon;
+
+    if (hasDeclined) {
+      statusLabel = 'Refusé';
+      statusColor = Colors.red.shade400;
+      statusIcon = Icons.cancel_rounded;
+    } else if (isValidated) {
+      statusLabel = 'Validé';
+      statusColor = Colors.green.shade400;
+      statusIcon = Icons.check_circle_rounded;
+    } else if (isPendingValidation) {
+      statusLabel = 'En attente valid.';
+      statusColor = Colors.green.shade400;
+      statusIcon = Icons.schedule_rounded;
+    } else if (hasSeen) {
+      statusLabel = 'Vu';
+      statusColor = isDark ? Colors.grey[400]! : Colors.grey.shade600;
+      statusIcon = Icons.visibility_rounded;
+    } else if (isNotified) {
+      statusLabel = 'En attente';
+      statusColor = Colors.orange.shade400;
+      statusIcon = Icons.schedule_rounded;
+    } else {
+      statusLabel = 'Non notifié';
+      statusColor = isDark ? Colors.grey[500]! : Colors.grey.shade500;
+      statusIcon = Icons.person_outline_rounded;
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Icon(statusIcon, size: 15, color: statusColor),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              user.displayName,
+              style: TextStyle(
+                fontSize: 13,
+                color: hasDeclined
+                    ? (isDark ? Colors.grey[500] : Colors.grey.shade500)
+                    : null,
+                fontWeight: isNotified || isValidated || isPendingValidation
+                    ? FontWeight.w600
+                    : FontWeight.normal,
+                decoration:
+                    hasDeclined ? TextDecoration.lineThrough : null,
+              ),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: statusColor.withValues(alpha: isDark ? 0.18 : 0.1),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              statusLabel,
+              style: TextStyle(
+                fontSize: 10,
+                color: statusColor,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Construit la vague 5 avec une sous-section "Agents débloqués"
+  Widget _buildWave5WithUnlocked(List<User> users, bool isDark) {
+    final unlockedSet = Set<String>.from(widget.unlockedAgentIds);
+    final regularUsers = users.where((u) => !unlockedSet.contains(u.id)).toList();
+    final unlockedUsers = users.where((u) => unlockedSet.contains(u.id)).toList();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Agents normaux de la vague 5
+          ...regularUsers.map((u) => _buildUserTile(u, isDark)),
+          // Sous-catégorie agents débloqués
+          if (unlockedUsers.isNotEmpty) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(0, 10, 0, 4),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.lock_open_rounded,
+                    size: 13,
+                    color: Colors.deepPurple.shade400,
+                  ),
+                  const SizedBox(width: 5),
+                  Text(
+                    'Agents débloqués',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.deepPurple.shade400,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            ...unlockedUsers.map((u) => _buildUserTile(u, isDark)),
+          ],
+        ],
       ),
     );
   }

@@ -82,13 +82,17 @@ class ShiftExchangeRequest {
   /// Création depuis JSON Firestore
   factory ShiftExchangeRequest.fromJson(Map<String, dynamic> json) {
     return ShiftExchangeRequest(
-      id: json['id'] as String,
-      initiatorId: json['initiatorId'] as String,
-      initiatorName: json['initiatorName'] as String,
-      initiatorPlanningId: json['initiatorPlanningId'] as String,
-      initiatorStartTime: (json['initiatorStartTime'] as Timestamp).toDate(),
-      initiatorEndTime: (json['initiatorEndTime'] as Timestamp).toDate(),
-      station: json['station'] as String,
+      id: json['id'] as String? ?? '',
+      initiatorId: json['initiatorId'] as String? ?? '',
+      initiatorName: json['initiatorName'] as String? ?? '',
+      initiatorPlanningId: json['initiatorPlanningId'] as String? ?? '',
+      initiatorStartTime: json['initiatorStartTime'] != null
+          ? (json['initiatorStartTime'] as Timestamp).toDate()
+          : DateTime.now(),
+      initiatorEndTime: json['initiatorEndTime'] != null
+          ? (json['initiatorEndTime'] as Timestamp).toDate()
+          : DateTime.now(),
+      station: json['station'] as String? ?? '',
       initiatorTeam: json['initiatorTeam'] as String?,
       requiredKeySkills: json['requiredKeySkills'] != null
           ? List<String>.from(json['requiredKeySkills'] as List)

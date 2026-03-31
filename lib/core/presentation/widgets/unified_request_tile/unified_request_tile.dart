@@ -7,7 +7,7 @@ import 'unified_tile_enums.dart';
 import 'components/status_badge.dart';
 import 'components/type_indicator.dart';
 import 'components/request_column.dart';
-import 'components/tile_action_bar.dart';
+import 'components/tile_actions_footer.dart';
 import 'components/special_indicators.dart';
 
 /// Widget principal de tuile unifiée pour les demandes de remplacement et échanges
@@ -68,6 +68,12 @@ class UnifiedRequestTile extends StatefulWidget {
   /// Callback pour relancer les notifications (vague 5)
   final VoidCallback? onResendNotifications;
 
+  /// Callback pour débloquer les compétences-clés (myRequests, vague 5+, chef/admin)
+  final VoidCallback? onUnlockKeySkills;
+
+  /// Callback pour voir le détail (navigation vers la page de détail)
+  final VoidCallback? onViewDetails;
+
   /// Afficher le bouton DEV (uniquement en mode dev)
   final bool showDevButton;
 
@@ -96,6 +102,8 @@ class UnifiedRequestTile extends StatefulWidget {
     this.onProposalsTap,
     this.onSkipToNextWave,
     this.onResendNotifications,
+    this.onUnlockKeySkills,
+    this.onViewDetails,
     this.showDevButton = false,
     this.acceptButtonText,
     this.refuseButtonText,
@@ -169,6 +177,28 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
     final leftChiefsCount = validationChiefs.length;
     final rightChiefsCount = 0; // Pour l'instant, pas de chefs côté droit
 
+    // Calculer le footer avant la construction de la carte
+    final footer = TileActionsFooter(
+      viewMode: widget.viewMode,
+      requestType: widget.data.requestType,
+      canAct: canActNow,
+      currentWave: widget.data.currentWave,
+      proposalCount: widget.data.proposalCount,
+      usesWaveSystem: usesWaveSystem,
+      onAccept: widget.onAccept,
+      onRefuse: widget.onRefuse,
+      onValidate: widget.onValidate,
+      onDelete: widget.onDelete,
+      onWaveTap: widget.onWaveTap,
+      onProposalsTap: widget.onProposalsTap,
+      onResendNotifications: widget.onResendNotifications,
+      onUnlockKeySkills: widget.onUnlockKeySkills,
+      onViewDetails: widget.onViewDetails,
+      acceptButtonText: widget.acceptButtonText,
+      refuseButtonText: widget.refuseButtonText,
+    );
+    final hasFooter = widget.viewMode != TileViewMode.history;
+
     Widget card = Card(
       margin: const EdgeInsets.only(bottom: 12),
       elevation: 2,
@@ -181,135 +211,99 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
       child: InkWell(
         onTap: widget.onTap,
         borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // En-tête de validation (si présent)
-              if (validationChiefs.isNotEmpty) ...[
-                ValidationHeader(chiefs: validationChiefs, showDivider: true),
-                const SizedBox(height: 12),
-              ],
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Corps de la carte (padded)
+            Padding(
+              padding: EdgeInsets.fromLTRB(16, 16, 16, hasFooter ? 12 : 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // En-tête de validation (si présent)
+                  if (validationChiefs.isNotEmpty) ...[
+                    ValidationHeader(chiefs: validationChiefs, showDivider: true),
+                    const SizedBox(height: 12),
+                  ],
 
-              // Layout principal : 2 colonnes avec icône centrale
-              Builder(
-                builder: (context) {
-                  // Calculer si les badges doivent être affichés
-                  final badgeVisibility = _calculateBadgeVisibility(
-                    hasDeclined,
-                  );
+                  // Layout principal : 2 colonnes avec icône centrale
+                  Builder(
+                    builder: (context) {
+                      final badgeVisibility = _calculateBadgeVisibility(hasDeclined);
 
-                  return Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Colonne gauche (demandeur)
-                      Expanded(
-                        child: RequestColumn(
-                          data: widget.data.leftColumn,
-                          statusBadge: _buildLeftStatusBadge(hasDeclined),
-                          showBadge: badgeVisibility.leftBadge,
-                          emptyLinesForAlignment:
-                              rightChiefsCount > leftChiefsCount
-                              ? rightChiefsCount - leftChiefsCount
-                              : 0,
-                        ),
-                      ),
-
-                      // Icône centrale
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        child: Padding(
-                          padding: const EdgeInsets.only(top: 40),
-                          child: TypeIndicator(
-                            requestType: widget.data.requestType,
-                            status: widget.data.status,
-                            size: 28,
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: RequestColumn(
+                              data: widget.data.leftColumn,
+                              statusBadge: _buildLeftStatusBadge(hasDeclined),
+                              showBadge: badgeVisibility.leftBadge,
+                              emptyLinesForAlignment:
+                                  rightChiefsCount > leftChiefsCount
+                                  ? rightChiefsCount - leftChiefsCount
+                                  : 0,
+                            ),
                           ),
-                        ),
-                      ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            child: Padding(
+                              padding: const EdgeInsets.only(top: 40),
+                              child: TypeIndicator(
+                                requestType: widget.data.requestType,
+                                status: widget.data.status,
+                                size: 28,
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: widget.data.hasRightColumn
+                                ? RequestColumn(
+                                    data: widget.data.rightColumn!,
+                                    statusBadge: _buildRightStatusBadge(),
+                                    showBadge: badgeVisibility.rightBadge,
+                                    emptyLinesForAlignment:
+                                        leftChiefsCount > rightChiefsCount
+                                        ? leftChiefsCount - rightChiefsCount
+                                        : 0,
+                                    showDates: widget.data.requestType !=
+                                        UnifiedRequestType.agentQuery,
+                                    showStation: widget.data.requestType !=
+                                        UnifiedRequestType.agentQuery,
+                                  )
+                                : _buildEmptyColumnWithDelete(),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
 
-                      // Colonne droite (remplaçant/proposeur) ou bouton suppression
-                      Expanded(
-                        child: widget.data.hasRightColumn
-                            ? RequestColumn(
-                                data: widget.data.rightColumn!,
-                                statusBadge: _buildRightStatusBadge(),
-                                showBadge: badgeVisibility.rightBadge,
-                                emptyLinesForAlignment:
-                                    leftChiefsCount > rightChiefsCount
-                                    ? leftChiefsCount - rightChiefsCount
-                                    : 0,
-                                // Pour les AgentQuery, la colonne droite affiche les skills
-                                // sans répéter les dates (déjà dans la colonne gauche)
-                                showDates:
-                                    widget.data.requestType !=
-                                    UnifiedRequestType.agentQuery,
-                                showStation:
-                                    widget.data.requestType !=
-                                    UnifiedRequestType.agentQuery,
-                              )
-                            : _buildEmptyColumnWithDelete(),
-                      ),
-                    ],
-                  );
-                },
+                  // Indicateurs spéciaux — uniquement en historique
+                  if (_hasSpecialIndicators(isUserNotified) &&
+                      widget.viewMode == TileViewMode.history) ...[
+                    const SizedBox(height: 12),
+                    SpecialIndicatorsBar(
+                      currentWave: widget.data.currentWave,
+                      notifiedCount:
+                          widget.data.requestType == UnifiedRequestType.exchange
+                          ? null
+                          : widget.data.notifiedUserIds.length,
+                      proposalCount: widget.data.proposalCount,
+                      isUserNotified: isUserNotified,
+                      isMyRequestsMode: widget.viewMode == TileViewMode.myRequests,
+                      onWaveTap: widget.onWaveTap,
+                      onNotifiedTap: widget.onWaveTap,
+                      onProposalsTap: widget.onProposalsTap,
+                      onNotNotifiedTap: widget.onWaveTap,
+                    ),
+                  ],
+                ],
               ),
+            ),
 
-              // Indicateurs spéciaux (vague, propositions)
-              if (_hasSpecialIndicators(isUserNotified)) ...[
-                const SizedBox(height: 12),
-                SpecialIndicatorsBar(
-                  currentWave: widget.data.currentWave,
-                  // Ne pas afficher le notifiedCount pour les échanges (pas pertinent)
-                  notifiedCount:
-                      widget.data.requestType == UnifiedRequestType.exchange
-                      ? null
-                      : widget.data.notifiedUserIds.length,
-                  proposalCount: widget.data.proposalCount,
-                  isUserNotified: isUserNotified,
-                  isMyRequestsMode: widget.viewMode == TileViewMode.myRequests,
-                  onWaveTap: widget.onWaveTap,
-                  onNotifiedTap: widget.onWaveTap,
-                  onProposalsTap: widget.onProposalsTap,
-                  onNotNotifiedTap: widget.onWaveTap,
-                ),
-              ],
-
-              // Barre d'actions (sans divider)
-              if (widget.viewMode != TileViewMode.history && canActNow) ...[
-                const SizedBox(height: 16),
-                TileActionBar(
-                  viewMode: widget.viewMode,
-                  canAct: canActNow,
-                  onDelete:
-                      null, // Le bouton suppression est dans la colonne droite
-                  onAccept: widget.onAccept,
-                  onRefuse: widget.onRefuse,
-                  onValidate: widget.onValidate,
-                  acceptButtonText: widget.acceptButtonText,
-                  refuseButtonText: widget.refuseButtonText,
-                ),
-              ],
-
-              //// Bouton DEV uniquement : Passer à la vague suivante (sans divider)
-              //if (widget.showDevButton && widget.onSkipToNextWave != null) ...[
-              //  const SizedBox(height: 12),
-              //  SizedBox(
-              //    width: double.infinity,
-              //    child: OutlinedButton.icon(
-              //      onPressed: widget.onSkipToNextWave,
-              //      icon: const Icon(Icons.fast_forward, size: 18),
-              //      label: const Text('DEV: Passer à la vague suivante'),
-              //      style: OutlinedButton.styleFrom(
-              //        foregroundColor: Colors.orange,
-              //        side: const BorderSide(color: Colors.orange),
-              //      ),
-              //    ),
-              //  ),
-              //],
-            ],
-          ),
+            // Footer collé au bas, hors padding, avec fond teinté
+            if (hasFooter) footer,
+          ],
         ),
       ),
     );

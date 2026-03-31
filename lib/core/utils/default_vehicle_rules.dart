@@ -244,12 +244,12 @@ class KDefaultVehicleRules {
           CrewPosition(
             id: 'driver',
             label: 'Conducteur',
-            requiredSkills: [KSkills.cod0, KSkills.vps],
+            requiredSkills: [KSkills.cod0, KSkills.sr],
           ),
           CrewPosition(
             id: 'team_leader',
             label: 'Chef d\'agrès',
-            requiredSkills: [KSkills.vpsCA],
+            requiredSkills: [KSkills.srCA],
           ),
         ],
       ),

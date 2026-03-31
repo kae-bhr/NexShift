@@ -50,6 +50,9 @@ class ReplacementTileWrapper extends StatefulWidget {
   /// Callback pour relancer les notifications (vague 5)
   final VoidCallback? onResendNotifications;
 
+  /// Callback pour débloquer les compétences-clés (myRequests, vague 5+, chef/admin)
+  final VoidCallback? onUnlockKeySkills;
+
   const ReplacementTileWrapper({
     super.key,
     required this.request,
@@ -65,6 +68,7 @@ class ReplacementTileWrapper extends StatefulWidget {
     this.onMarkAsSeen,
     this.onSkipToNextWave,
     this.onResendNotifications,
+    this.onUnlockKeySkills,
   });
 
   @override
@@ -209,6 +213,7 @@ class _ReplacementTileWrapperState extends State<ReplacementTileWrapper> {
       showDevButton: showDevButton,
       onSkipToNextWave: widget.onSkipToNextWave,
       onResendNotifications: widget.viewMode == TileViewMode.myRequests ? widget.onResendNotifications : null,
+      onUnlockKeySkills: widget.viewMode == TileViewMode.myRequests ? widget.onUnlockKeySkills : null,
       acceptButtonText: 'Accepter',
       refuseButtonText: 'Refuser',
     );

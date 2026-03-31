@@ -180,6 +180,17 @@ class PushNotificationService {
         .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
         ?.createNotificationChannel(androidChannel);
 
+    // Canal dédié au rappel quotidien d'astreinte
+    const dailyReminderChannel = AndroidNotificationChannel(
+      'nexshift_daily_reminder',
+      'Rappel quotidien',
+      description: 'Rappel quotidien des astreintes à venir',
+      importance: Importance.defaultImportance,
+    );
+    await _localNotifications
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(dailyReminderChannel);
+
     debugPrint('✅ Local notifications initialized');
   }
 

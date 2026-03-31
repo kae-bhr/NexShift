@@ -8,6 +8,7 @@ import 'package:nexshift_app/core/presentation/pages/terms_of_service_page.dart'
 import 'package:nexshift_app/core/repositories/team_repository.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:nexshift_app/core/services/push_notification_service.dart';
+import 'package:nexshift_app/core/services/local_reminder_service.dart';
 import 'package:nexshift_app/features/auth/presentation/pages/login_page.dart';
 import 'package:nexshift_app/features/auth/presentation/pages/station_search_page.dart';
 import 'package:nexshift_app/features/auth/presentation/pages/welcome_page.dart';
@@ -597,13 +598,14 @@ class _SettingsPageState extends State<SettingsPage> {
                   // Récupérer l'utilisateur avant de le supprimer (pour avoir son ID)
                   final user = userNotifier.value;
 
-                  // Supprimer le token FCM de cet appareil
+                  // Supprimer le token FCM et annuler le rappel quotidien
                   if (user != null) {
                     final pushNotificationService = PushNotificationService();
                     await pushNotificationService.clearDeviceToken(
                       user.id,
                       authUid: user.authUid,
                     );
+                    await LocalReminderService().cancelReminder();
                   }
 
                   // IMPORTANT: Déconnecter Firebase Auth en premier

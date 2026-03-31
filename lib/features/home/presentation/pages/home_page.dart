@@ -33,8 +33,6 @@ import 'package:intl/intl.dart';
 import 'package:nexshift_app/core/data/models/station_model.dart';
 import 'package:nexshift_app/features/replacement/presentation/widgets/filtered_requests_view.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:nexshift_app/core/presentation/widgets/request_actions_bottom_sheet.dart';
-import 'package:nexshift_app/core/presentation/widgets/unified_request_tile/unified_tile_enums.dart';
 import 'package:nexshift_app/core/data/models/agent_query_model.dart';
 import 'package:nexshift_app/core/repositories/agent_query_repository.dart';
 import 'package:nexshift_app/core/services/agent_query_service.dart';
@@ -2158,9 +2156,6 @@ class _HomePageState extends State<HomePage> {
         targetName: targetName,
         startTime: request.startTime,
         endTime: request.endTime,
-        onLongPress: canDelete
-            ? () => _showReplacementRequestActionsBottomSheet(request)
-            : null,
       );
 
       if (canDelete) {
@@ -2199,9 +2194,6 @@ class _HomePageState extends State<HomePage> {
         targetName: null,
         startTime: exchange.initiatorStartTime,
         endTime: exchange.initiatorEndTime,
-        onLongPress: canDelete
-            ? () => _showExchangeRequestActionsBottomSheet(exchange)
-            : null,
       );
 
       if (canDelete) {
@@ -2237,9 +2229,6 @@ class _HomePageState extends State<HomePage> {
         targetName: proposal.replacerName,
         startTime: proposal.startTime,
         endTime: proposal.endTime,
-        onLongPress: canDelete
-            ? () => _showManualProposalActionsBottomSheet(proposal)
-            : null,
       );
 
       if (canDelete) {
@@ -2273,9 +2262,6 @@ class _HomePageState extends State<HomePage> {
         targetName: null,
         startTime: query.startTime,
         endTime: query.endTime,
-        onLongPress: canDelete
-            ? () => _showAgentQueryActionsBottomSheet(query, planning.team)
-            : null,
       );
 
       widgets.add(
@@ -2314,116 +2300,6 @@ class _HomePageState extends State<HomePage> {
     return false;
   }
 
-  /// Affiche le BottomSheet d'actions pour une demande de remplacement automatique
-  void _showReplacementRequestActionsBottomSheet(ReplacementRequest request) {
-    // Déterminer si le bouton de renotification doit être affiché
-    // Pour les remplacements automatiques : seulement à partir de la vague 5
-    final showResendButton = request.currentWave >= 5;
-
-    // Récupérer le nom du demandeur
-    final requester = _allUsers.firstWhere(
-      (u) => u.id == request.requesterId,
-      orElse: () => _allUsers.first,
-    );
-    final initiatorName = requester.displayName;
-
-    RequestActionsBottomSheet.show(
-      context: context,
-      requestType: request.isSOS
-          ? UnifiedRequestType.sosReplacement
-          : UnifiedRequestType.automaticReplacement,
-      initiatorName: initiatorName,
-      team: request.team,
-      station: _station?.name ?? request.station,
-      startTime: request.startTime,
-      endTime: request.endTime,
-      onResendNotifications: showResendButton
-          ? () => _resendReplacementNotifications(request)
-          : null,
-      onDelete: () => _cancelReplacementRequest(request),
-    );
-  }
-
-  /// Affiche le BottomSheet d'actions pour une demande d'échange
-  void _showExchangeRequestActionsBottomSheet(ShiftExchangeRequest exchange) {
-    RequestActionsBottomSheet.show(
-      context: context,
-      requestType: UnifiedRequestType.exchange,
-      initiatorName: exchange.initiatorName,
-      team: exchange.initiatorTeam,
-      station: _station?.name ?? exchange.station,
-      startTime: exchange.initiatorStartTime,
-      endTime: exchange.initiatorEndTime,
-      onResendNotifications: () => _resendExchangeNotifications(exchange),
-      onDelete: () => _cancelExchangeRequest(exchange),
-    );
-  }
-
-  /// Affiche le BottomSheet d'actions pour une proposition de remplacement manuel
-  void _showManualProposalActionsBottomSheet(
-    ManualReplacementProposal proposal,
-  ) {
-    RequestActionsBottomSheet.show(
-      context: context,
-      requestType: UnifiedRequestType.manualReplacement,
-      initiatorName: proposal.replacedName,
-      team: proposal.replacedTeam,
-      station: _station?.name ?? _user.station,
-      startTime: proposal.startTime,
-      endTime: proposal.endTime,
-      onResendNotifications: () => _resendManualProposalNotifications(proposal),
-      onDelete: () => _cancelManualProposal(proposal),
-    );
-  }
-
-  /// Relance les notifications pour une demande de remplacement automatique
-  Future<void> _resendReplacementNotifications(
-    ReplacementRequest request,
-  ) async {
-    // TODO: Implémenter la logique de renotification
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Notification de relance envoyée'),
-        backgroundColor: Colors.orange,
-      ),
-    );
-  }
-
-  /// Relance les notifications pour une demande d'échange
-  Future<void> _resendExchangeNotifications(
-    ShiftExchangeRequest exchange,
-  ) async {
-    // TODO: Implémenter la logique de renotification
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Notification de relance envoyée'),
-        backgroundColor: Colors.orange,
-      ),
-    );
-  }
-
-  /// Affiche le BottomSheet d'actions pour une recherche d'agent (AgentQuery)
-  void _showAgentQueryActionsBottomSheet(AgentQuery query, String team) {
-    final nonRespondedCount = query.notifiedUserIds
-        .where((id) => !query.declinedByUserIds.contains(id))
-        .length;
-
-    RequestActionsBottomSheet.show(
-      context: context,
-      requestType: UnifiedRequestType.agentQuery,
-      initiatorName: query.onCallLevelName,
-      team: team,
-      station: _station?.name ?? query.station,
-      startTime: query.startTime,
-      endTime: query.endTime,
-      usersToNotifyCount: nonRespondedCount,
-      onResendNotifications: nonRespondedCount > 0
-          ? () => _resendAgentQueryNotifications(query)
-          : null,
-      onDelete: () => _cancelAgentQueryFromPlanning(query),
-    );
-  }
-
   /// Annule une recherche d'agent depuis la PlanningCard
   Future<bool?> _cancelAgentQueryFromPlanning(AgentQuery query) async {
     try {
@@ -2445,49 +2321,6 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  /// Relance les notifications pour une recherche d'agent
-  Future<void> _resendAgentQueryNotifications(AgentQuery query) async {
-    final targetIds = query.notifiedUserIds
-        .where(
-          (id) =>
-              !query.declinedByUserIds.contains(id) &&
-              id != query.matchedAgentId,
-        )
-        .toList();
-    if (targetIds.isEmpty) return;
-    try {
-      await _agentQueryService.resendNotifications(
-        query: query,
-        targetUserIds: targetIds,
-      );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Notifications renvoyées à ${targetIds.length} agent${targetIds.length > 1 ? 's' : ''}.',
-            ),
-            backgroundColor: Colors.orange.shade700,
-          ),
-        );
-      }
-    } catch (e) {
-      debugPrint('Error resending agent query notifications: $e');
-    }
-  }
-
-  /// Relance les notifications pour une proposition de remplacement manuel
-  Future<void> _resendManualProposalNotifications(
-    ManualReplacementProposal proposal,
-  ) async {
-    // TODO: Implémenter la logique de renotification
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Notification de relance envoyée'),
-        backgroundColor: Colors.orange,
-      ),
-    );
-  }
-
   /// Construit un item de demande en cours
   Widget _buildRequestItem({
     required IconData icon,
@@ -2496,15 +2329,12 @@ class _HomePageState extends State<HomePage> {
     String? targetName,
     required DateTime startTime,
     required DateTime endTime,
-    VoidCallback? onLongPress,
   }) {
     final dateFormat = DateFormat('dd/MM HH:mm');
 
-    return GestureDetector(
-      onLongPress: onLongPress,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4.0),
-        child: Row(
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
           children: [
             Container(
               width: 28,
@@ -2565,7 +2395,6 @@ class _HomePageState extends State<HomePage> {
             ),
           ],
         ),
-      ),
     );
   }
 

@@ -44,11 +44,13 @@ class LeaderValidation {
 
   factory LeaderValidation.fromJson(Map<String, dynamic> json) {
     return LeaderValidation(
-      leaderId: json['leaderId'] as String,
-      team: json['team'] as String,
-      approved: json['approved'] as bool,
+      leaderId: json['leaderId'] as String? ?? '',
+      team: json['team'] as String? ?? '',
+      approved: json['approved'] as bool? ?? false,
       comment: json['comment'] as String?,
-      validatedAt: (json['validatedAt'] as Timestamp).toDate(),
+      validatedAt: json['validatedAt'] != null
+          ? (json['validatedAt'] as Timestamp).toDate()
+          : DateTime.now(),
     );
   }
 }
@@ -184,9 +186,9 @@ class ShiftExchangeProposal {
     }
 
     return ShiftExchangeProposal(
-      id: json['id'] as String,
-      requestId: json['requestId'] as String,
-      proposerId: json['proposerId'] as String,
+      id: json['id'] as String? ?? '',
+      requestId: json['requestId'] as String? ?? '',
+      proposerId: json['proposerId'] as String? ?? '',
       proposerName: json['proposerName'] as String? ?? '',
       proposedPlanningIds: planningIds,
       selectedPlanningId: json['selectedPlanningId'] as String?,

@@ -7,6 +7,7 @@ import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/repositories/local_repositories.dart';
 import 'package:nexshift_app/core/services/push_notification_service.dart';
+import 'package:nexshift_app/core/services/local_reminder_service.dart';
 import 'package:nexshift_app/core/services/subscription_service.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:nexshift_app/core/utils/station_name_cache.dart';
@@ -131,6 +132,14 @@ class EnterApp {
       }
     }
 
+    // 8. Planifier le rappel quotidien local
+    try {
+      await LocalReminderService().reschedule(cachedUser);
+      debugPrint('🟣 [ENTER_APP] restore() - local reminder scheduled');
+    } catch (e) {
+      debugPrint('🟣 [ENTER_APP] restore() - local reminder scheduling failed (non-blocking): $e');
+    }
+
     debugPrint('🟣 [ENTER_APP] restore() completed successfully');
     return true;
   }
@@ -240,6 +249,15 @@ class EnterApp {
     // vers WidgetTree ou ProfileCompletionPage selon le profil
     userNotifier.value = loadedUser;
     debugPrint('🟣 [ENTER_APP] userNotifier.value updated');
+
+    // Planifier le rappel quotidien local
+    try {
+      await LocalReminderService().reschedule(loadedUser);
+      debugPrint('🟣 [ENTER_APP] build() - local reminder scheduled');
+    } catch (e) {
+      debugPrint('🟣 [ENTER_APP] build() - local reminder scheduling failed (non-blocking): $e');
+    }
+
     debugPrint('🟣 [ENTER_APP] EnterApp.build completed - MaterialApp should now navigate');
   }
 }

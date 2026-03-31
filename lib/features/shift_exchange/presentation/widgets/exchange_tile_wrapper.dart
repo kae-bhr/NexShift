@@ -254,22 +254,19 @@ class _ExchangeTileWrapperState extends State<ExchangeTileWrapper> {
         break;
     }
 
-    // onTap uniquement pour le mode "Mes demandes" (ouvre le BottomSheet)
     final isInitiator = widget.request.initiatorId == widget.currentUserId;
-    final effectiveOnTap = widget.viewMode == TileViewMode.myRequests && isInitiator ? widget.onTap : null;
 
     return UnifiedRequestTile(
       data: tileData,
       viewMode: widget.viewMode,
       currentUserId: widget.currentUserId,
       canAct: canAct,
-      onTap: effectiveOnTap,
       onDelete: widget.viewMode == TileViewMode.myRequests ? widget.onDelete : null,
       onAccept: onAccept,
       onRefuse: onRefuse,
       onProposalsTap: widget.onSelectProposal,
       onResendNotifications: widget.viewMode == TileViewMode.myRequests && isInitiator ? widget.onResendNotifications : null,
-      acceptButtonText: widget.viewMode == TileViewMode.pending ? 'Proposer' : 'Valider',
+      acceptButtonText: 'Accepter',
       refuseButtonText: 'Refuser',
     );
   }

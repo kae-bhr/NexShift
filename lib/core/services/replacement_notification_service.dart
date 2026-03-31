@@ -73,6 +73,14 @@ class ReplacementRequest {
   // Permet à l'UI d'afficher le statut exact sans recalculer les vagues.
   final Map<int, List<String>> waveUserIds;
 
+  // IDs des agents ajoutés à la vague 5 suite à un déblocage de compétences-clés.
+  // Sous-ensemble de waveUserIds[5], utilisé pour afficher la sous-catégorie "Agents débloqués".
+  final List<String> unlockedAgentIds;
+
+  // KeySkills effectives de la demande après éventuel déblocage.
+  // Null = pas encore débloqué, on utilise les keySkills du profil du demandeur.
+  final List<String>? effectiveKeySkills;
+
   ReplacementRequest({
     required this.id,
     required this.requesterId,
@@ -100,6 +108,8 @@ class ReplacementRequest {
     this.wavesSuspended = false,
     this.isSOS = false,
     this.waveUserIds = const {},
+    this.unlockedAgentIds = const [],
+    this.effectiveKeySkills,
   });
 
   Map<String, dynamic> toJson() {
@@ -136,6 +146,8 @@ class ReplacementRequest {
         'waveUserIds': {
           for (final e in waveUserIds.entries) e.key.toString(): e.value,
         },
+      if (unlockedAgentIds.isNotEmpty) 'unlockedAgentIds': unlockedAgentIds,
+      if (effectiveKeySkills != null) 'effectiveKeySkills': effectiveKeySkills,
     };
   }
 
@@ -198,6 +210,12 @@ class ReplacementRequest {
       wavesSuspended: json['wavesSuspended'] as bool? ?? false,
       isSOS: json['isSOS'] as bool? ?? false,
       waveUserIds: _parseWaveUserIds(json['waveUserIds']),
+      unlockedAgentIds: json['unlockedAgentIds'] != null
+          ? List<String>.from(json['unlockedAgentIds'] as List)
+          : const [],
+      effectiveKeySkills: json['effectiveKeySkills'] != null
+          ? List<String>.from(json['effectiveKeySkills'] as List)
+          : null,
     );
   }
 

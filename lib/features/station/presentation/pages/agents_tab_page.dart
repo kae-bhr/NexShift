@@ -67,7 +67,7 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
     });
   }
 
-  /// Renvoie la compétence la plus haute pour une catégorie donnée (SUAP/PPBE/INC/COD)
+  /// Renvoie la compétence la plus haute pour une catégorie donnée
   String? _highestForCategory(List<String> skills, String category) {
     // Ordre de priorité spécifique par catégorie (du plus haut vers le plus bas)
     final List<String> ordered;
@@ -81,8 +81,17 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
       case 'INC':
         ordered = [KSkills.incCA, KSkills.incCE, KSkills.inc, KSkills.incA];
         break;
+      case 'SR':
+        ordered = [KSkills.srCA, KSkills.sr];
+        break;
       case 'COD':
-        ordered = [KSkills.cod2PL, KSkills.cod2VL, KSkills.cod1, KSkills.cod0];
+        ordered = [KSkills.cod6, KSkills.cod5, KSkills.cod3, KSkills.cod2PL, KSkills.cod2VL, KSkills.cod4, KSkills.cod1, KSkills.cod0];
+        break;
+      case 'FDF':
+        ordered = [KSkills.fdf5, KSkills.fdf4, KSkills.fdf3, KSkills.fdf2, KSkills.fdf1];
+        break;
+      case 'CYNO':
+        ordered = [KSkills.cyno2, KSkills.cyno1];
         break;
       default:
         ordered = [];

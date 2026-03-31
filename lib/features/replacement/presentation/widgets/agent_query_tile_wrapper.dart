@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/core/data/models/agent_query_model.dart';
-import 'package:nexshift_app/core/presentation/widgets/request_actions_bottom_sheet.dart';
 import 'package:nexshift_app/core/presentation/widgets/unified_request_tile/adapters/agent_query_adapter.dart';
 import 'package:nexshift_app/core/presentation/widgets/unified_request_tile/unified_request_tile.dart';
 import 'package:nexshift_app/core/presentation/widgets/unified_request_tile/unified_tile_enums.dart';
@@ -83,25 +82,6 @@ class _AgentQueryTileWrapperState extends State<AgentQueryTileWrapper> {
     return TileViewMode.pending;
   }
 
-  void _showActionsBottomSheet(BuildContext context) {
-    final nonRespondedCount = widget.query.notifiedUserIds
-        .where((id) => !widget.query.declinedByUserIds.contains(id))
-        .length;
-
-    RequestActionsBottomSheet.show(
-      context: context,
-      requestType: UnifiedRequestType.agentQuery,
-      initiatorName: 'Recherche agent',
-      team: _resolvedTeam,
-      station: _resolvedStationName ?? widget.query.station,
-      startTime: widget.query.startTime,
-      endTime: widget.query.endTime,
-      usersToNotifyCount: nonRespondedCount,
-      onResendNotifications: widget.onResendNotifications,
-      onDelete: widget.onCancel,
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final stationName = _resolvedStationName ?? widget.query.station;
@@ -126,9 +106,6 @@ class _AgentQueryTileWrapperState extends State<AgentQueryTileWrapper> {
       viewMode: viewMode,
       currentUserId: widget.currentUserId ?? '',
       canAct: canAct,
-      onTap: viewMode == TileViewMode.myRequests
-          ? () => _showActionsBottomSheet(context)
-          : null,
       onDelete: viewMode == TileViewMode.myRequests && canAct
           ? widget.onCancel
           : null,
@@ -139,6 +116,9 @@ class _AgentQueryTileWrapperState extends State<AgentQueryTileWrapper> {
           ? widget.onDecline
           : null,
       onWaveTap: widget.onShowNotified,
+      onResendNotifications: viewMode == TileViewMode.myRequests && canAct
+          ? widget.onResendNotifications
+          : null,
       onMarkAsSeen: viewMode == TileViewMode.pending ? widget.onMarkAsSeen : null,
       acceptButtonText: 'Accepter',
       refuseButtonText: 'Refuser',

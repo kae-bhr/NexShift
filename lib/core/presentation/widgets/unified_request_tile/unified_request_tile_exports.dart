@@ -18,6 +18,7 @@ export 'components/status_badge.dart';
 export 'components/type_indicator.dart';
 export 'components/request_column.dart';
 export 'components/tile_action_bar.dart';
+export 'components/tile_actions_footer.dart';
 export 'components/special_indicators.dart';
 
 // Adaptateurs

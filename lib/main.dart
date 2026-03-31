@@ -27,8 +27,11 @@ import 'package:nexshift_app/features/auth/presentation/widgets/enter_app_widget
 import 'package:nexshift_app/features/replacement/presentation/pages/replacement_request_dialog.dart';
 import 'package:nexshift_app/features/replacement/presentation/pages/replacement_requests_list_page.dart';
 import 'package:nexshift_app/core/services/preferences_service.dart';
+import 'package:nexshift_app/core/services/local_reminder_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:nexshift_app/firebase_options.dart';
+import 'package:timezone/data/latest_10y.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
 
 // Global key for navigation
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -124,6 +127,10 @@ void main() async {
       level: LogLevel.error,
     );
   }
+
+  // Initialiser la base de données timezone pour les notifications schedulées
+  tz.initializeTimeZones();
+  tz.setLocalLocation(tz.getLocation('Europe/Paris'));
 
   runApp(const NexShift());
 }
@@ -242,6 +249,13 @@ class _NexShiftState extends State<NexShift> with WidgetsBindingObserver {
       if (pending != null) {
         debugPrint('📱 [LIFECYCLE] Replaying pending notification: ${pending.messageId}');
         _handleNotificationTap(pending.data);
+      }
+      // Rafraîchir le contenu du rappel quotidien avec les plannings à jour
+      final user = userNotifier.value;
+      if (user != null && user.personalAlertEnabled) {
+        LocalReminderService().reschedule(user).catchError((e) {
+          debugPrint('📱 [LIFECYCLE] Reminder reschedule on resume failed: $e');
+        });
       }
     }
   }
