@@ -2394,7 +2394,7 @@ class _HomePageState extends State<HomePage> {
                     ),
                   const SizedBox(height: 2),
                   Text(
-                    '${dateFormat.format(startTime)} → ${dateFormat.format(endTime)}',
+                    '${dateFormat.format(startTime.toUtc())} → ${dateFormat.format(endTime.toUtc())}',
                     style: TextStyle(fontSize: 11, color: Colors.grey[500]),
                   ),
                 ],
