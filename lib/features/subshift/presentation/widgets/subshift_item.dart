@@ -161,7 +161,7 @@ class SubShiftItem extends StatelessWidget {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    "${DateFormat('dd/MM HH:mm').format(subShift.start)} \u2192 ${DateFormat('dd/MM HH:mm').format(subShift.end)}",
+                    "${DateFormat('dd/MM HH:mm').format(subShift.start.toUtc())} \u2192 ${DateFormat('dd/MM HH:mm').format(subShift.end.toUtc())}",
                     style: TextStyle(
                       fontSize: 12,
                       color: isDark

@@ -294,7 +294,7 @@ class _SkillSearchPageState extends State<SkillSearchPage> {
             const SizedBox(height: 4),
             if (startDateTime != null && endDateTime != null)
               Text(
-                'Période : ${DateFormat('dd/MM HH:mm').format(startDateTime!)} → ${DateFormat('dd/MM HH:mm').format(endDateTime!)}',
+                'Période : ${DateFormat('dd/MM HH:mm').format(startDateTime!.toUtc())} → ${DateFormat('dd/MM HH:mm').format(endDateTime!.toUtc())}',
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
             const SizedBox(height: 12),
@@ -378,7 +378,7 @@ class _SkillSearchPageState extends State<SkillSearchPage> {
             ),
             const SizedBox(height: 16),
             Text(
-              'Période : ${DateFormat('dd/MM/yyyy HH:mm').format(startDateTime!)} - ${DateFormat('dd/MM/yyyy HH:mm').format(endDateTime!)}',
+              'Période : ${DateFormat('dd/MM/yyyy HH:mm').format(startDateTime!.toUtc())} - ${DateFormat('dd/MM/yyyy HH:mm').format(endDateTime!.toUtc())}',
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
           ],

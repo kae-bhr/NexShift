@@ -1054,6 +1054,24 @@ export const removeUserFromStation = onCall({region: "europe-west1"}, async (req
   // Supprimer le profil de la station
   await userRef.delete();
 
+  // Retirer l'agent de tous les plannings futurs de la station
+  const now = new Date();
+  const planningsSnap = await db
+    .collection(`sdis/${claims.sdisId}/stations/${data.stationId}/plannings`)
+    .get();
+  const planningBatch = db.batch();
+  let planningUpdates = 0;
+  for (const planningDoc of planningsSnap.docs) {
+    const agents = (planningDoc.data().agents ?? []) as Array<{agentId: string; start: Timestamp}>;
+    const filtered = agents.filter((a) => a.agentId !== data.userMatricule || a.start.toDate() < now);
+    if (filtered.length !== agents.length) {
+      planningBatch.update(planningDoc.ref, {agents: filtered});
+      planningUpdates++;
+    }
+  }
+  await planningBatch.commit();
+  console.log(`🧹 [removeUserFromStation] Removed agent from ${planningUpdates} future plannings`);
+
   // Mettre à jour les custom claims et le profil global seulement si l'utilisateur a un compte
   if (targetAuthUid) {
     try {

@@ -9,6 +9,7 @@ class Planning {
   final String team;
   final List<PlanningAgent> agents;
   final int maxAgents; // Nombre maximum d'agents autorisés
+  final bool isException; // Généré depuis une exception (pas depuis une règle)
 
   Planning({
     required this.id,
@@ -18,6 +19,7 @@ class Planning {
     required this.team,
     required this.agents,
     this.maxAgents = 6,
+    this.isException = false,
   });
 
   /// Getter de compatibilité : retourne les IDs des agents de base (non remplaçants)
@@ -40,7 +42,9 @@ class Planning {
     // Gérer les deux formats: Timestamp (Firestore) et String (JSON)
     DateTime parseDateTime(dynamic value) {
       if (value is Timestamp) {
-        return value.toDate();
+        return DateTime.fromMillisecondsSinceEpoch(
+            value.millisecondsSinceEpoch,
+            isUtc: true);
       } else if (value is String) {
         return DateTime.parse(value);
       }
@@ -78,6 +82,7 @@ class Planning {
       team: json['team'] as String,
       agents: agents,
       maxAgents: json['maxAgents'] as int? ?? 6,
+      isException: json['isException'] as bool? ?? false,
     );
   }
 
@@ -90,6 +95,7 @@ class Planning {
       'team': team,
       'agents': agents.map((a) => a.toJson()).toList(),
       'maxAgents': maxAgents,
+      'isException': isException,
     };
   }
 
@@ -101,6 +107,7 @@ class Planning {
     String? team,
     List<PlanningAgent>? agents,
     int? maxAgents,
+    bool? isException,
   }) {
     return Planning(
       id: id ?? this.id,
@@ -110,6 +117,7 @@ class Planning {
       team: team ?? this.team,
       agents: agents ?? this.agents,
       maxAgents: maxAgents ?? this.maxAgents,
+      isException: isException ?? this.isException,
     );
   }
 }

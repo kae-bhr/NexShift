@@ -50,9 +50,6 @@ class KSkills {
   static const String incCE = 'Chef d\'équipe INC';
   static const String incCA = 'Chef d\'agrès INC';
   static const String incA = 'Apprenant INC';
-  // SR (Secours Routier)
-  static const String sr = 'SR';
-  static const String srCA = 'Chef d\'agrès SR';
   // COD (Conducteur)
   static const String cod0 = 'COD 0';
   static const String cod1 = 'COD 1';
@@ -62,6 +59,12 @@ class KSkills {
   static const String cod4 = 'COD 4';
   static const String cod5 = 'COD 5';
   static const String cod6 = 'COD 6';
+  // VPS (Volontaire de Prévention et de Secours)
+  static const String vps = 'VPS';
+  static const String vpsCA = 'Chef d\'agrès VPS';
+  // SR (Secours Routier)
+  static const String sr = 'SR';
+  static const String srCA = 'Chef d\'agrès SR';
   // FDF (Feux De Forêt)
   static const String fdf1 = 'FDF 1';
   static const String fdf2 = 'FDF 2';
@@ -107,10 +110,12 @@ class KSkills {
     ppbeA, ppbe, ppbeCA,
     // INC
     incA, inc, incCE, incCA,
-    // SR
-    sr, srCA,
     // COD
     cod0, cod1, cod2VL, cod2PL, cod3, cod4, cod5, cod6,
+    // VPS
+    vps, vpsCA,
+    // SR
+    sr, srCA,
     // FDF
     fdf1, fdf2, fdf3, fdf4, fdf5,
     // PLG
@@ -146,9 +151,6 @@ class KSkills {
     inc: SkillLevelColor.equipier,
     incCE: SkillLevelColor.teamLeader,
     incCA: SkillLevelColor.chiefOfficer,
-    // SR (Secours Routier)
-    sr: SkillLevelColor.equipier,
-    srCA: SkillLevelColor.chiefOfficer,
     // COD
     cod0: SkillLevelColor.equipier,
     cod1: SkillLevelColor.teamLeader,
@@ -158,6 +160,12 @@ class KSkills {
     cod4: SkillLevelColor.chiefOfficer,
     cod5: SkillLevelColor.groupLeader,
     cod6: SkillLevelColor.specialty,
+    // VPS (Véhicule de Protection et de Signalisation)
+    vps: SkillLevelColor.equipier,
+    vpsCA: SkillLevelColor.chiefOfficer,
+    // SR (Secours Routier)
+    sr: SkillLevelColor.equipier,
+    srCA: SkillLevelColor.chiefOfficer,
     // FDF (Feux De Forêt)
     fdf1: SkillLevelColor.equipier,
     fdf2: SkillLevelColor.chiefOfficer,
@@ -274,8 +282,9 @@ class KSkills {
     'SUAP': Icons.healing_outlined,
     'PPBE': Icons.build,
     'INC': Icons.local_fire_department,
-    'SR': Icons.car_crash_sharp,
     'COD': Icons.album,
+    'VPS': Icons.directions_car,
+    'SR': Icons.car_crash_sharp,
     'FDF': Icons.forest,
     'PLG': Icons.water,
     'RAD': Icons.warning_amber_rounded,
@@ -295,9 +304,10 @@ class KSkills {
     'SUAP': [suapA, suap, '', suapCA],
     'PPBE': [ppbeA, ppbe, '', ppbeCA],
     'INC': [incA, inc, incCE, incCA],
-    'SR': ['', sr, '', srCA],
     // COD : VL → PL → TT-VL → TT-PL → Embarcation → Moniteur → Bat.Pompe → MEA
     'COD': ['', cod0, cod1, cod2VL, cod2PL, '', cod4, cod3, cod5, cod6],
+    'VPS': ['', vps, '', vpsCA],
+    'SR': ['', sr, '', srCA],
     'FDF': ['', fdf1, '', fdf2, fdf3, fdf4, fdf5],
     'PLG': [plg1],
     'RAD': ['', rad1, rad2, rad3],
@@ -328,8 +338,9 @@ class KSkills {
     'SUAP',
     'PPBE',
     'INC',
-    'SR',
     'COD',
+    'VPS',
+    'SR',
     'FDF',
     'RAD',
     'RCH',
@@ -349,8 +360,9 @@ class KSkills {
     'SUAP': 'Secours d\'Urgence aux Personnes',
     'PPBE': 'Protection des Personnes, des Biens et de l\'Environnement',
     'INC': 'Incendie',
-    'SR': 'Secours Routier',
     'COD': 'Conducteur',
+    'VPS': 'Protection et Sécurité',
+    'SR': 'Secours Routier',
     'FDF': 'Feux de Forêts',
     'RAD': 'Risque Radiologique',
     'RCH': 'Risque Chimique & Biologique',
@@ -378,6 +390,8 @@ class KSkills {
     incA: 'Apprenti INC',
     incCE: 'CE INC',
     incCA: 'CA INC',
+    // VPS
+    vpsCA: 'CA VPS',
     // SR
     srCA: 'CA SR',
   };
@@ -397,9 +411,6 @@ class KSkills {
     inc: 'Equipier INC',
     incCE: 'Chef d\'équipe INC',
     incCA: 'Chef d\'agrès INC',
-    // SR
-    sr: 'Equipier Secours Routier',
-    srCA: 'Chef d\'agrès Secours Routier',
     // COD
     cod0: 'Conducteur Véhicule Léger',
     cod1: 'Conducteur Poids Lourd',
@@ -409,6 +420,12 @@ class KSkills {
     cod4: 'Conducteur Embarcation',
     cod5: 'Conducteur Bateau Pompe',
     cod6: 'Conducteur MEA',
+    // VPS
+    vps: 'Equipier Protection et Signalisation',
+    vpsCA: 'Chef d\'agrès Protection et Signalisation',
+    // SR
+    sr: 'Equipier Secours Routier',
+    srCA: 'Chef d\'agrès Secours Routier',
     // FDF
     fdf1: 'Equipier FDF',
     fdf2: 'Chef d\'agrès FDF',
@@ -653,7 +670,7 @@ class KTrucks {
     vsav: 'Véhicule de Secours et d\'Assistance aux Victimes',
     vtu: 'Véhicule Toutes Utilités',
     fpt: 'Fourgon Pompe Tonne',
-    vps: 'Véhicule de Premier Secours',
+    vps: 'Véhicule de Protection et de Signalisation',
     epa: 'Échelle Pivotante Automatique',
     vsr: 'Véhicule de Secours Routier',
     ccf: 'Camion-Citerne Feux de Forêts',

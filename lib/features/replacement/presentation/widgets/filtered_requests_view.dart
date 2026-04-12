@@ -200,6 +200,36 @@ class _FilteredRequestsViewState extends State<FilteredRequestsView> {
     });
   }
 
+  /// Vrai si l'utilisateur est habilité à débloquer les keySkills de cette demande
+  /// (wave 5 requise + admin/leader pour toutes, chef pour son équipe).
+  bool _isPrivilegedForRequest(ReplacementRequest r) {
+    if (widget.currentUser == null) return false;
+    if (r.currentWave < 5) return false;
+    if (widget.currentUser!.admin || widget.currentUser!.status == 'leader') return true;
+    if (widget.currentUser!.status == 'chief' &&
+        r.team != null &&
+        r.team == widget.currentUser!.team) {
+      return true;
+    }
+    return false;
+  }
+
+  /// Vrai si l'utilisateur est chef/leader/admin et que la demande concerne
+  /// son périmètre (équipe pour chief, toute la station pour leader/admin).
+  /// S'applique quelle que soit la vague — donne une visibilité de suivi
+  /// sans action possible (pas de Refuser/Accepter si non notifié).
+  bool _isTeamObserver(ReplacementRequest r) {
+    final user = widget.currentUser;
+    if (user == null) return false;
+    if (user.admin || user.status == 'leader') return true;
+    if (user.status == 'chief' &&
+        r.team != null &&
+        r.team == user.team) {
+      return true;
+    }
+    return false;
+  }
+
   /// Vérifie si la date de début est aujourd'hui ou dans le futur
   bool _isFutureOrToday(DateTime startTime) {
     final now = DateTime.now();
@@ -225,11 +255,18 @@ class _FilteredRequestsViewState extends State<FilteredRequestsView> {
             final r = item.automaticRequest!;
             // Exclure mes propres demandes
             if (r.requesterId == widget.currentUserId) return false;
-            // Exclure si j'ai déjà refusé
+
+            // Observateur-privilégié (wave 5) : peut débloquer les keySkills.
+            if (_isPrivilegedForRequest(r)) return true;
+            // Observateur de suivi (toute vague) : chef/leader voit les demandes
+            // de son périmètre sans action possible (pas notifié → canAct=false).
+            if (_isTeamObserver(r)) return true;
+
+            // Cas normal : exclure si déjà refusé ou déjà en attente de validation
             if (r.declinedByUserIds.contains(widget.currentUserId)) return false;
-            // Exclure si je suis déjà en attente de validation (j'ai accepté)
             if (r.pendingValidationUserIds.contains(widget.currentUserId)) return false;
-            return true;
+            // Afficher si notifié
+            return r.notifiedUserIds.contains(widget.currentUserId);
           } else {
             // Pour les manuelles, afficher si on est le remplaçant désigné
             return item.manualProposal!.replacerId == widget.currentUserId;
@@ -577,7 +614,8 @@ class _FilteredRequestsViewState extends State<FilteredRequestsView> {
   }
 
   String _formatDateTime(DateTime dt) {
-    return "${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+    final u = dt.toUtc();
+    return "${u.day.toString().padLeft(2, '0')}/${u.month.toString().padLeft(2, '0')}/${u.year} ${u.hour.toString().padLeft(2, '0')}:${u.minute.toString().padLeft(2, '0')}";
   }
 
   Widget _buildEmptyState() {

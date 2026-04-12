@@ -205,8 +205,8 @@ class _AddAvailabilityInlineFormState
   }
 
   Future<void> _pickTime(bool isStart) async {
-    final initial = isStart ? _start : _end;
-    final firstDate = isStart ? DateTime.now() : _start;
+    final initial = (isStart ? _start : _end).toUtc();
+    final firstDate = isStart ? DateTime.now() : _start.toUtc();
 
     final date = await showDatePicker(
       context: context,
@@ -218,11 +218,11 @@ class _AddAvailabilityInlineFormState
 
     final time = await showTimePicker(
       context: context,
-      initialTime: TimeOfDay.fromDateTime(initial),
+      initialTime: TimeOfDay(hour: initial.hour, minute: initial.minute),
     );
     if (time == null || !mounted) return;
 
-    final picked = DateTime(
+    final picked = DateTime.utc(
         date.year, date.month, date.day, time.hour, time.minute);
 
     setState(() {
@@ -400,7 +400,7 @@ class _AddAvailabilityInlineFormState
                             style: TextStyle(
                                 fontSize: 11, color: Colors.grey.shade500)),
                         const SizedBox(height: 2),
-                        Text(fmt.format(_start),
+                        Text(fmt.format(_start.toUtc()),
                             style: const TextStyle(
                                 fontSize: 13, fontWeight: FontWeight.w600)),
                       ],
@@ -432,7 +432,7 @@ class _AddAvailabilityInlineFormState
                             style: TextStyle(
                                 fontSize: 11, color: Colors.grey.shade500)),
                         const SizedBox(height: 2),
-                        Text(fmt.format(_end),
+                        Text(fmt.format(_end.toUtc()),
                             style: const TextStyle(
                                 fontSize: 13, fontWeight: FontWeight.w600)),
                       ],

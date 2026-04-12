@@ -228,7 +228,7 @@ class RequestColumn extends StatelessWidget {
   }
 
   String _formatDateTime(DateTime dt) {
-    return DateFormat('HH:mm dd/MM/yy').format(dt);
+    return DateFormat('HH:mm dd/MM/yy').format(dt.toUtc());
   }
 }
 
@@ -288,6 +288,6 @@ class CompactRequestColumn extends StatelessWidget {
   }
 
   String _formatDate(DateTime dt) {
-    return DateFormat('dd/MM HH:mm').format(dt);
+    return DateFormat('dd/MM HH:mm').format(dt.toUtc());
   }
 }

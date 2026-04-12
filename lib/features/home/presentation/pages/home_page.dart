@@ -1222,22 +1222,25 @@ class _HomePageState extends State<HomePage> {
     required DateTime firstDate,
     required DateTime lastDate,
   }) async {
-    final clampedInitial = initial.isBefore(firstDate)
-        ? firstDate
-        : (initial.isAfter(lastDate) ? lastDate : initial);
+    final initialUtc = initial.toUtc();
+    final firstDateUtc = firstDate.toUtc();
+    final lastDateUtc = lastDate.toUtc();
+    final clampedInitial = initialUtc.isBefore(firstDateUtc)
+        ? firstDateUtc
+        : (initialUtc.isAfter(lastDateUtc) ? lastDateUtc : initialUtc);
     final date = await showDatePicker(
       context: ctx,
       initialDate: clampedInitial,
-      firstDate: DateUtils.dateOnly(firstDate),
-      lastDate: DateUtils.dateOnly(lastDate),
+      firstDate: DateUtils.dateOnly(firstDateUtc),
+      lastDate: DateUtils.dateOnly(lastDateUtc),
     );
     if (date == null || !ctx.mounted) return null;
     final time = await showTimePicker(
       context: ctx,
-      initialTime: TimeOfDay.fromDateTime(initial),
+      initialTime: TimeOfDay(hour: initialUtc.hour, minute: initialUtc.minute),
     );
     if (time == null) return null;
-    return DateTime(date.year, date.month, date.day, time.hour, time.minute);
+    return DateTime.utc(date.year, date.month, date.day, time.hour, time.minute);
   }
 
   /// Affiche le dialogue d'édition d'une présence d'agent (horaires + niveau d'astreinte)
@@ -1323,7 +1326,7 @@ class _HomePageState extends State<HomePage> {
                     const Icon(Icons.schedule_rounded, size: 16),
                     const SizedBox(width: 8),
                     Text(
-                      '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}',
+                      '${dt.toUtc().day.toString().padLeft(2, '0')}/${dt.toUtc().month.toString().padLeft(2, '0')} ${dt.toUtc().hour.toString().padLeft(2, '0')}:${dt.toUtc().minute.toString().padLeft(2, '0')}',
                       style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
@@ -1795,9 +1798,11 @@ class _HomePageState extends State<HomePage> {
       final existing = getExistingSlots();
       for (final slot in existing) {
         if (start.isBefore(slot.end) && end.isAfter(slot.start)) {
-          final fmt = (DateTime d) =>
-              '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
-          return 'Chevauchement avec une plage existante (${fmt(slot.start)} - ${fmt(slot.end)}).';
+          String fmtT(DateTime d) {
+            final u = d.toUtc();
+            return '${u.hour.toString().padLeft(2, '0')}:${u.minute.toString().padLeft(2, '0')}';
+          }
+          return 'Chevauchement avec une plage existante (${fmtT(slot.start)} - ${fmtT(slot.end)}).';
         }
       }
       return null;
@@ -1838,11 +1843,11 @@ class _HomePageState extends State<HomePage> {
                     onTap: () async {
                       final time = await showTimePicker(
                         context: ctx,
-                        initialTime: TimeOfDay.fromDateTime(addStart),
+                        initialTime: TimeOfDay(hour: addStart.toUtc().hour, minute: addStart.toUtc().minute),
                       );
                       if (time != null) {
-                        final base = planning.startTime;
-                        var newStart = DateTime(
+                        final base = planning.startTime.toUtc();
+                        var newStart = DateTime.utc(
                           base.year,
                           base.month,
                           base.day,
@@ -1850,10 +1855,11 @@ class _HomePageState extends State<HomePage> {
                           time.minute,
                         );
                         if (newStart.isBefore(planning.startTime)) {
-                          newStart = DateTime(
-                            planning.endTime.year,
-                            planning.endTime.month,
-                            planning.endTime.day,
+                          final endBase = planning.endTime.toUtc();
+                          newStart = DateTime.utc(
+                            endBase.year,
+                            endBase.month,
+                            endBase.day,
                             time.hour,
                             time.minute,
                           );
@@ -1881,7 +1887,7 @@ class _HomePageState extends State<HomePage> {
                           const Icon(Icons.schedule_rounded, size: 16),
                           const SizedBox(width: 8),
                           Text(
-                            '${addStart.day.toString().padLeft(2, '0')}/${addStart.month.toString().padLeft(2, '0')} ${addStart.hour.toString().padLeft(2, '0')}:${addStart.minute.toString().padLeft(2, '0')}',
+                            '${addStart.toUtc().day.toString().padLeft(2, '0')}/${addStart.toUtc().month.toString().padLeft(2, '0')} ${addStart.toUtc().hour.toString().padLeft(2, '0')}:${addStart.toUtc().minute.toString().padLeft(2, '0')}',
                             style: const TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w500,
@@ -1907,11 +1913,11 @@ class _HomePageState extends State<HomePage> {
                     onTap: () async {
                       final time = await showTimePicker(
                         context: ctx,
-                        initialTime: TimeOfDay.fromDateTime(addEnd),
+                        initialTime: TimeOfDay(hour: addEnd.toUtc().hour, minute: addEnd.toUtc().minute),
                       );
                       if (time != null) {
-                        final base = planning.endTime;
-                        var newEnd = DateTime(
+                        final base = planning.endTime.toUtc();
+                        var newEnd = DateTime.utc(
                           base.year,
                           base.month,
                           base.day,
@@ -1919,10 +1925,11 @@ class _HomePageState extends State<HomePage> {
                           time.minute,
                         );
                         if (newEnd.isBefore(planning.startTime)) {
-                          newEnd = DateTime(
-                            planning.endTime.year,
-                            planning.endTime.month,
-                            planning.endTime.day,
+                          final endBase = planning.endTime.toUtc();
+                          newEnd = DateTime.utc(
+                            endBase.year,
+                            endBase.month,
+                            endBase.day,
                             time.hour,
                             time.minute,
                           );
@@ -1950,7 +1957,7 @@ class _HomePageState extends State<HomePage> {
                           const Icon(Icons.schedule_rounded, size: 16),
                           const SizedBox(width: 8),
                           Text(
-                            '${addEnd.day.toString().padLeft(2, '0')}/${addEnd.month.toString().padLeft(2, '0')} ${addEnd.hour.toString().padLeft(2, '0')}:${addEnd.minute.toString().padLeft(2, '0')}',
+                            '${addEnd.toUtc().day.toString().padLeft(2, '0')}/${addEnd.toUtc().month.toString().padLeft(2, '0')} ${addEnd.toUtc().hour.toString().padLeft(2, '0')}:${addEnd.toUtc().minute.toString().padLeft(2, '0')}',
                             style: const TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w500,

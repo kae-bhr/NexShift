@@ -503,9 +503,10 @@ class _ReplacementPageState extends State<ReplacementPage> {
     final astreinteStart = widget.planning.startTime;
     final astreinteEnd = widget.planning.endTime;
 
+    final initialUtc = initialDate.toUtc();
     final date = await showDatePicker(
       context: context,
-      initialDate: initialDate,
+      initialDate: initialUtc,
       firstDate: astreinteStart.subtract(const Duration(days: 30)),
       lastDate: astreinteEnd.add(const Duration(days: 30)),
     );
@@ -515,11 +516,11 @@ class _ReplacementPageState extends State<ReplacementPage> {
 
     final time = await showTimePicker(
       context: context,
-      initialTime: TimeOfDay.fromDateTime(initialDate),
+      initialTime: TimeOfDay(hour: initialUtc.hour, minute: initialUtc.minute),
     );
     if (time == null) return false;
 
-    final result = DateTime(
+    final result = DateTime.utc(
       date.year,
       date.month,
       date.day,
@@ -1308,7 +1309,7 @@ class _UnavailabilityCard extends StatelessWidget {
                     ),
                     Expanded(
                       child: Text(
-                        '${fmt.format(s)} → ${fmt.format(e)}',
+                        '${fmt.format(s.toUtc())} → ${fmt.format(e.toUtc())}',
                         style: TextStyle(
                           fontSize: 12,
                           color: isDark

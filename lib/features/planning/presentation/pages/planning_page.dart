@@ -1,3 +1,4 @@
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
@@ -268,14 +269,14 @@ class _PlanningPageState extends State<PlanningPage> {
 
     if (relevantSubshift != null) {
       final teamName = planning.team;
-      startFormatted = DateFormat('dd/MM HH:mm').format(relevantSubshift.start);
-      endFormatted = DateFormat('dd/MM HH:mm').format(relevantSubshift.end);
+      startFormatted = DateFormat('dd/MM HH:mm').format(relevantSubshift.start.toUtc());
+      endFormatted = DateFormat('dd/MM HH:mm').format(relevantSubshift.end.toUtc());
       title = 'Équipe $teamName';
     } else {
       // Utiliser les dates du planning
       final teamName = planning.team;
-      startFormatted = DateFormat('dd/MM HH:mm').format(planning.startTime);
-      endFormatted = DateFormat('dd/MM HH:mm').format(planning.endTime);
+      startFormatted = DateFormat('dd/MM HH:mm').format(planning.startTime.toUtc());
+      endFormatted = DateFormat('dd/MM HH:mm').format(planning.endTime.toUtc());
       title = 'Équipe $teamName';
     }
 
@@ -923,126 +924,136 @@ class _PlanningPageState extends State<PlanningPage> {
       if (_currentUser == null) return bars;
 
       for (final planning in _plannings) {
-        final segments = _splitPlanningByDay(planning);
-        for (final seg in segments) {
-          if (!_isSameDay(seg['day'], day)) continue;
+        // Mode utilisateur : utiliser les heures réelles de PlanningAgent
+        // (source de vérité), pas planning.startTime/endTime.
+        final baseEntries = planning.agents
+            .where(
+              (a) =>
+                  a.agentId == _currentUser!.id && a.replacedAgentId == null,
+            )
+            .toList();
 
-          final segStart = seg['start'] as DateTime;
-          final segEnd = seg['end'] as DateTime;
+        if (baseEntries.isNotEmpty) {
+          for (final agentEntry in baseEntries) {
+            // Découper l'entrée agent par jour (peut traverser minuit)
+            final agentSegments = _splitIntervalByDay(
+              agentEntry.start,
+              agentEntry.end,
+              planning,
+            );
+            for (final seg in agentSegments) {
+              if (!_isSameDay(seg['day'], day)) continue;
 
-          // Vérifier si l'utilisateur est agent sur ce planning
-          final isAgent = planning.agentsId.contains(_currentUser!.id);
+              final segStart = seg['start'] as DateTime;
+              final segEnd = seg['end'] as DateTime;
 
-          if (isAgent) {
-            // Trouver les remplacements qui affectent ce segment
-            final replacements =
-                _subshifts
-                    .where(
-                      (s) =>
-                          s.planningId == planning.id &&
-                          s.replacedId == _currentUser!.id &&
-                          s.end.isAfter(segStart) &&
-                          s.start.isBefore(segEnd),
-                    )
-                    .toList()
-                  ..sort((a, b) => a.start.compareTo(b.start));
+              // Trouver les remplacements qui affectent ce segment
+              final replacements =
+                  _subshifts
+                      .where(
+                        (s) =>
+                            s.planningId == planning.id &&
+                            s.replacedId == _currentUser!.id &&
+                            s.end.isAfter(segStart) &&
+                            s.start.isBefore(segEnd),
+                      )
+                      .toList()
+                    ..sort((a, b) => a.start.compareTo(b.start));
 
-            if (replacements.isEmpty) {
-              // Aucun remplacement : afficher la barre complète
-              final teamColor =
-                  _teamColorById[planning.team] ?? const Color(0xFF757575);
-              bars.add({
-                'start': segStart,
-                'end': segEnd,
-                'planning': planning,
-                'type': 'agent',
-                'color': teamColor,
-                'isRealStart': seg['isRealStart'] ?? true,
-                'isRealEnd': seg['isRealEnd'] ?? true,
-              });
-            } else {
-              // Découper selon les remplacements
-              DateTime currentTime = segStart;
-              final isRealSegStart = seg['isRealStart'] ?? true;
-              final isRealSegEnd = seg['isRealEnd'] ?? true;
-              final teamColor =
-                  _teamColorById[planning.team] ?? const Color(0xFF757575);
-
-              for (final replacement in replacements) {
-                final replStart = replacement.start.isBefore(segStart)
-                    ? segStart
-                    : replacement.start;
-                final replEnd = replacement.end.isAfter(segEnd)
-                    ? segEnd
-                    : replacement.end;
-
-                // Ajouter la période avant le remplacement
-                if (currentTime.isBefore(replStart)) {
-                  bars.add({
-                    'start': currentTime,
-                    'end': replStart,
-                    'planning': planning,
-                    'type': 'agent',
-                    'color': teamColor,
-                    'isRealStart': currentTime == segStart && isRealSegStart,
-                    'isRealEnd':
-                        true, // fin de cette période avant le remplacement
-                  });
-                }
-
-                currentTime = replEnd.isAfter(currentTime)
-                    ? replEnd
-                    : currentTime;
-              }
-
-              // Ajouter la période après le dernier remplacement
-              if (currentTime.isBefore(segEnd)) {
+              if (replacements.isEmpty) {
+                // Aucun remplacement : afficher la barre complète
+                final teamColor =
+                    _teamColorById[planning.team] ?? const Color(0xFF757575);
                 bars.add({
-                  'start': currentTime,
+                  'start': segStart,
                   'end': segEnd,
                   'planning': planning,
                   'type': 'agent',
                   'color': teamColor,
-                  'isRealStart':
-                      true, // début de cette période après le remplacement
-                  'isRealEnd': isRealSegEnd,
+                  'isRealStart': seg['isRealStart'] ?? true,
+                  'isRealEnd': seg['isRealEnd'] ?? true,
                 });
+              } else {
+                // Découper selon les remplacements
+                DateTime currentTime = segStart;
+                final isRealSegStart = seg['isRealStart'] ?? true;
+                final isRealSegEnd = seg['isRealEnd'] ?? true;
+                final teamColor =
+                    _teamColorById[planning.team] ?? const Color(0xFF757575);
+
+                for (final replacement in replacements) {
+                  final replStart = replacement.start.isBefore(segStart)
+                      ? segStart
+                      : replacement.start;
+                  final replEnd = replacement.end.isAfter(segEnd)
+                      ? segEnd
+                      : replacement.end;
+
+                  // Ajouter la période avant le remplacement
+                  if (currentTime.isBefore(replStart)) {
+                    bars.add({
+                      'start': currentTime,
+                      'end': replStart,
+                      'planning': planning,
+                      'type': 'agent',
+                      'color': teamColor,
+                      'isRealStart': currentTime == segStart && isRealSegStart,
+                      'isRealEnd': true,
+                    });
+                  }
+
+                  currentTime = replEnd.isAfter(currentTime)
+                      ? replEnd
+                      : currentTime;
+                }
+
+                // Ajouter la période après le dernier remplacement
+                if (currentTime.isBefore(segEnd)) {
+                  bars.add({
+                    'start': currentTime,
+                    'end': segEnd,
+                    'planning': planning,
+                    'type': 'agent',
+                    'color': teamColor,
+                    'isRealStart': true,
+                    'isRealEnd': isRealSegEnd,
+                  });
+                }
               }
             }
           }
+        }
 
-          // Ajouter les périodes où l'utilisateur est remplaçant
-          final replacerShifts = _subshifts
-              .where(
-                (s) =>
-                    s.planningId == planning.id &&
-                    s.replacerId == _currentUser!.id &&
-                    s.end.isAfter(segStart) &&
-                    s.start.isBefore(segEnd),
-              )
-              .toList();
+        // Ajouter les périodes où l'utilisateur est remplaçant sur ce planning
+        final dayStart = DateTime(day.year, day.month, day.day);
+        final dayEnd = dayStart.add(const Duration(days: 1));
+        final replacerShifts = _subshifts
+            .where(
+              (s) =>
+                  s.planningId == planning.id &&
+                  s.replacerId == _currentUser!.id &&
+                  s.end.isAfter(dayStart) &&
+                  s.start.isBefore(dayEnd),
+            )
+            .toList();
 
-          debugPrint('📊 [PLANNING_PAGE] Replacer shifts for planning ${planning.id}: ${replacerShifts.length}');
+        debugPrint('📊 [PLANNING_PAGE] Replacer shifts for planning ${planning.id}: ${replacerShifts.length}');
 
-          for (final shift in replacerShifts) {
-            final shiftStart = shift.start.isBefore(segStart)
-                ? segStart
-                : shift.start;
-            final shiftEnd = shift.end.isAfter(segEnd) ? segEnd : shift.end;
-            final teamColor =
-                _teamColorById[planning.team] ?? const Color(0xFF757575);
+        for (final shift in replacerShifts) {
+          final shiftStart = shift.start.isBefore(dayStart) ? dayStart : shift.start;
+          final shiftEnd = shift.end.isAfter(dayEnd) ? dayEnd : shift.end;
+          final teamColor =
+              _teamColorById[planning.team] ?? const Color(0xFF757575);
 
-            bars.add({
-              'start': shiftStart,
-              'end': shiftEnd,
-              'planning': planning,
-              'type': 'replacer',
-              'color': teamColor,
-              // Les barres de remplaçant montrent uniquement les bordures où elles commencent/finissent vraiment
-              'isRealStart': shiftStart == shift.start,
-              'isRealEnd': shiftEnd == shift.end,
-            });
-          }
+          bars.add({
+            'start': shiftStart,
+            'end': shiftEnd,
+            'planning': planning,
+            'type': 'replacer',
+            'color': teamColor,
+            'isRealStart': shiftStart == shift.start,
+            'isRealEnd': shiftEnd == shift.end,
+          });
         }
       }
 
@@ -1117,6 +1128,42 @@ class _PlanningPageState extends State<PlanningPage> {
         'isRealEnd': !event.endTime.isAfter(dayEnd),
       }
     ];
+  }
+
+  /// Découpe un intervalle (start/end) traversant minuit en segments journaliers,
+  /// dans le même format que _splitPlanningByDay.
+  List<Map<String, dynamic>> _splitIntervalByDay(
+    DateTime start,
+    DateTime end,
+    Planning planning,
+  ) {
+    final segments = <Map<String, dynamic>>[];
+    DateTime currentStart = start;
+    bool isFirstSegment = true;
+
+    while (currentStart.isBefore(end)) {
+      final nextDayStart = DateTime(
+        currentStart.year,
+        currentStart.month,
+        currentStart.day + 1,
+      );
+      final crossesMidnight = end.isAfter(nextDayStart);
+      final segmentEnd = crossesMidnight ? nextDayStart : end;
+
+      segments.add({
+        'day': DateTime(currentStart.year, currentStart.month, currentStart.day),
+        'start': currentStart,
+        'end': segmentEnd,
+        'planning': planning,
+        'isRealStart': isFirstSegment,
+        'isRealEnd': !crossesMidnight,
+      });
+
+      isFirstSegment = false;
+      currentStart = nextDayStart;
+    }
+
+    return segments;
   }
 
   /// Découpe une disponibilité traversant minuit en segments journaliers
@@ -1547,13 +1594,22 @@ class _PlanningPageState extends State<PlanningPage> {
                     .where((p) =>
                         p.endTime.isAfter(dayStart) &&
                         p.startTime.isBefore(dayEnd))
-                    .toList();
+                    .toList()
+                  ..sort((a, b) => a.startTime.compareTo(b.startTime));
+                final visiblePlannings = dayPlannings.take(3).toList();
+                final spanFlags = <String, ({bool left, bool right})>{
+                  for (final p in visiblePlannings)
+                    p.id: (
+                      left: p.startTime.isBefore(dayStart),
+                      right: p.endTime.isAfter(dayEnd),
+                    ),
+                };
                 final isToday = day.year == now.year &&
                     day.month == now.month &&
                     day.day == now.day;
                 return Expanded(
                   child: _buildMonthDayCell(
-                      day, dayPlannings, isToday, isDark),
+                      day, dayPlannings, isToday, isDark, spanFlags),
                 );
               }),
             ),
@@ -1567,59 +1623,74 @@ class _PlanningPageState extends State<PlanningPage> {
     List<Planning> dayPlannings,
     bool isToday,
     bool isDark,
+    Map<String, ({bool left, bool right})> spanFlags,
   ) {
-    final dots = dayPlannings.take(3).map((p) {
+    // Build painter entries: one per planning.
+    // Each entry describes the bar span and dot positions for this day.
+    final dayStart = DateTime(day.year, day.month, day.day);
+    const double daySeconds = 86400.0;
+
+    final entries = dayPlannings.map((p) {
       final color = _teamColorById[p.team] ?? Colors.grey.shade400;
-      return Container(
-        width: 6,
-        height: 6,
-        margin: const EdgeInsets.symmetric(horizontal: 1),
-        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      final flags = spanFlags[p.id];
+      final comesFromLeft = flags?.left ?? false;
+      final goesToRight = flags?.right ?? false;
+
+      // Fractional position [0..1] within the day for start/end dots
+      // If the event started before this day, no start dot (bar from left edge)
+      // If the event ends after this day, no end dot (bar to right edge)
+      double? startFrac;
+      double? endFrac;
+
+      if (!comesFromLeft) {
+        final secs = p.startTime.toLocal().difference(dayStart).inSeconds;
+        startFrac = (secs / daySeconds).clamp(0.0, 1.0);
+      }
+      if (!goesToRight) {
+        final secs = p.endTime.toLocal().difference(dayStart).inSeconds;
+        endFrac = (secs / daySeconds).clamp(0.0, 1.0);
+      }
+
+      return (
+        color: color,
+        comesFromLeft: comesFromLeft,
+        goesToRight: goesToRight,
+        startFrac: startFrac,
+        endFrac: endFrac,
       );
     }).toList();
 
+    // CustomPaint wraps the full Expanded cell (no margin) so that connector
+    // bars can paint edge-to-edge. The painter draws the cell background itself.
     return GestureDetector(
       onTap: dayPlannings.isEmpty
           ? null
           : () => _showDayPlannings(day, dayPlannings, isDark),
-      child: Container(
-        margin: const EdgeInsets.all(2),
+      child: SizedBox(
         height: 56,
-        decoration: BoxDecoration(
-          color: isToday
-              ? KColors.appNameColor.withValues(alpha: 0.1)
-              : (dayPlannings.isNotEmpty
-                  ? (isDark
-                      ? Colors.white.withValues(alpha: 0.04)
-                      : Colors.grey.shade50)
-                  : Colors.transparent),
-          borderRadius: BorderRadius.circular(8),
-          border: isToday
-              ? Border.all(color: KColors.appNameColor.withValues(alpha: 0.4))
-              : null,
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              day.day.toString(),
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: isToday ? FontWeight.w700 : FontWeight.w500,
-                color: isToday
-                    ? KColors.appNameColor
-                    : (dayPlannings.isEmpty
-                        ? (isDark
-                            ? Colors.grey.shade600
-                            : Colors.grey.shade400)
-                        : null),
-              ),
-            ),
-            if (dots.isNotEmpty) ...[
-              const SizedBox(height: 3),
-              Row(mainAxisAlignment: MainAxisAlignment.center, children: dots),
-            ],
-          ],
+        child: CustomPaint(
+          painter: _MonthCellPainter(
+            entries: entries,
+            dayNumber: day.day.toString(),
+            isToday: isToday,
+            isDark: isDark,
+            textColor: isToday
+                ? KColors.appNameColor
+                : (dayPlannings.isEmpty
+                    ? (isDark ? Colors.grey.shade600 : Colors.grey.shade400)
+                    : (isDark ? Colors.white : Colors.black87)),
+            todayColor: KColors.appNameColor,
+            bgColor: isToday
+                ? KColors.appNameColor.withValues(alpha: 0.1)
+                : (dayPlannings.isNotEmpty
+                    ? (isDark
+                        ? Colors.white.withValues(alpha: 0.04)
+                        : Colors.grey.shade50)
+                    : Colors.transparent),
+            borderColor: isToday
+                ? KColors.appNameColor.withValues(alpha: 0.4)
+                : null,
+          ),
         ),
       ),
     );
@@ -1897,8 +1968,10 @@ class _PlanningPageState extends State<PlanningPage> {
     );
   }
 
-  String _fmtDateTime(DateTime dt) =>
-      "${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+  String _fmtDateTime(DateTime dt) {
+    final u = dt.toUtc();
+    return "${u.day.toString().padLeft(2, '0')}/${u.month.toString().padLeft(2, '0')} ${u.hour.toString().padLeft(2, '0')}:${u.minute.toString().padLeft(2, '0')}";
+  }
 
   String _capitalizeFirst(String s) {
     if (s.isEmpty) return s;
@@ -2017,4 +2090,122 @@ class _TooltipWidget extends StatelessWidget {
       ),
     );
   }
+}
+
+// Paints a monthly calendar day cell: day number + timeline bars with dots.
+// The cell width is known only at paint time via size.width.
+class _MonthCellPainter extends CustomPainter {
+  _MonthCellPainter({
+    required this.entries,
+    required this.dayNumber,
+    required this.isToday,
+    required this.isDark,
+    required this.textColor,
+    required this.todayColor,
+    required this.bgColor,
+    this.borderColor,
+  });
+
+  final List<({
+    Color color,
+    bool comesFromLeft,
+    bool goesToRight,
+    double? startFrac,
+    double? endFrac,
+  })> entries;
+  final String dayNumber;
+  final bool isToday;
+  final bool isDark;
+  final Color textColor;
+  final Color todayColor;
+  final Color bgColor;
+  final Color? borderColor;
+
+  // Inner margin — keeps background & text inset, bars bleed through it
+  static const double _margin = 2.0;
+  static const double _radius = 8.0;
+  static const double _barH = 2.0;
+  static const double _dotR = 3.0;
+  static const double _textSize = 14.0;
+  static const double _textToBarGap = 3.0;
+  static const double _barAreaH = _dotR * 2;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // -- Background (inset by margin) --
+    final bgRect = Rect.fromLTRB(
+      _margin, _margin, size.width - _margin, size.height - _margin);
+    final rrect = RRect.fromRectAndRadius(bgRect, const Radius.circular(_radius));
+
+    if (bgColor != Colors.transparent) {
+      canvas.drawRRect(rrect, Paint()..color = bgColor);
+    }
+    if (borderColor != null) {
+      canvas.drawRRect(
+        rrect,
+        Paint()
+          ..color = borderColor!
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.0,
+      );
+    }
+
+    // -- Day number (centered in the inset area) --
+    final tp = TextPainter(
+      text: TextSpan(
+        text: dayNumber,
+        style: TextStyle(
+          fontSize: _textSize,
+          fontWeight: isToday ? FontWeight.w700 : FontWeight.w500,
+          color: textColor,
+        ),
+      ),
+      textDirection: ui.TextDirection.ltr,
+    )..layout();
+
+    final double contentH = entries.isEmpty
+        ? _textSize
+        : _textSize + _textToBarGap + _barAreaH;
+    final double topY = (size.height - contentH) / 2;
+    tp.paint(canvas, Offset((size.width - tp.width) / 2, topY));
+
+    if (entries.isEmpty) return;
+
+    // Vertical center of the bar/dot row
+    final double barCy = topY + _textSize + _textToBarGap + _dotR;
+
+    for (final e in entries) {
+      // x range: bars that come from/go to neighbouring cells reach the full
+      // cell edge (0 or size.width), creating a seamless visual join.
+      final double xStart = e.startFrac != null
+          ? e.startFrac! * size.width
+          : 0.0;
+      final double xEnd = e.endFrac != null
+          ? e.endFrac! * size.width
+          : size.width;
+
+      canvas.drawRect(
+        Rect.fromLTRB(xStart, barCy - _barH / 2, xEnd, barCy + _barH / 2),
+        Paint()
+          ..color = e.color.withValues(alpha: 0.4)
+          ..style = PaintingStyle.fill,
+      );
+
+      if (e.startFrac != null) {
+        canvas.drawCircle(Offset(xStart, barCy), _dotR,
+            Paint()..color = e.color);
+      }
+      if (e.endFrac != null) {
+        canvas.drawCircle(Offset(xEnd, barCy), _dotR,
+            Paint()..color = e.color);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_MonthCellPainter old) =>
+      old.entries != entries ||
+      old.dayNumber != dayNumber ||
+      old.isToday != isToday ||
+      old.bgColor != bgColor;
 }

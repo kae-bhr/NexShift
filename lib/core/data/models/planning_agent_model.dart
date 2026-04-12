@@ -62,7 +62,11 @@ class PlanningAgent {
 
   factory PlanningAgent.fromJson(Map<String, dynamic> json) {
     DateTime parseDateTime(dynamic value) {
-      if (value is Timestamp) return value.toDate();
+      if (value is Timestamp) {
+        return DateTime.fromMillisecondsSinceEpoch(
+            value.millisecondsSinceEpoch,
+            isUtc: true);
+      }
       if (value is String) return DateTime.parse(value);
       throw Exception('Invalid date format: $value');
     }

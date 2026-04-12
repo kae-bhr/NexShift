@@ -573,7 +573,8 @@ class _PlanningCardState extends State<PlanningCard> {
   }
 
   String _formatDateTime(DateTime dt) {
-    return "${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+    final u = dt.toUtc();
+    return "${u.day.toString().padLeft(2, '0')}/${u.month.toString().padLeft(2, '0')} ${u.hour.toString().padLeft(2, '0')}:${u.minute.toString().padLeft(2, '0')}";
   }
 
   Future<List<Map<String, dynamic>>> _getUserOnCallSlots() async {
@@ -589,26 +590,32 @@ class _PlanningCardState extends State<PlanningCard> {
     final List<Map<String, dynamic>> slots = [];
 
     // Cas 1: L'utilisateur est agent de garde
-    final isAgent = planning.agentsId.contains(userId);
-    if (isAgent) {
-      // Découper la période de garde en créneaux où le user n'est PAS remplacé
-      DateTime current = planning.startTime;
-      final end = planning.endTime;
+    // Utiliser les heures réelles de l'entrée PlanningAgent (source de vérité),
+    // et non les bornes globales du planning (planning.startTime/endTime).
+    final baseEntries = planning.agents
+        .where((a) => a.agentId == userId && a.replacedAgentId == null)
+        .toList();
+    if (baseEntries.isNotEmpty) {
+      for (final agentEntry in baseEntries) {
+        // Découper la période de garde en créneaux où le user n'est PAS remplacé
+        DateTime current = agentEntry.start;
+        final end = agentEntry.end;
 
-      // Filtrer les subshifts où cet utilisateur est remplacé
-      final relevant = subshifts
-          .where((s) => s.planningId == planning.id && s.replacedId == userId)
-          .toList();
-      relevant.sort((a, b) => a.start.compareTo(b.start));
+        // Filtrer les subshifts où cet utilisateur est remplacé
+        final relevant = subshifts
+            .where((s) => s.planningId == planning.id && s.replacedId == userId)
+            .toList();
+        relevant.sort((a, b) => a.start.compareTo(b.start));
 
-      for (final s in relevant) {
-        if (current.isBefore(s.start)) {
-          slots.add({'start': current, 'end': s.start, 'type': 'onCall'});
+        for (final s in relevant) {
+          if (current.isBefore(s.start)) {
+            slots.add({'start': current, 'end': s.start, 'type': 'onCall'});
+          }
+          current = current.isBefore(s.end) ? s.end : current;
         }
-        current = current.isBefore(s.end) ? s.end : current;
-      }
-      if (current.isBefore(end)) {
-        slots.add({'start': current, 'end': end, 'type': 'onCall'});
+        if (current.isBefore(end)) {
+          slots.add({'start': current, 'end': end, 'type': 'onCall'});
+        }
       }
     }
 
@@ -691,7 +698,8 @@ class _DateTimeChip extends StatelessWidget {
   });
 
   String _fmt(DateTime dt) {
-    return "${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+    final u = dt.toUtc();
+    return "${u.day.toString().padLeft(2, '0')}/${u.month.toString().padLeft(2, '0')} ${u.hour.toString().padLeft(2, '0')}:${u.minute.toString().padLeft(2, '0')}";
   }
 
   @override
@@ -967,12 +975,14 @@ class _BadgeRow extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               ...agentCountIssues.map((issue) {
+                final s = issue.start.toUtc();
+                final e = issue.end.toUtc();
                 final startStr =
-                    "${issue.start.day.toString().padLeft(2, '0')}/${issue.start.month.toString().padLeft(2, '0')} "
-                    "${issue.start.hour.toString().padLeft(2, '0')}:${issue.start.minute.toString().padLeft(2, '0')}";
+                    "${s.day.toString().padLeft(2, '0')}/${s.month.toString().padLeft(2, '0')} "
+                    "${s.hour.toString().padLeft(2, '0')}:${s.minute.toString().padLeft(2, '0')}";
                 final endStr =
-                    "${issue.end.day.toString().padLeft(2, '0')}/${issue.end.month.toString().padLeft(2, '0')} "
-                    "${issue.end.hour.toString().padLeft(2, '0')}:${issue.end.minute.toString().padLeft(2, '0')}";
+                    "${e.day.toString().padLeft(2, '0')}/${e.month.toString().padLeft(2, '0')} "
+                    "${e.hour.toString().padLeft(2, '0')}:${e.minute.toString().padLeft(2, '0')}";
                 final diff = issue.count - issue.expected;
                 final diffStr = diff > 0 ? '+$diff' : '$diff';
                 return Padding(

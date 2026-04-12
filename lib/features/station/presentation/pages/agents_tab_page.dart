@@ -13,6 +13,7 @@ import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/core/utils/station_name_cache.dart';
 import 'package:nexshift_app/core/services/cloud_functions_service.dart';
 import 'package:nexshift_app/core/services/agent_suspension_service.dart';
+import 'package:nexshift_app/core/services/agent_roster_service.dart';
 import 'package:nexshift_app/features/skills/presentation/pages/skills_page.dart';
 import 'package:nexshift_app/features/settings/presentation/pages/similar_agents_page.dart';
 
@@ -1383,22 +1384,15 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
   }
 
   Future<void> _moveUserToTeam(User user, String newTeamId) async {
-    // No-op if dropping into the same team
-    if (user.team == newTeamId) {
-      return;
-    }
-    final userRepo = UserRepository();
+    if (user.team == newTeamId) return;
+
     final scaffoldMessenger = ScaffoldMessenger.of(context);
 
-    // Update user with new team
-    final updatedUser = user.copyWith(team: newTeamId);
-
-    await userRepo.upsert(updatedUser);
-
-    // If it's the current user, update storage
-    if (widget.currentUser?.id == user.id) {
-      await UserStorageHelper.saveUser(updatedUser);
-    }
+    await AgentRosterService().changeAgentTeam(
+      agent: user,
+      newTeamId: newTeamId,
+      currentUser: widget.currentUser,
+    );
 
     if (mounted) {
       widget.onDataChanged();
@@ -1407,7 +1401,6 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
           ? 'Aucune équipe'
           : widget.allTeams.firstWhere((t) => t.id == newTeamId).name;
 
-      // Show snackbar only when the team actually changes
       scaffoldMessenger.showSnackBar(
         SnackBar(content: Text('${user.displayName} → $teamName')),
       );
@@ -2586,7 +2579,6 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
   }
 
   void _showChangeTeamDialog(User user) {
-    final scaffoldMessenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
 
     showDialog(
@@ -2612,24 +2604,8 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                     ? const Icon(Icons.check, color: Colors.green)
                     : null,
                 onTap: () async {
-                  final updatedUser = user.copyWith(team: '');
-
-                  final userRepo = UserRepository();
-                  await userRepo.upsert(updatedUser);
-
                   navigator.pop();
-
-                  if (mounted) {
-                    widget.onDataChanged();
-
-                    scaffoldMessenger.showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          '${user.displayName} n\'est plus dans aucune équipe',
-                        ),
-                      ),
-                    );
-                  }
+                  await _moveUserToTeam(user, '');
                 },
               ),
               const Divider(),
@@ -2649,24 +2625,8 @@ class _AgentsTabPageState extends State<AgentsTabPage> {
                       ? const Icon(Icons.check, color: Colors.green)
                       : null,
                   onTap: () async {
-                    final updatedUser = user.copyWith(team: team.id);
-
-                    final userRepo = UserRepository();
-                    await userRepo.upsert(updatedUser);
-
                     navigator.pop();
-
-                    if (mounted) {
-                      widget.onDataChanged();
-
-                      scaffoldMessenger.showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            '${user.displayName} affecté à ${team.name}',
-                          ),
-                        ),
-                      );
-                    }
+                    await _moveUserToTeam(user, team.id);
                   },
                 ),
               ),

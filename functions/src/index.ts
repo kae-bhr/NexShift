@@ -74,236 +74,9 @@ function formatShort(date: Date): string {
 
 
 
-// calculateSkillDifference was deprecated and removed
-// Use calculateWave instead for the new wave system with skill ponderation
-
-// ============================================================================
-// NOUVEAU SYSTÈME DE VAGUES AVEC PONDÉRATION
-// ============================================================================
-
-interface UserForWaveCalculation {
-  id: string;
-  team?: string;
-  skills?: string[];
-}
-
-/**
- * Calcule les poids de rareté pour chaque compétence
- *
- * Plus une compétence est rare dans l'équipe, plus son poids est élevé
- * Cela permet de prioriser les remplaçants qui ont les compétences rares
- *
- * @param {UserForWaveCalculation[]} teamMembers - Tous les membres de l'équipe
- * @param {string[]} requesterSkills - Compétences du demandeur
- * @return {Record<string, number>} Poids pour chaque compétence
- */
-function calculateSkillRarityWeights(
-  teamMembers: UserForWaveCalculation[],
-  requesterSkills: string[],
-): Record<string, number> {
-  const skillCounts: Record<string, number> = {};
-
-  // Compter combien d'agents ont chaque compétence
-  for (const member of teamMembers) {
-    for (const skill of member.skills || []) {
-      skillCounts[skill] = (skillCounts[skill] || 0) + 1;
-    }
-  }
-
-  // Compétences de niveau apprentice (poids = 0)
-  const apprenticeSkills = [
-    "Apprenant SUAP",
-    "Apprenant PPBE",
-    "Apprenant INC",
-  ];
-
-  // Calculer le poids de rareté pour chaque compétence du demandeur
-  const weights: Record<string, number> = {};
-  for (const skill of requesterSkills) {
-    // Les compétences de niveau apprentice ont un poids de 0
-    if (apprenticeSkills.includes(skill)) {
-      weights[skill] = 0;
-      continue;
-    }
-
-    const count = skillCounts[skill] || 0;
-
-    // Plus la compétence est rare, plus le poids est élevé
-    // Si personne d'autre n'a la compétence : poids = 10
-    // Si 1 personne l'a : poids = 5
-    // Si 2+ personnes l'ont : poids = 1
-    if (count <= 1) {
-      weights[skill] = 10; // Très rare
-    } else if (count === 2) {
-      weights[skill] = 5; // Rare
-    } else if (count === 3) {
-      weights[skill] = 3; // Peu commun
-    } else {
-      weights[skill] = 1; // Commun
-    }
-  }
-
-  return weights;
-}
-
-/**
- * Vérifie si deux utilisateurs ont exactement les mêmes compétences
- * @param {string[]} skills1 - Compétences premier utilisateur
- * @param {string[]} skills2 - Compétences deuxième utilisateur
- * @return {boolean} True si les compétences sont identiques
- */
-function hasExactSameSkills(
-  skills1: string[],
-  skills2: string[],
-): boolean {
-  const set1 = new Set(skills1);
-  const set2 = new Set(skills2);
-
-  if (set1.size !== set2.size) return false;
-
-  for (const skill of set1) {
-    if (!set2.has(skill)) return false;
-  }
-
-  return true;
-}
-
-/**
- * Calcule la similarité pondérée entre deux ensembles de compétences
- *
- * Retourne un score entre 0.0 et 1.0
- * - 1.0 = compétences identiques
- * - 0.0 = aucune compétence en commun
- *
- * @param {string[]} requesterSkills - Compétences du demandeur
- * @param {string[]} candidateSkills - Compétences du candidat
- * @param {Record<string, number>} skillRarityWeights - Poids de rareté
- * @return {number} Score de similarité
- */
-function calculateSkillSimilarity(
-  requesterSkills: string[],
-  candidateSkills: string[],
-  skillRarityWeights: Record<string, number>,
-): number {
-  if (requesterSkills.length === 0) return 0.0;
-
-  const candidateSkillsSet = new Set(candidateSkills);
-
-  // Calculer le poids total des compétences du demandeur
-  let totalRequiredWeight = 0.0;
-  for (const skill of requesterSkills) {
-    totalRequiredWeight += skillRarityWeights[skill] || 1;
-  }
-
-  // Calculer le poids des compétences en commun
-  let matchedWeight = 0.0;
-  for (const skill of requesterSkills) {
-    if (candidateSkillsSet.has(skill)) {
-      matchedWeight += skillRarityWeights[skill] || 1;
-    }
-  }
-
-  // Pénaliser si le candidat a beaucoup de compétences supplémentaires
-  const requesterSkillsSet = new Set(requesterSkills);
-  const extraSkills = candidateSkills.filter(
-    (skill) => !requesterSkillsSet.has(skill),
-  ).length;
-  const penalty = extraSkills > 2 ? 0.1 * extraSkills : 0.0;
-
-  const similarity = matchedWeight / totalRequiredWeight;
-  return Math.max(0.0, Math.min(1.0, similarity - penalty));
-}
-
-/**
- * Calcule la vague basée sur les compétences
- *
- * @param {string[]} requesterSkills - Compétences du demandeur
- * @param {string[]} candidateSkills - Compétences du candidat
- * @param {Record<string, number>} skillRarityWeights - Poids de rareté
- * @return {number} Numéro de vague (2-5)
- */
-function calculateWaveBySkills(
-  requesterSkills: string[],
-  candidateSkills: string[],
-  skillRarityWeights: Record<string, number>,
-): number {
-  // Vérifier si les compétences sont exactement les mêmes
-  if (hasExactSameSkills(requesterSkills, candidateSkills)) {
-    return 2; // Vague 2 : Compétences identiques
-  }
-
-  // Calculer le score de similarité pondéré
-  const similarity = calculateSkillSimilarity(
-    requesterSkills,
-    candidateSkills,
-    skillRarityWeights,
-  );
-
-  // Définir les seuils pour chaque vague
-  // similarity = 1.0 signifie identique
-  // similarity = 0.0 signifie complètement différent
-  if (similarity >= 0.8) {
-    return 3; // Vague 3 : Très similaire (80%+ de match)
-  } else if (similarity >= 0.6) {
-    return 4; // Vague 4 : Relativement similaire (60%+ de match)
-  } else {
-    return 5; // Vague 5 : Tous les autres
-  }
-}
-
-/**
- * Calcule la vague d'un utilisateur pour une demande de remplacement
- *
- * Logique des vagues :
- * - Agents en astreinte (jamais notifiés)
- * - Vague 1 : Agents de la même équipe (hors astreinte)
- * - Vague 2 : Agents avec exactement les mêmes compétences
- * - Vague 3 : Agents avec compétences très proches (80%+)
- * - Vague 4 : Agents avec compétences relativement proches (60%+)
- * - Vague 5 : Tous les autres agents
- *
- * @param {object} params - Paramètres
- * @param {UserForWaveCalculation} params.requester - Demandeur
- * @param {UserForWaveCalculation} params.candidate - Candidat
- * @param {string} params.planningTeam - Équipe du planning
- * @param {string[]} params.agentsInPlanning - IDs agents en astreinte
- * @param {Record<string, number>} params.skillRarityWeights - Poids rareté
- * @return {number} Numéro de vague (0-5)
- */
-function calculateWave(params: {
-  requester: UserForWaveCalculation;
-  candidate: UserForWaveCalculation;
-  planningTeam: string;
-  agentsInPlanning: string[];
-  skillRarityWeights: Record<string, number>;
-}): number {
-  const {
-    requester,
-    candidate,
-    planningTeam,
-    agentsInPlanning,
-    skillRarityWeights,
-  } = params;
-
-  // Vague 0 : Agents en astreinte (jamais notifiés)
-  if (agentsInPlanning.includes(candidate.id)) {
-    return 0;
-  }
-
-  // Vague 1 : Même équipe que l'astreinte (hors astreinte)
-  if (candidate.team === planningTeam &&
-    !agentsInPlanning.includes(candidate.id)) {
-    return 1;
-  }
-
-  // Vague 2-5 : Basé sur les compétences
-  return calculateWaveBySkills(
-    requester.skills || [],
-    candidate.skills || [],
-    skillRarityWeights,
-  );
-}
-
+// Le calcul des vagues est effectué côté Flutter (WaveCalculationService)
+// et stocké dans waveUserIds dès la création de la demande.
+// La CF lit waveUserIds depuis Firestore plutôt que de recalculer.
 
 
 // ============================================================================
@@ -974,6 +747,37 @@ export const sendReplacementNotificationsV2 = onDocumentCreated(
         }
       }
 
+      // Mettre à jour notifiedUserIds sur la demande pour les triggers replacement_request.
+      // Cela permet aux agents ciblés de voir la tuile dans "En attente" et de répondre.
+      if (type === "replacement_request" && trigger.requestId) {
+        try {
+          const requestRef = db
+            .collection(
+              `${stationPath}/replacements/automatic/replacementRequests`,
+            )
+            .doc(trigger.requestId);
+          const requestDoc = await requestRef.get();
+          if (requestDoc.exists) {
+            const currentNotified: string[] =
+              requestDoc.data()?.notifiedUserIds || [];
+            const toAdd = targetUserIds.filter(
+              (id) => !currentNotified.includes(id),
+            );
+            if (toAdd.length > 0) {
+              await requestRef.update({
+                notifiedUserIds: [...currentNotified, ...toAdd],
+              });
+              console.log(
+                `  ✅ Updated notifiedUserIds +${toAdd.length} for request ${trigger.requestId}`,
+              );
+            }
+          }
+        } catch (err) {
+          console.error("  ⚠️ Failed to update notifiedUserIds:", err);
+          // Non-bloquant : la notification FCM a été envoyée, on ne fait pas échouer le trigger
+        }
+      }
+
       await snapshot.ref.update({
         processed: true,
         processedAt: Timestamp.now(),
@@ -1536,6 +1340,7 @@ interface ReplacementRequestDataV2 {
   team: string;
   currentWave?: number;
   notifiedUserIds?: string[];
+  waveUserIds?: Record<string, string[]>;
 }
 
 /**
@@ -1549,20 +1354,7 @@ async function sendNextWaveV2(
   const db = getFirestore();
 
   try {
-    const requesterDoc = await db
-      .collection(`${stationPath}/users`)
-      .doc(request.requesterId)
-      .get();
-
-    if (!requesterDoc.exists) {
-      console.error(`  ❌ Requester ${request.requesterId} not found`);
-      return;
-    }
-
-    const requester = requesterDoc.data();
-    const requesterSkills = requester?.skills || [];
-
-    // Récupérer tous les utilisateurs de la station
+    // Récupérer tous les utilisateurs de la station (pour résoudre les IDs en objets)
     const allUsersSnapshot = await db
       .collection(`${stationPath}/users`)
       .get();
@@ -1578,60 +1370,7 @@ async function sendNextWaveV2(
       ...doc.data(),
     })) as UserData[];
 
-    const planningDoc = await db
-      .collection(`${stationPath}/plannings`)
-      .doc(request.planningId)
-      .get();
-
-    const agentsInPlanning: string[] = [];
-    if (planningDoc.exists) {
-      const planningData = planningDoc.data();
-      const requestStart = request.startTime.toDate().getTime();
-      const requestEnd = request.endTime.toDate().getTime();
-
-      const agents = planningData?.agents as Array<{
-        agentId: string;
-        start: {toDate: () => Date};
-        end: {toDate: () => Date};
-      }> | undefined;
-
-      if (agents) {
-        for (const a of agents) {
-          if (
-            a.start.toDate().getTime() < requestEnd &&
-            a.end.toDate().getTime() > requestStart
-          ) {
-            agentsInPlanning.push(a.agentId);
-          }
-        }
-      } else {
-        // Fallback ancien format
-        agentsInPlanning.push(...(planningData?.agentsId || []));
-      }
-    }
-
-    console.log(
-      `  Planning ${request.planningId} has ${agentsInPlanning.length} ` +
-      "agents on duty",
-    );
-
     const notifiedUserIds = request.notifiedUserIds || [];
-    const candidateUsers = allUsers.filter(
-      (u) =>
-        u.id !== request.requesterId &&
-        !notifiedUserIds.includes(u.id) &&
-        !(agentsInPlanning.includes(u.id) && u.team === request.team),
-    );
-
-    console.log(
-      `  Found ${candidateUsers.length} candidate users ` +
-      `(${notifiedUserIds.length} already notified)`,
-    );
-
-    if (candidateUsers.length === 0) {
-      console.log("  ✅ All users have been notified");
-      return;
-    }
 
     const nextWave = (request.currentWave || 0) + 1;
 
@@ -1640,46 +1379,37 @@ async function sendNextWaveV2(
       return;
     }
 
-    const planningData = planningDoc.data();
-    const planningTeam = planningData?.team || "";
+    // Lire waveUserIds pré-calculé par Flutter au lieu de recalculer localement.
+    // Flutter est la source unique de calcul des vagues (WaveCalculationService).
+    const precomputedWaveIds: string[] =
+      (request.waveUserIds as Record<string, string[]>)?.[String(nextWave)] || [];
 
-    const skillRarityWeights = calculateSkillRarityWeights(
-      allUsers.map((u) => ({
-        id: u.id,
-        team: u.team,
-        skills: u.skills,
-      })),
-      requesterSkills,
-    );
+    // Exclure les agents déjà notifiés (sécurité en cas de retry CF)
+    const alreadyNotified = new Set(notifiedUserIds);
+    const waveUserIdsFinal = precomputedWaveIds.filter((id) => !alreadyNotified.has(id));
 
-    const candidatesWithWave = candidateUsers.map((user) => ({
-      user,
-      wave: calculateWave({
-        requester: {
-          id: request.requesterId,
-          team: requester?.team,
-          skills: requesterSkills,
-        },
-        candidate: {
-          id: user.id,
-          team: user.team,
-          skills: user.skills || [],
-        },
-        planningTeam,
-        agentsInPlanning,
-        skillRarityWeights,
-      }),
-    }));
+    // Résoudre les IDs en objets User pour le trigger de notification
+    const userById = new Map(allUsers.map((u) => [u.id, u]));
+    const waveUsers = waveUserIdsFinal
+      .map((id) => userById.get(id))
+      .filter((u): u is UserData => u !== undefined);
 
-    const waveUsers = candidatesWithWave
-      .filter((c) => c.wave === nextWave)
-      .map((c) => c.user);
-
-    const waveCounts = candidatesWithWave.map((c) => c.wave).join(", ");
     console.log(
-      `  Wave ${nextWave}: ${waveUsers.length} users ` +
-      `(total candidates by wave: ${waveCounts})`,
+      `  Wave ${nextWave}: ${waveUsers.length} users from pre-computed waveUserIds` +
+      ` (${notifiedUserIds.length} already notified)`,
     );
+
+    // Si pas d'agents dans waveUserIds pour cette vague (CF peut avoir
+    // été déclenchée avant l'écriture Flutter) — vérifier si tous notifiés
+    if (precomputedWaveIds.length === 0 && nextWave > 1) {
+      const totalPrecomputed = Object.values(
+        (request.waveUserIds as Record<string, string[]>) || {},
+      ).flat().length;
+      if (totalPrecomputed === 0) {
+        console.log("  ⚠️ waveUserIds not yet written by Flutter, skipping");
+        return;
+      }
+    }
 
     if (waveUsers.length === 0) {
       console.log(
@@ -2111,6 +1841,187 @@ export const handleAgentReinstatement = onDocumentCreated(
       console.log("✅ [handleAgentReinstatement] Reinstatement processed successfully");
     } catch (error) {
       console.error("❌ [handleAgentReinstatement] Error:", error);
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// handleAgentTeamChange
+// Déclenché à la création d'un teamChangeTrigger (depuis AgentRosterService).
+// Actions :
+//   1. Retire l'agent des plannings futurs de l'ancienne équipe (si oldTeamId non vide)
+//   2. Ajoute l'agent aux plannings futurs de la nouvelle équipe (si newTeamId non vide)
+//   3. Marque le trigger comme traité
+// ─────────────────────────────────────────────────────────────────────────────
+export const handleAgentTeamChange = onDocumentCreated(
+  {
+    region: "europe-west1",
+    document: "sdis/{sdisId}/stations/{stationId}/replacements/automatic/teamChangeTriggers/{triggerId}",
+  },
+  async (event) => {
+    const trigger = event.data?.data();
+    if (!trigger || trigger.processed) return;
+
+    const {sdisId, stationId} = event.params;
+    const {agentId, oldTeamId, newTeamId, effectiveDate} = trigger;
+
+    if (!agentId) {
+      console.error("❌ [handleAgentTeamChange] Missing agentId");
+      return;
+    }
+
+    const db = getFirestore();
+    const stationPath = `sdis/${sdisId}/stations/${stationId}`;
+    const effectiveTs: Date = effectiveDate ? effectiveDate.toDate() : new Date();
+
+    console.log(
+      `🔄 [handleAgentTeamChange] Agent ${agentId}: "${oldTeamId || ""}" → "${newTeamId || ""}"`,
+    );
+
+    try {
+      // 1. Retrait des plannings de l'ancienne équipe
+      if (oldTeamId && oldTeamId !== "") {
+        const snap = await db
+          .collection(`${stationPath}/plannings`)
+          .where("team", "==", oldTeamId)
+          .get();
+        const batch = db.batch();
+        let count = 0;
+        for (const doc of snap.docs) {
+          const agents = (doc.data().agents ?? []) as Array<{agentId: string; start: Timestamp}>;
+          const filtered = agents.filter(
+            (a) => a.agentId !== agentId || a.start.toDate() < effectiveTs,
+          );
+          if (filtered.length !== agents.length) {
+            batch.update(doc.ref, {agents: filtered});
+            count++;
+          }
+        }
+        await batch.commit();
+        console.log(`✅ [handleAgentTeamChange] Removed from ${count} old-team plannings`);
+      }
+
+      // 2. Ajout aux plannings de la nouvelle équipe (seulement si l'agent est actif)
+      if (newTeamId && newTeamId !== "") {
+        // Vérifier que l'agent n'est pas suspendu/arrêt avant de l'ajouter aux plannings
+        const agentDoc = await db.doc(`${stationPath}/users/${agentId}`).get();
+        const agentStatus = agentDoc.data()?.agentAvailabilityStatus as string | undefined;
+        const canAdd = !agentStatus || agentStatus === "active";
+
+        if (!canAdd) {
+          console.log(
+            `⚠️ [handleAgentTeamChange] Agent ${agentId} is not active (${agentStatus}), skipping addition to plannings`,
+          );
+        } else {
+          const snap = await db
+            .collection(`${stationPath}/plannings`)
+            .where("team", "==", newTeamId)
+            .where("startTime", ">=", Timestamp.fromDate(effectiveTs))
+            .get();
+          const batch = db.batch();
+          let count = 0;
+          for (const doc of snap.docs) {
+            const planning = doc.data();
+            const agents = (planning.agents ?? []) as Array<{agentId: string}>;
+            if (agents.some((a) => a.agentId === agentId)) continue;
+            // replacedAgentId omis — cohérent avec PlanningAgent.toJson() qui l'omet si null
+            batch.update(doc.ref, {
+              agents: [
+                ...agents,
+                {
+                  agentId,
+                  start: planning.startTime,
+                  end: planning.endTime,
+                  levelId: "",
+                  isExchange: false,
+                  checkedByChief: false,
+                },
+              ],
+            });
+            count++;
+          }
+          await batch.commit();
+          console.log(`✅ [handleAgentTeamChange] Added to ${count} new-team plannings`);
+        }
+      }
+
+      // 3. Marquer le trigger comme traité
+      await event.data!.ref.update({
+        processed: true,
+        processedAt: Timestamp.now(),
+      });
+
+      console.log("✅ [handleAgentTeamChange] Team change processed successfully");
+    } catch (error) {
+      console.error("❌ [handleAgentTeamChange] Error:", error);
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// handleAgentRemoval
+// Déclenché à la création d'un removalTrigger (depuis removeUserFromStation).
+// Actions :
+//   1. Retire l'agent de tous les plannings de la station dont son entrée start >= removalDate
+//   2. Marque le trigger comme traité
+// ─────────────────────────────────────────────────────────────────────────────
+export const handleAgentRemoval = onDocumentCreated(
+  {
+    region: "europe-west1",
+    document: "sdis/{sdisId}/stations/{stationId}/replacements/automatic/removalTriggers/{triggerId}",
+  },
+  async (event) => {
+    const trigger = event.data?.data();
+    if (!trigger || trigger.processed) return;
+
+    const {sdisId, stationId} = event.params;
+    const {agentId, removalDate} = trigger;
+
+    if (!agentId || !removalDate) {
+      console.error("❌ [handleAgentRemoval] Missing agentId or removalDate");
+      return;
+    }
+
+    const db = getFirestore();
+    const stationPath = `sdis/${sdisId}/stations/${stationId}`;
+    const refDate: Date = removalDate.toDate();
+
+    console.log(
+      `🔄 [handleAgentRemoval] Processing removal for agent ${agentId} from ${refDate.toISOString()}`,
+    );
+
+    try {
+      // Retirer l'agent de tous les plannings de la station
+      // Critère : l'entrée agent dans planning.agents[] a un start >= removalDate
+      const planningsSnap = await db
+        .collection(`${stationPath}/plannings`)
+        .get();
+
+      const batch = db.batch();
+      let planningUpdates = 0;
+      for (const planningDoc of planningsSnap.docs) {
+        const planning = planningDoc.data();
+        const agents = (planning.agents ?? []) as Array<{agentId: string; start: Timestamp}>;
+        const filteredAgents = agents.filter(
+          (a) => a.agentId !== agentId || a.start.toDate() < refDate,
+        );
+        if (filteredAgents.length !== agents.length) {
+          batch.update(planningDoc.ref, {agents: filteredAgents});
+          planningUpdates++;
+        }
+      }
+      await batch.commit();
+      console.log(`✅ [handleAgentRemoval] Updated ${planningUpdates} plannings`);
+
+      await event.data!.ref.update({
+        processed: true,
+        processedAt: Timestamp.now(),
+        planningsUpdated: planningUpdates,
+      });
+
+      console.log("✅ [handleAgentRemoval] Removal processed successfully");
+    } catch (error) {
+      console.error("❌ [handleAgentRemoval] Error:", error);
     }
   },
 );

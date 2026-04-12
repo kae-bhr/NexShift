@@ -676,7 +676,7 @@ class _OnCallPresenceTile extends StatelessWidget {
                     _buildNameRow(context, isDark),
                     const SizedBox(height: 3),
                     Text(
-                      "${DateFormat('dd/MM HH:mm').format(slot.start)} \u2192 ${DateFormat('dd/MM HH:mm').format(slot.end)}",
+                      "${DateFormat('dd/MM HH:mm').format(slot.start.toUtc())} \u2192 ${DateFormat('dd/MM HH:mm').format(slot.end.toUtc())}",
                       style: TextStyle(
                         fontSize: 12,
                         color: isDark
@@ -967,7 +967,7 @@ class _AvailabilityPresenceTile extends StatelessWidget {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    "${DateFormat('dd/MM HH:mm').format(availability.start)} \u2192 ${DateFormat('dd/MM HH:mm').format(availability.end)}",
+                    "${DateFormat('dd/MM HH:mm').format(availability.start.toUtc())} \u2192 ${DateFormat('dd/MM HH:mm').format(availability.end.toUtc())}",
                     style: TextStyle(
                       fontSize: 12,
                       color: isDark
@@ -1469,7 +1469,7 @@ class _PersonalViewSlotRow extends StatelessWidget {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Text(
-                          "${DateFormat('dd/MM HH:mm').format(slot.start)} \u2192 ${DateFormat('dd/MM HH:mm').format(slot.end)}",
+                          "${DateFormat('dd/MM HH:mm').format(slot.start.toUtc())} \u2192 ${DateFormat('dd/MM HH:mm').format(slot.end.toUtc())}",
                           style: TextStyle(
                             fontSize: 12,
                             color: isDark

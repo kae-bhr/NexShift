@@ -496,7 +496,8 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
   }
 
   String _formatDateTime(DateTime dt) {
-    return "${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+    final u = dt.toUtc();
+    return "${u.day.toString().padLeft(2, '0')}/${u.month.toString().padLeft(2, '0')}/${u.year} ${u.hour.toString().padLeft(2, '0')}:${u.minute.toString().padLeft(2, '0')}";
   }
 
   @override

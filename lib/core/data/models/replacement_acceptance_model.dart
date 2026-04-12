@@ -74,7 +74,7 @@ class ReplacementAcceptance {
       id: json['id'] as String,
       requestId: json['requestId'] as String,
       userId: json['userId'] as String,
-      userName: json['userName'] as String,
+      userName: json['userName'] as String? ?? '',
       acceptedStartTime: (json['acceptedStartTime'] as Timestamp).toDate(),
       acceptedEndTime: (json['acceptedEndTime'] as Timestamp).toDate(),
       status: ReplacementAcceptanceStatus.values.firstWhere(

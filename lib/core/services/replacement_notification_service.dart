@@ -511,6 +511,30 @@ class ReplacementNotificationService {
         '📨 Wave 1: Found ${wave1Users.length} team members available (${agentsInPlanning.length} excluded from planning)',
       );
 
+      // Pré-calculer toutes les vagues 1-5 pour un affichage cohérent immédiat.
+      // La CF lira ces valeurs depuis waveUserIds au lieu de les recalculer.
+      final waveCalculationService = WaveCalculationService();
+      final skillRarityWeights = waveCalculationService.calculateSkillRarityWeights(
+        teamMembers: allUsers,
+        requesterSkills: requester.skills,
+      );
+      final Map<String, List<String>> allWaveUserIds = {};
+      for (final user in allUsers) {
+        if (user.id == requester.id) continue;
+        if (excludedUserIds?.contains(user.id) ?? false) continue;
+        final wave = waveCalculationService.calculateWave(
+          requester: requester,
+          candidate: user,
+          planningTeam: planningTeam ?? request.team ?? '',
+          agentsInPlanning: agentsInPlanning,
+          skillRarityWeights: skillRarityWeights,
+        );
+        if (wave > 0 && wave <= 5) {
+          allWaveUserIds.putIfAbsent('$wave', () => []).add(user.id);
+        }
+      }
+      debugPrint('📊 Pre-computed waveUserIds: ${allWaveUserIds.map((k, v) => MapEntry(k, v.length))}');
+
       if (wave1Users.isEmpty) {
         debugPrint('⚠️ No team members available, wave 1 is empty');
         // Mettre à jour currentWave sans lastWaveSentAt pour permettre
@@ -522,6 +546,7 @@ class ReplacementNotificationService {
             .update({
               'currentWave': 1,
               'notifiedUserIds': [],
+              'waveUserIds': allWaveUserIds,
               // NE PAS mettre lastWaveSentAt, pour forcer le traitement immédiat
             });
 
@@ -540,13 +565,13 @@ class ReplacementNotificationService {
 
       final targetUserIds = wave1Users.map((u) => u.id).toList();
 
-      // Mettre à jour la demande avec les utilisateurs notifiés
+      // Mettre à jour la demande avec les utilisateurs notifiés et waveUserIds complet
       final requestsPath = _getReplacementRequestsPath(request.station);
       await firestore.collection(requestsPath).doc(request.id).update({
         'currentWave': 1,
         'notifiedUserIds': targetUserIds,
         'lastWaveSentAt': FieldValue.serverTimestamp(),
-        'waveUserIds.1': targetUserIds,
+        'waveUserIds': allWaveUserIds,
       });
 
       // Créer un document de notification trigger pour la vague 1
@@ -2098,12 +2123,10 @@ class ReplacementNotificationService {
       await firestore.collection(notificationTriggersPath).add({
         'userId': requester.id,
         'type': 'replacement_found',
-        'title': 'Remplaçant trouvé',
-        'body': 'Votre demande de remplacement est complète.',
-        'data': {
-          'requestId': request.id,
-          'replacerId': acceptor.id,
-        },
+        'requestId': request.id,
+        'replacerId': acceptor.id,
+        'startTime': Timestamp.fromDate(request.startTime),
+        'endTime': Timestamp.fromDate(request.endTime),
         'createdAt': FieldValue.serverTimestamp(),
         'processed': false,
       });

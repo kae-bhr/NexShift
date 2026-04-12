@@ -7,6 +7,9 @@ import 'package:uuid/uuid.dart';
 class ShiftGenerator {
   final _uuid = const Uuid();
 
+  // Duration.zero ou Duration(hours: -2) selon si les DateTime sont générés en UTC ou en heure locale (Heure d'été française).
+  static const _legacyUtcOffset = Duration.zero;
+
   /// Génère les astreintes pour une période donnée
   List<GeneratedShift> generateShifts({
     required List<ShiftRule> rules,
@@ -17,8 +20,8 @@ class ShiftGenerator {
     final shifts = <GeneratedShift>[];
 
     // Normaliser les dates (début de journée)
-    final start = DateTime(startDate.year, startDate.month, startDate.day);
-    final end = DateTime(endDate.year, endDate.month, endDate.day);
+    final start = DateTime.utc(startDate.year, startDate.month, startDate.day);
+    final end = DateTime.utc(endDate.year, endDate.month, endDate.day);
 
     // Trier les règles par priorité
     final sortedRules = List<ShiftRule>.from(rules)
@@ -46,6 +49,13 @@ class ShiftGenerator {
 
     // Appliquer les exceptions (découpage temporel)
     mergedShifts = _applyExceptions(mergedShifts, exceptions);
+
+    debugPrint('=== ShiftGenerator output (${mergedShifts.length} shifts) ===');
+    for (final s in mergedShifts) {
+      debugPrint(
+        '  [${s.isException ? "EXC" : "RUL"}] ${s.teamId} ${s.startDateTime.toIso8601String()} → ${s.endDateTime.toIso8601String()}',
+      );
+    }
 
     // Fusionner à nouveau pour consolider les segments d'exception consécutifs
     mergedShifts = _mergeConsecutiveShifts(mergedShifts);
@@ -77,13 +87,7 @@ class ShiftGenerator {
         shift.startDateTime,
       );
 
-      // Pour les exceptions, vérifier aussi que le motif est identique
-      final sameException =
-          currentShift.isException == shift.isException &&
-          (!currentShift.isException ||
-              currentShift.exceptionReason == shift.exceptionReason);
-
-      if (sameTeam && consecutive && sameException) {
+      if (sameTeam && consecutive) {
         // Fusionner : étendre la fin de l'astreinte courante
         // Combiner les noms de règles uniquement si différents
         String combinedName = currentShift.ruleName;
@@ -120,7 +124,7 @@ class ShiftGenerator {
   /// Vérifie si une règle s'applique à une date donnée
   bool _isRuleApplicable(ShiftRule rule, DateTime date) {
     // Vérifier si la date est après le début de la règle
-    final ruleStart = DateTime(
+    final ruleStart = DateTime.utc(
       rule.startDate.year,
       rule.startDate.month,
       rule.startDate.day,
@@ -131,7 +135,7 @@ class ShiftGenerator {
 
     // Vérifier si la date est avant la fin de la règle (si définie)
     if (rule.endDate != null) {
-      final ruleEnd = DateTime(
+      final ruleEnd = DateTime.utc(
         rule.endDate!.year,
         rule.endDate!.month,
         rule.endDate!.day,
@@ -151,31 +155,33 @@ class ShiftGenerator {
     required DateTime date,
   }) {
     // Créer les DateTime de début et fin
-    final startDateTime = DateTime(
+    // _legacyUtcOffset compense l'écart entre la version de prod (heure locale)
+    // et la version dev (UTC wall-clock). Remettre à Duration.zero après migration.
+    final startDateTime = DateTime.utc(
       date.year,
       date.month,
       date.day,
       rule.startTime.hour,
       rule.startTime.minute,
-    );
+    ).add(_legacyUtcOffset);
 
     DateTime endDateTime;
     if (rule.spansNextDay) {
-      endDateTime = DateTime(
+      endDateTime = DateTime.utc(
         date.year,
         date.month,
         date.day + 1,
         rule.endTime.hour,
         rule.endTime.minute,
-      );
+      ).add(_legacyUtcOffset);
     } else {
-      endDateTime = DateTime(
+      endDateTime = DateTime.utc(
         date.year,
         date.month,
         date.day,
         rule.endTime.hour,
         rule.endTime.minute,
-      );
+      ).add(_legacyUtcOffset);
     }
 
     // Déterminer l'équipe selon la rotation
@@ -352,13 +358,13 @@ class ShiftGenerator {
   String? _calculateTeamForDate(ShiftRule rule, DateTime date) {
     if (rule.teamIds.isEmpty) return null;
 
-    final ruleStart = DateTime(
+    final ruleStart = DateTime.utc(
       rule.startDate.year,
       rule.startDate.month,
       rule.startDate.day,
     );
 
-    final currentDate = DateTime(date.year, date.month, date.day);
+    final currentDate = DateTime.utc(date.year, date.month, date.day);
 
     int teamIndex;
     switch (rule.rotationType) {
@@ -427,8 +433,8 @@ class ShiftGenerator {
     List<GeneratedShift> allShifts,
     DateTime date,
   ) {
-    final normalizedDate = DateTime(date.year, date.month, date.day);
-    final nextDay = DateTime(date.year, date.month, date.day + 1);
+    final normalizedDate = DateTime.utc(date.year, date.month, date.day);
+    final nextDay = DateTime.utc(date.year, date.month, date.day + 1);
 
     return allShifts.where((shift) {
       // Inclure si l'astreinte chevauche ce jour

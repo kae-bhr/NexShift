@@ -29,8 +29,12 @@ class _ShiftExceptionsPageState extends State<ShiftExceptionsPage> {
   void initState() {
     super.initState();
     _selectedYear = DateTime.now().year;
-    _loadExceptions();
-    _checkPermissions();
+    _init();
+  }
+
+  Future<void> _init() async {
+    await _checkPermissions();
+    await _loadExceptions();
   }
 
   Future<void> _checkPermissions() async {
@@ -151,8 +155,9 @@ class _ShiftExceptionsPageState extends State<ShiftExceptionsPage> {
   }
 
   String _formatDateTime(DateTime dt) {
-    return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${(dt.year % 100).toString().padLeft(2, '0')} '
-        '${dt.hour.toString().padLeft(2, '0')}h${dt.minute.toString().padLeft(2, '0')}';
+    final u = dt.toUtc();
+    return '${u.day.toString().padLeft(2, '0')}/${u.month.toString().padLeft(2, '0')}/${(u.year % 100).toString().padLeft(2, '0')} '
+        '${u.hour.toString().padLeft(2, '0')}h${u.minute.toString().padLeft(2, '0')}';
   }
 
   Widget _buildExRow(IconData icon, String text, bool isDark) {
@@ -609,7 +614,7 @@ class _ExceptionDialogState extends State<_ExceptionDialog> {
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final startDateTime = DateTime(
+    final startDateTime = DateTime.utc(
       _startDate.year,
       _startDate.month,
       _startDate.day,
@@ -617,7 +622,7 @@ class _ExceptionDialogState extends State<_ExceptionDialog> {
       _startTime.minute,
     );
 
-    final endDateTime = DateTime(
+    final endDateTime = DateTime.utc(
       _endDate.year,
       _endDate.month,
       _endDate.day,

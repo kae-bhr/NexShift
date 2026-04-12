@@ -474,8 +474,8 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
     await _loadTeamDetails();
   }
 
-  String _formatDate(DateTime dt) => DateFormat('dd/MM/yyyy').format(dt);
-  String _formatTime(DateTime dt) => DateFormat('HH:mm').format(dt);
+  String _formatDate(DateTime dt) => DateFormat('dd/MM/yyyy').format(dt.toUtc());
+  String _formatTime(DateTime dt) => DateFormat('HH:mm').format(dt.toUtc());
 
   TextStyle _replacedNameStyle(BuildContext context) {
     final base = Theme.of(context).textTheme.bodyMedium ?? const TextStyle();

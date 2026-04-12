@@ -7,7 +7,11 @@ import 'package:nexshift_app/core/repositories/shift_exception_repository.dart';
 import 'package:nexshift_app/core/services/planning_generation_service.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
 import 'package:nexshift_app/features/planning/presentation/pages/edit_shift_rule_page.dart';
-import 'package:nexshift_app/features/planning/presentation/pages/calendar_preview_page.dart';
+import 'package:nexshift_app/core/data/models/generation_options_model.dart';
+import 'package:nexshift_app/core/data/models/shift_exception_model.dart';
+import 'package:nexshift_app/core/data/models/team_model.dart';
+import 'package:nexshift_app/core/repositories/team_repository.dart';
+import 'package:nexshift_app/features/planning/presentation/pages/generation_impact_page.dart';
 import 'package:nexshift_app/features/planning/presentation/pages/shift_exceptions_page.dart';
 import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
@@ -23,7 +27,6 @@ class PlanningRulesListPage extends StatefulWidget {
 class _PlanningRulesListPageState extends State<PlanningRulesListPage> {
   final _repository = ShiftRuleRepository();
   final _generationService = PlanningGenerationService();
-  final _exceptionRepository = ShiftExceptionRepository();
   List<ShiftRule> _rules = [];
   List<ShiftRule> _activeRules = [];
   bool _isLoading = true;
@@ -161,7 +164,7 @@ class _PlanningRulesListPageState extends State<PlanningRulesListPage> {
                   child: RefreshIndicator(
                     onRefresh: _loadRules,
                     child: ListView.builder(
-                      padding: const EdgeInsets.all(16),
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
                       itemCount: _rules.length,
                       itemBuilder: (context, index) {
                         final rule = _rules[index];
@@ -190,44 +193,23 @@ class _PlanningRulesListPageState extends State<PlanningRulesListPage> {
       ),
       child: Column(
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const CalendarPreviewPage(),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.calendar_month, size: 20),
-                  label: const Text('Aperçu'),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const ShiftExceptionsPage(),
                   ),
-                ),
+                );
+              },
+              icon: const Icon(Icons.event_busy, size: 20),
+              label: const Text('Gérer les exceptions'),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 12),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const ShiftExceptionsPage(),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.event_busy, size: 20),
-                  label: const Text('Exceptions'),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
           const SizedBox(height: 8),
           SizedBox(
@@ -309,6 +291,10 @@ class _PlanningRulesListPageState extends State<PlanningRulesListPage> {
     final accentColor = rule.isActive ? KColors.appNameColor : Colors.grey;
     final subtitleColor = isDark ? Colors.grey[400] : Colors.grey[600];
 
+    final dateRange = rule.endDate != null
+        ? 'Du ${_fmtDate(rule.startDate)} au ${_fmtDate(rule.endDate!)}'
+        : 'Du ${_fmtDate(rule.startDate)} au ${_fmtDate(rule.startDate.add(const Duration(days: 365)))}';
+
     return Container(
       key: key,
       margin: const EdgeInsets.only(bottom: 10),
@@ -322,71 +308,61 @@ class _PlanningRulesListPageState extends State<PlanningRulesListPage> {
           width: 1.5,
         ),
       ),
-      child: Column(
-        children: [
-          // Header row: icon + info + switch
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Icon badge
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: accentColor.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(Icons.event_repeat_rounded, color: accentColor, size: 20),
+            ),
+            const SizedBox(width: 12),
+
+            // Contenu
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    rule.name,
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: rule.isActive
+                          ? (isDark ? Colors.white : Colors.black87)
+                          : subtitleColor,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  _buildInfoRow(Icons.access_time_rounded, rule.getTimeRangeString(), subtitleColor),
+                  _buildInfoRow(
+                    Icons.groups_rounded,
+                    rule.rotationType == ShiftRotationType.none
+                        ? 'Non affectée'
+                        : '${rule.teamIds.join(", ")} · ${rule.rotationType.label}',
+                    subtitleColor,
+                  ),
+                  _buildInfoRow(Icons.today_rounded, rule.applicableDays.toDisplayString(), subtitleColor),
+                  _buildInfoRow(Icons.date_range_rounded, dateRange, subtitleColor),
+                  _buildInfoRow(
+                    Icons.group_rounded,
+                    'Max ${_stationConfig?.maxAgentsPerShift ?? 6} agents',
+                    subtitleColor,
+                  ),
+                ],
+              ),
+            ),
+
+            // Actions à droite : switch + icônes modifier/supprimer
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                // Icon badge
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: accentColor.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(
-                    Icons.event_repeat_rounded,
-                    color: accentColor,
-                    size: 20,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                // Info column
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        rule.name,
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 15,
-                          color: rule.isActive
-                              ? (isDark ? Colors.white : Colors.black87)
-                              : subtitleColor,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      _buildInfoRow(Icons.access_time_rounded, rule.getTimeRangeString(), subtitleColor),
-                      _buildInfoRow(
-                        Icons.groups_rounded,
-                        rule.rotationType == ShiftRotationType.none
-                            ? 'Non affectée'
-                            : '${rule.teamIds.join(", ")} · ${rule.rotationType.label}',
-                        subtitleColor,
-                      ),
-                      _buildInfoRow(Icons.today_rounded, rule.applicableDays.toDisplayString(), subtitleColor),
-                      _buildInfoRow(
-                        Icons.date_range_rounded,
-                        rule.endDate != null
-                            ? 'Du ${rule.startDate.day.toString().padLeft(2, '0')}/${rule.startDate.month.toString().padLeft(2, '0')}/${(rule.startDate.year % 100).toString().padLeft(2, '0')}'
-                                ' au ${rule.endDate!.day.toString().padLeft(2, '0')}/${rule.endDate!.month.toString().padLeft(2, '0')}/${(rule.endDate!.year % 100).toString().padLeft(2, '0')}'
-                            : 'Du ${rule.startDate.day.toString().padLeft(2, '0')}/${rule.startDate.month.toString().padLeft(2, '0')}/${(rule.startDate.year % 100).toString().padLeft(2, '0')}'
-                                ' au ${rule.startDate.add(const Duration(days: 365)).day.toString().padLeft(2, '0')}/${rule.startDate.add(const Duration(days: 365)).month.toString().padLeft(2, '0')}/${(rule.startDate.add(const Duration(days: 365)).year % 100).toString().padLeft(2, '0')}',
-                        subtitleColor,
-                      ),
-                      _buildInfoRow(
-                        Icons.group_rounded,
-                        'Max ${_stationConfig?.maxAgentsPerShift ?? 6} agents',
-                        subtitleColor,
-                      ),
-                    ],
-                  ),
-                ),
-                // Active toggle
                 if (_canManageRules)
                   Switch(
                     value: rule.isActive,
@@ -400,48 +376,44 @@ class _PlanningRulesListPageState extends State<PlanningRulesListPage> {
                     activeThumbColor: KColors.appNameColor,
                     activeTrackColor: KColors.appNameColor.withValues(alpha: 0.4),
                   ),
-              ],
-            ),
-          ),
-
-          // Actions row
-          if (_canManageRules) ...[
-            Divider(
-              height: 1,
-              color: isDark
-                  ? Colors.white.withValues(alpha: 0.08)
-                  : Colors.grey.withValues(alpha: 0.15),
-            ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton.icon(
-                  onPressed: () async {
-                    final result = await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => EditShiftRulePage(rule: rule),
-                      ),
-                    );
-                    if (result == true) _loadRules();
-                  },
-                  icon: const Icon(Icons.edit_rounded, size: 16),
-                  label: const Text('Modifier'),
-                ),
-                TextButton.icon(
-                  onPressed: () => _showDeleteDialog(rule),
-                  icon: const Icon(Icons.delete_rounded, size: 16),
-                  label: const Text('Supprimer'),
-                  style: TextButton.styleFrom(foregroundColor: Colors.red),
-                ),
-                const SizedBox(width: 4),
+                if (_canManageRules) ...[
+                  const SizedBox(height: 4),
+                  IconButton(
+                    icon: const Icon(Icons.edit_rounded, size: 18),
+                    onPressed: () async {
+                      final result = await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => EditShiftRulePage(rule: rule),
+                        ),
+                      );
+                      if (result == true) _loadRules();
+                    },
+                    tooltip: 'Modifier',
+                    color: subtitleColor,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                  const SizedBox(height: 8),
+                  IconButton(
+                    icon: const Icon(Icons.delete_rounded, size: 18),
+                    onPressed: () => _showDeleteDialog(rule),
+                    tooltip: 'Supprimer',
+                    color: Colors.red[400],
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                ],
               ],
             ),
           ],
-        ],
+        ),
       ),
     );
   }
+
+  String _fmtDate(DateTime d) =>
+      '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${(d.year % 100).toString().padLeft(2, '0')}';
 
   Widget _buildInfoRow(IconData icon, String text, Color? color) {
     return Padding(
@@ -478,14 +450,14 @@ class _PlanningRulesListPageState extends State<PlanningRulesListPage> {
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () async {
+              final nav = Navigator.of(context);
+              final messenger = ScaffoldMessenger.of(context);
               await _repository.delete(rule.id, stationId: _currentUser!.station);
-              Navigator.pop(context);
+              nav.pop();
               _loadRules();
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Règle "${rule.name}" supprimée')),
-                );
-              }
+              messenger.showSnackBar(
+                SnackBar(content: Text('Règle "${rule.name}" supprimée')),
+              );
             },
             child: const Text('Supprimer'),
           ),
@@ -495,152 +467,203 @@ class _PlanningRulesListPageState extends State<PlanningRulesListPage> {
   }
 
   void _showGenerateDialog() {
-    // Utiliser les règles actives pré-calculées
     DateTime defaultStartDate;
     DateTime defaultEndDate;
 
     if (_activeRules.isEmpty) {
-      // Aucune règle : date du jour et +1 an
       defaultStartDate = DateTime.now();
       defaultEndDate = DateTime.now().add(const Duration(days: 365));
     } else {
-      // Trouver la date de début la plus ancienne et la date de fin la plus éloignée
       defaultStartDate = _activeRules
           .map((r) => r.startDate)
           .reduce((a, b) => a.isBefore(b) ? a : b);
 
-      // Pour la date de fin, prendre la plus éloignée (en gérant les null)
       final endDates = _activeRules
           .map((r) => r.endDate)
           .where((d) => d != null)
           .map((d) => d!)
           .toList();
 
-      if (endDates.isEmpty) {
-        // Aucune date de fin définie : +1 an à partir de maintenant
-        defaultEndDate = DateTime.now().add(const Duration(days: 365));
-      } else {
-        defaultEndDate = endDates.reduce((a, b) => a.isAfter(b) ? a : b);
-      }
+      defaultEndDate = endDates.isEmpty
+          ? DateTime.now().add(const Duration(days: 365))
+          : endDates.reduce((a, b) => a.isAfter(b) ? a : b);
     }
 
     showDialog(
       context: context,
-      builder: (context) => _GeneratePlanningsDialog(
+      builder: (context) => _GenerationOptionsDialog(
         activeRulesCount: _activeRules.length,
         defaultStartDate: defaultStartDate,
         defaultEndDate: defaultEndDate,
-        onGenerate: (startDate, endDate) async {
-          await _generatePlannings(startDate, endDate);
-        },
+        station: _currentUser?.station,
+        onSimulate: (options, exceptions) => _simulateAndNavigate(options, exceptions),
       ),
     );
   }
 
-  Future<void> _generatePlannings(DateTime startDate, DateTime endDate) async {
+  Future<void> _simulateAndNavigate(
+    GenerationOptions options,
+    List<ShiftException> exceptions,
+  ) async {
     setState(() => _isGenerating = true);
 
     try {
-      // Charger les exceptions pour la période
-      final allExceptions = await _exceptionRepository.getAll(stationId: _currentUser?.station);
-      debugPrint('📅 Total exceptions loaded: ${allExceptions.length}');
-
-      final relevantExceptions = allExceptions.where((e) {
-        final isRelevant = e.startDateTime.isBefore(endDate) &&
-            e.endDateTime.isAfter(startDate);
-        if (isRelevant) {
-          debugPrint('  ✓ Exception: ${e.reason} (${e.startDateTime} - ${e.endDateTime})');
-        }
-        return isRelevant;
-      }).toList();
-
-      debugPrint('📅 Relevant exceptions for period $startDate - $endDate: ${relevantExceptions.length}');
-
-      final duration = endDate.difference(startDate);
-      final result = await _generationService.generatePlannings(
-        fromDate: startDate,
-        duration: duration,
+      final impact = await _generationService.simulateGeneration(
+        options,
         station: _currentUser?.station,
-        exceptions: relevantExceptions,
+        exceptions: exceptions,
       );
 
       if (!mounted) return;
 
-      if (result.success) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              '${result.planningsGenerated} plannings générés\n'
-              '${result.planningsDeleted} plannings remplacés',
-            ),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 4),
-            action: SnackBarAction(
-              label: 'Voir',
-              textColor: Colors.white,
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const CalendarPreviewPage(),
-                  ),
-                );
-              },
-            ),
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => GenerationImpactPage(
+            impact: impact,
+            options: options,
+            onConfirm: () => _executeGeneration(options, exceptions, impact),
           ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(result.message), backgroundColor: Colors.red),
-        );
-      }
+        ),
+      );
+
+      // Rafraîchir la page après retour (que la génération ait eu lieu ou non)
+      if (mounted) _loadRules();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur lors de la simulation : $e'), backgroundColor: Colors.red),
+      );
+    } finally {
+      if (mounted) setState(() => _isGenerating = false);
+    }
+  }
+
+  Future<void> _executeGeneration(
+    GenerationOptions options,
+    List<ShiftException> exceptions,
+    GenerationImpact precomputedImpact,
+  ) async {
+    setState(() => _isGenerating = true);
+
+    try {
+      final result = await _generationService.generatePlannings(
+        options: options,
+        station: _currentUser?.station,
+        exceptions: exceptions,
+        precomputedImpact: precomputedImpact,
+      );
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${result.planningsGenerated} plannings générés · '
+            '${result.planningsDeleted} supprimés',
+          ),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 4),
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Erreur : $e'), backgroundColor: Colors.red),
       );
     } finally {
-      if (mounted) {
-        setState(() => _isGenerating = false);
-      }
+      if (mounted) setState(() => _isGenerating = false);
     }
   }
 }
 
-/// Dialogue pour configurer la génération des plannings
-class _GeneratePlanningsDialog extends StatefulWidget {
+/// Dialogue de configuration de la génération — remplace l'ancien _GeneratePlanningsDialog
+class _GenerationOptionsDialog extends StatefulWidget {
   final int activeRulesCount;
   final DateTime defaultStartDate;
   final DateTime defaultEndDate;
-  final Function(DateTime startDate, DateTime endDate) onGenerate;
+  final String? station;
+  final Future<void> Function(GenerationOptions options, List<ShiftException> exceptions) onSimulate;
 
-  const _GeneratePlanningsDialog({
+  const _GenerationOptionsDialog({
     required this.activeRulesCount,
     required this.defaultStartDate,
     required this.defaultEndDate,
-    required this.onGenerate,
+    required this.station,
+    required this.onSimulate,
   });
 
   @override
-  State<_GeneratePlanningsDialog> createState() =>
-      _GeneratePlanningsDialogState();
+  State<_GenerationOptionsDialog> createState() => _GenerationOptionsDialogState();
 }
 
-class _GeneratePlanningsDialogState extends State<_GeneratePlanningsDialog> {
+class _GenerationOptionsDialogState extends State<_GenerationOptionsDialog> {
   late DateTime _startDate;
   late DateTime _endDate;
+  GenerationMode _mode = GenerationMode.total;
+  bool _generateFromRules = true;
+  bool _generateFromExceptions = true;
+  bool _preserveReplacements = true;
+  List<Team> _availableTeams = [];
+  Set<String> _selectedTeams = {};
+  bool _filterByTeam = false;
+  bool _loadingTeams = false;
+  final _exceptionRepository = ShiftExceptionRepository();
+  final _teamRepository = TeamRepository();
 
   @override
   void initState() {
     super.initState();
     _startDate = widget.defaultStartDate;
     _endDate = widget.defaultEndDate;
+    _loadTeams();
+  }
+
+  Future<void> _loadTeams() async {
+    setState(() => _loadingTeams = true);
+    try {
+      final teams = widget.station != null
+          ? await _teamRepository.getByStation(widget.station!)
+          : await _teamRepository.getAll();
+      if (mounted) {
+        setState(() {
+          _availableTeams = teams;
+          _selectedTeams = teams.map((t) => t.id).toSet();
+          _loadingTeams = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loadingTeams = false);
+    }
+  }
+
+  Future<void> _onSimulate() async {
+    Navigator.pop(context);
+
+    final allExceptions = await _exceptionRepository.getAll(stationId: widget.station);
+    // _endDate est minuit du jour sélectionné — on prend le lendemain minuit
+    // pour inclure toutes les exceptions qui démarrent dans la journée de fin.
+    final endDateInclusive = _endDate.add(const Duration(days: 1));
+    final relevantExceptions = allExceptions
+        .where((e) =>
+            e.startDateTime.isBefore(endDateInclusive) && e.endDateTime.isAfter(_startDate))
+        .toList();
+
+    final options = GenerationOptions(
+      startDate: _startDate,
+      endDate: _endDate,
+      mode: _mode,
+      generateFromRules: _generateFromRules,
+      generateFromExceptions: _generateFromExceptions,
+      teamFilter: _filterByTeam ? _selectedTeams.toList() : null,
+      preserveReplacements: _preserveReplacements,
+    );
+
+    await widget.onSimulate(options, relevantExceptions);
   }
 
   @override
   Widget build(BuildContext context) {
-    final duration = _endDate.difference(_startDate).inDays;
-
     return AlertDialog(
       title: const Row(
         children: [
@@ -649,127 +672,156 @@ class _GeneratePlanningsDialogState extends State<_GeneratePlanningsDialog> {
           Text('Générer les plannings'),
         ],
       ),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Période de génération',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-            const SizedBox(height: 16),
-
-            // Date de début
-            OutlinedButton.icon(
-              onPressed: () async {
-                final date = await showDatePicker(
-                  context: context,
-                  initialDate: _startDate,
-                  firstDate: DateTime(2020),
-                  lastDate: DateTime(2030),
-                );
-                if (date != null) {
-                  setState(() {
-                    _startDate = date;
-                    // Ajuster la date de fin si elle est avant la nouvelle date de début
-                    if (_endDate.isBefore(_startDate)) {
-                      _endDate = _startDate.add(const Duration(days: 365));
-                    }
-                  });
-                }
-              },
-              icon: const Icon(Icons.calendar_today),
-              label: Text(
-                'Début: ${_startDate.day.toString().padLeft(2, '0')}/${_startDate.month.toString().padLeft(2, '0')}/${_startDate.year}',
-              ),
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size(double.infinity, 48),
-              ),
-            ),
-            const SizedBox(height: 8),
-
-            // Date de fin
-            OutlinedButton.icon(
-              onPressed: () async {
-                final date = await showDatePicker(
-                  context: context,
-                  initialDate: _endDate,
-                  firstDate: _startDate,
-                  lastDate: DateTime(2030),
-                );
-                if (date != null) {
-                  setState(() => _endDate = date);
-                }
-              },
-              icon: const Icon(Icons.event),
-              label: Text(
-                'Fin: ${_endDate.day.toString().padLeft(2, '0')}/${_endDate.month.toString().padLeft(2, '0')}/${_endDate.year}',
-              ),
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size(double.infinity, 48),
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Résumé
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: KColors.appNameColor.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: KColors.appNameColor.withValues(alpha: 0.3),
+      contentPadding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SectionLabel('PÉRIODE'),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final date = await showDatePicker(
+                    context: context,
+                    initialDate: _startDate,
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime(2030),
+                  );
+                  if (date != null) {
+                    setState(() {
+                      _startDate = date;
+                      if (_endDate.isBefore(_startDate)) {
+                        _endDate = _startDate.add(const Duration(days: 365));
+                      }
+                    });
+                  }
+                },
+                icon: const Icon(Icons.calendar_today, size: 16),
+                label: Text(
+                  'Début : ${_startDate.day.toString().padLeft(2, '0')}/${_startDate.month.toString().padLeft(2, '0')}/${_startDate.year}',
+                ),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 44),
                 ),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Cette action va :',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  Text('• Supprimer tous les plannings entre ces dates'),
-                  if (widget.activeRulesCount > 0) ...[
-                    Text('• Générer $duration jours de plannings'),
-                    Text(
-                      '• Utiliser ${widget.activeRulesCount} règle(s) active(s)',
-                    ),
-                  ] else
-                    const Text(
-                      '• Aucune nouvelle planification (aucune règle active)',
-                      style: TextStyle(fontStyle: FontStyle.italic),
-                    ),
-                ],
+              const SizedBox(height: 6),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final date = await showDatePicker(
+                    context: context,
+                    initialDate: _endDate,
+                    firstDate: _startDate,
+                    lastDate: DateTime(2030),
+                  );
+                  if (date != null) setState(() => _endDate = date);
+                },
+                icon: const Icon(Icons.event, size: 16),
+                label: Text(
+                  'Fin : ${_endDate.day.toString().padLeft(2, '0')}/${_endDate.month.toString().padLeft(2, '0')}/${_endDate.year}',
+                ),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 44),
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
+              const SizedBox(height: 16),
 
-            // Avertissement
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.orange.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.orange.withValues(alpha: 0.5)),
+              _SectionLabel('MODE'),
+              const SizedBox(height: 4),
+              _RadioOption<GenerationMode>(
+                value: GenerationMode.total,
+                groupValue: _mode,
+                label: 'Total',
+                subtitle: 'Supprime et régénère tous les plannings de la période',
+                onChanged: (v) => setState(() => _mode = v!),
               ),
-              child: Row(
-                children: [
-                  const Icon(Icons.warning, color: Colors.orange, size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      widget.activeRulesCount > 0
-                          ? 'Les plannings existants seront remplacés. Cette action est irréversible.'
-                          : 'Tous les plannings de cette période seront supprimés. Cette action est irréversible.',
-                      style: const TextStyle(fontSize: 12),
+              _RadioOption<GenerationMode>(
+                value: GenerationMode.differential,
+                groupValue: _mode,
+                label: 'Différentiel',
+                subtitle: 'Régénère uniquement les plannings dont les règles ont changé',
+                onChanged: (v) => setState(() => _mode = v!),
+              ),
+              const SizedBox(height: 12),
+
+              _SectionLabel('CONTENU À GÉNÉRER'),
+              const SizedBox(height: 4),
+              _CheckOption(
+                value: _generateFromRules,
+                label: 'Plannings par règles',
+                subtitle: '${widget.activeRulesCount} règle(s) active(s)',
+                onChanged: (v) => setState(() => _generateFromRules = v ?? true),
+              ),
+              _CheckOption(
+                value: _generateFromExceptions,
+                label: 'Plannings par exceptions',
+                onChanged: (v) => setState(() => _generateFromExceptions = v ?? true),
+              ),
+              const SizedBox(height: 12),
+
+              _SectionLabel('ÉQUIPES'),
+              const SizedBox(height: 4),
+              _CheckOption(
+                value: _filterByTeam,
+                label: 'Filtrer par équipe',
+                subtitle: 'Par défaut : toutes les équipes',
+                onChanged: (v) => setState(() => _filterByTeam = v ?? false),
+              ),
+              if (_filterByTeam) ...[
+                const SizedBox(height: 6),
+                if (_loadingTeams)
+                  const Center(
+                    child: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
                     ),
+                  )
+                else
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: _availableTeams.map((team) {
+                      final selected = _selectedTeams.contains(team.id);
+                      return FilterChip(
+                        label: Text(team.name),
+                        selected: selected,
+                        selectedColor: KColors.appNameColor.withValues(alpha: 0.2),
+                        checkmarkColor: KColors.appNameColor,
+                        onSelected: (v) => setState(() {
+                          if (v) {
+                            _selectedTeams.add(team.id);
+                          } else {
+                            _selectedTeams.remove(team.id);
+                          }
+                        }),
+                      );
+                    }).toList(),
                   ),
-                ],
+              ],
+              const SizedBox(height: 12),
+
+              _SectionLabel('REMPLACEMENTS EXISTANTS'),
+              const SizedBox(height: 4),
+              _RadioOption<bool>(
+                value: true,
+                groupValue: _preserveReplacements,
+                label: 'Conserver (recommandé)',
+                subtitle: 'Ajuste les remplacements selon le chevauchement',
+                onChanged: (v) => setState(() => _preserveReplacements = v!),
               ),
-            ),
-          ],
+              _RadioOption<bool>(
+                value: false,
+                groupValue: _preserveReplacements,
+                label: 'Écraser',
+                subtitle: 'Supprime tous les remplacements sur les plannings régénérés',
+                onChanged: (v) => setState(() => _preserveReplacements = v!),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
         ),
       ),
       actions: [
@@ -777,14 +829,126 @@ class _GeneratePlanningsDialogState extends State<_GeneratePlanningsDialog> {
           onPressed: () => Navigator.pop(context),
           child: const Text('Annuler'),
         ),
-        FilledButton(
-          onPressed: () {
-            Navigator.pop(context);
-            widget.onGenerate(_startDate, _endDate);
-          },
-          child: const Text('Générer'),
+        FilledButton.icon(
+          onPressed: _onSimulate,
+          icon: const Icon(Icons.preview, size: 16),
+          label: const Text('Simuler'),
+          style: FilledButton.styleFrom(backgroundColor: KColors.appNameColor),
         ),
       ],
+    );
+  }
+}
+
+class _SectionLabel extends StatelessWidget {
+  final String text;
+  const _SectionLabel(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.5,
+        color: Colors.grey.shade500,
+      ),
+    );
+  }
+}
+
+class _RadioOption<T> extends StatelessWidget {
+  final T value;
+  final T groupValue;
+  final String label;
+  final String? subtitle;
+  final ValueChanged<T?> onChanged;
+
+  const _RadioOption({
+    required this.value,
+    required this.groupValue,
+    required this.label,
+    required this.onChanged,
+    this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () => onChanged(value),
+      borderRadius: BorderRadius.circular(6),
+      child: Row(
+        children: [
+          Radio<T>(
+            value: value,
+            groupValue: groupValue,
+            onChanged: onChanged,
+            activeColor: KColors.appNameColor,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            visualDensity: VisualDensity.compact,
+          ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: const TextStyle(fontSize: 13)),
+                if (subtitle != null)
+                  Text(
+                    subtitle!,
+                    style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CheckOption extends StatelessWidget {
+  final bool value;
+  final String label;
+  final String? subtitle;
+  final ValueChanged<bool?> onChanged;
+
+  const _CheckOption({
+    required this.value,
+    required this.label,
+    required this.onChanged,
+    this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () => onChanged(!value),
+      borderRadius: BorderRadius.circular(6),
+      child: Row(
+        children: [
+          Checkbox(
+            value: value,
+            onChanged: onChanged,
+            activeColor: KColors.appNameColor,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            visualDensity: VisualDensity.compact,
+          ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: const TextStyle(fontSize: 13)),
+                if (subtitle != null)
+                  Text(
+                    subtitle!,
+                    style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

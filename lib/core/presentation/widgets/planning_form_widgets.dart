@@ -92,7 +92,7 @@ class SharedPlanningDetailCard extends StatelessWidget {
                 ),
               ),
               Text(
-                fmt.format(planning.startTime),
+                fmt.format(planning.startTime.toUtc()),
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
@@ -119,7 +119,7 @@ class SharedPlanningDetailCard extends StatelessWidget {
                 ),
               ),
               Text(
-                fmt.format(planning.endTime),
+                fmt.format(planning.endTime.toUtc()),
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
@@ -310,7 +310,7 @@ class SharedReplacementPeriodCard extends StatelessWidget {
                           ),
                           Expanded(
                             child: Text(
-                              '${fmt.format(s)} → ${fmt.format(e)}',
+                              '${fmt.format(s.toUtc())} → ${fmt.format(e.toUtc())}',
                               style: TextStyle(
                                 fontSize: 12,
                                 color: isDark
@@ -406,7 +406,7 @@ class _InlineDatePicker extends StatelessWidget {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        isSet ? fmt.format(dateTime!) : placeholder,
+                        isSet ? fmt.format(dateTime!.toUtc()) : placeholder,
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: isSet ? FontWeight.w600 : FontWeight.w400,

@@ -3,6 +3,8 @@ import 'package:nexshift_app/core/presentation/widgets/unified_request_tile/unif
 import 'package:nexshift_app/core/services/replacement_notification_service.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/repositories/user_repository.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:nexshift_app/core/config/environment_config.dart';
 import 'package:flutter/foundation.dart';
 import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/core/utils/station_name_cache.dart';
@@ -19,6 +21,9 @@ class ReplacementTileWrapper extends StatefulWidget {
 
   /// ID de la station courante
   final String stationId;
+
+  /// Utilisateur courant (pour détecter le rôle observateur-privilégié)
+  final User? currentUser;
 
   /// Mode de vue
   final TileViewMode viewMode;
@@ -59,6 +64,7 @@ class ReplacementTileWrapper extends StatefulWidget {
     required this.currentUserId,
     required this.stationId,
     required this.viewMode,
+    this.currentUser,
     this.onTap,
     this.onDelete,
     this.onAccept,
@@ -80,6 +86,8 @@ class _ReplacementTileWrapperState extends State<ReplacementTileWrapper> {
   String _requesterName = 'Chargement...';
   String _stationName = '';
   User? _replacer;
+  DateTime? _pendingAcceptanceStartTime;
+  DateTime? _pendingAcceptanceEndTime;
   bool _isLoading = true;
 
   @override
@@ -92,7 +100,9 @@ class _ReplacementTileWrapperState extends State<ReplacementTileWrapper> {
   void didUpdateWidget(ReplacementTileWrapper oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.request.id != widget.request.id ||
-        oldWidget.request.replacerId != widget.request.replacerId) {
+        oldWidget.request.replacerId != widget.request.replacerId ||
+        !listEquals(oldWidget.request.pendingValidationUserIds,
+            widget.request.pendingValidationUserIds)) {
       _loadData();
     }
   }
@@ -107,10 +117,36 @@ class _ReplacementTileWrapperState extends State<ReplacementTileWrapper> {
           ? requester.displayName
           : 'Agent ${widget.request.requesterId}';
 
-      // Charger le remplaçant si accepté
+      // Charger le remplaçant si accepté (replacerId renseigné = remplacement validé)
       User? replacer;
+      DateTime? pendingStart;
+      DateTime? pendingEnd;
       if (widget.request.replacerId != null) {
         replacer = await _userRepository.getById(widget.request.replacerId!);
+      } else if (widget.request.pendingValidationUserIds.isNotEmpty) {
+        // En attente de validation chef : requête Firestore ciblée (évite fromJson
+        // qui échoue si userName n'est pas persisté dans le document)
+        final acceptancesPath = EnvironmentConfig.getCollectionPath(
+          'replacements/automatic/replacementAcceptances',
+          widget.request.station,
+        );
+        final snap = await FirebaseFirestore.instance
+            .collection(acceptancesPath)
+            .where('requestId', isEqualTo: widget.request.id)
+            .where('status', isEqualTo: 'pendingValidation')
+            .limit(1)
+            .get();
+        if (snap.docs.isNotEmpty) {
+          final data = snap.docs.first.data();
+          final userId = data['userId'] as String?;
+          final rawStart = data['acceptedStartTime'];
+          final rawEnd = data['acceptedEndTime'];
+          if (userId != null) {
+            replacer = await _userRepository.getById(userId);
+            pendingStart = rawStart != null ? (rawStart as Timestamp).toDate() : null;
+            pendingEnd = rawEnd != null ? (rawEnd as Timestamp).toDate() : null;
+          }
+        }
       }
 
       // Résoudre le nom de la station
@@ -124,6 +160,8 @@ class _ReplacementTileWrapperState extends State<ReplacementTileWrapper> {
         setState(() {
           _requesterName = requesterName;
           _replacer = replacer;
+          _pendingAcceptanceStartTime = pendingStart;
+          _pendingAcceptanceEndTime = pendingEnd;
           _stationName = stationName;
           _isLoading = false;
         });
@@ -137,6 +175,21 @@ class _ReplacementTileWrapperState extends State<ReplacementTileWrapper> {
         });
       }
     }
+  }
+
+  /// Vrai si l'utilisateur est chef/leader/admin sur le périmètre de cette demande.
+  /// Ces utilisateurs voient la tuile en mode suivi. S'ils ne sont pas notifiés,
+  /// canAct=false et les boutons Refuser/Accepter sont masqués.
+  bool _isPrivilegedObserver(ReplacementRequest request) {
+    final user = widget.currentUser;
+    if (user == null) return false;
+    if (user.admin || user.status == 'leader') return true;
+    if (user.status == 'chief' &&
+        request.team != null &&
+        request.team == user.team) {
+      return true;
+    }
+    return false;
   }
 
   @override
@@ -161,10 +214,27 @@ class _ReplacementTileWrapperState extends State<ReplacementTileWrapper> {
     }
 
     // Convertir la demande en données unifiées (avec nom de station résolu)
-    final tileData = widget.request.toUnifiedTileData(
+    var tileData = widget.request.toUnifiedTileData(
       requesterName: _requesterName,
       replacer: _replacer,
     ).withStationName(_stationName);
+
+    // Si les horaires viennent d'une acceptance en attente (pas encore sur la demande),
+    // remplacer les horaires de la colonne droite.
+    if (_replacer != null &&
+        _pendingAcceptanceStartTime != null &&
+        _pendingAcceptanceEndTime != null) {
+      tileData = tileData.copyWith(
+        rightColumn: AgentColumnData(
+          agentId: _replacer!.id,
+          agentName: _replacer!.displayName,
+          team: _replacer!.team,
+          startTime: _pendingAcceptanceStartTime!,
+          endTime: _pendingAcceptanceEndTime!,
+          station: _stationName,
+        ),
+      );
+    }
 
     // Déterminer si l'utilisateur peut agir
     final isNotified = widget.request.notifiedUserIds.contains(widget.currentUserId);
@@ -172,17 +242,30 @@ class _ReplacementTileWrapperState extends State<ReplacementTileWrapper> {
     final hasPendingAcceptance = widget.request.pendingValidationUserIds.contains(widget.currentUserId);
     final isOwner = widget.request.requesterId == widget.currentUserId;
 
+    // Vrai si l'utilisateur est un observateur-privilégié (admin/leader/chef sur vague 5)
+    // mais n'a pas été réellement assigné à répondre à cette demande.
+    // Dans ce cas il ne doit pas pouvoir Refuser/Accepter.
+    final isPrivilegedObserver = _isPrivilegedObserver(widget.request);
+
     bool canAct = false;
     switch (widget.viewMode) {
       case TileViewMode.pending:
-        canAct = isNotified && !hasDeclined && !hasPendingAcceptance;
+        // Un observateur-privilégié peut quand même agir s'il est réellement notifié
+        // (ex: chef notifié en vague 1 car même équipe que l'astreinte).
+        final isObserverOnly = isPrivilegedObserver && !isNotified;
+        canAct = !isObserverOnly && isNotified && !hasDeclined && !hasPendingAcceptance;
         break;
       case TileViewMode.myRequests:
         canAct = isOwner;
         break;
       case TileViewMode.toValidate:
-        // À implémenter selon la logique chef
-        canAct = true;
+        final user = widget.currentUser;
+        canAct = user != null &&
+            (user.admin ||
+                user.status == 'leader' ||
+                (user.status == 'chief' &&
+                    widget.request.team != null &&
+                    widget.request.team == user.team));
         break;
       case TileViewMode.history:
         canAct = false;
@@ -206,14 +289,20 @@ class _ReplacementTileWrapperState extends State<ReplacementTileWrapper> {
       onTap: effectiveOnTap,
       onDelete: widget.viewMode == TileViewMode.myRequests ? widget.onDelete : null,
       onAccept: widget.viewMode == TileViewMode.pending ? widget.onAccept : null,
-      onRefuse: widget.viewMode == TileViewMode.pending ? widget.onRefuse : null,
+      onRefuse: (widget.viewMode == TileViewMode.pending ||
+              widget.viewMode == TileViewMode.toValidate)
+          ? widget.onRefuse
+          : null,
       onValidate: widget.viewMode == TileViewMode.toValidate ? widget.onValidate : null,
       onWaveTap: widget.onWaveTap,
       onMarkAsSeen: widget.onMarkAsSeen,
       showDevButton: showDevButton,
       onSkipToNextWave: widget.onSkipToNextWave,
       onResendNotifications: widget.viewMode == TileViewMode.myRequests ? widget.onResendNotifications : null,
-      onUnlockKeySkills: widget.viewMode == TileViewMode.myRequests ? widget.onUnlockKeySkills : null,
+      onUnlockKeySkills: (widget.viewMode == TileViewMode.myRequests ||
+                          widget.viewMode == TileViewMode.pending)
+          ? widget.onUnlockKeySkills
+          : null,
       acceptButtonText: 'Accepter',
       refuseButtonText: 'Refuser',
     );

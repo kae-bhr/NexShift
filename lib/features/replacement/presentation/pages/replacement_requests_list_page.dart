@@ -36,6 +36,7 @@ import 'package:nexshift_app/core/presentation/widgets/tile_confirm_dialog.dart'
 import 'package:nexshift_app/core/presentation/widgets/notified_agents_sheet.dart';
 import 'package:nexshift_app/core/presentation/widgets/availability_picker_section.dart';
 import 'package:nexshift_app/core/utils/station_name_cache.dart';
+import 'package:nexshift_app/core/repositories/replacement_acceptance_repository.dart';
 
 // ManualReplacementProposal est maintenant importé depuis filtered_requests_view.dart
 
@@ -53,6 +54,7 @@ class _ReplacementRequestsListPageState
     extends State<ReplacementRequestsListPage>
     with TickerProviderStateMixin {
   final _notificationService = ReplacementNotificationService();
+  final _acceptanceRepository = ReplacementAcceptanceRepository();
   final _userRepository = UserRepository();
   final _exchangeService = ShiftExchangeService();
   final _planningRepository = PlanningRepository();
@@ -162,7 +164,8 @@ class _ReplacementRequestsListPageState
   }
 
   String _formatDateTime(DateTime dt) {
-    return "${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+    final u = dt.toUtc();
+    return "${u.day.toString().padLeft(2, '0')}/${u.month.toString().padLeft(2, '0')}/${u.year} ${u.hour.toString().padLeft(2, '0')}:${u.minute.toString().padLeft(2, '0')}";
   }
 
   String _formatMonthYear(DateTime date) {
@@ -1465,13 +1468,15 @@ class _ReplacementRequestsListPageState
       request: request,
       currentUserId: _currentUserId ?? '',
       stationId: _currentStationId ?? '',
+      currentUser: _currentUser,
       viewMode: viewMode,
       onDelete: () => _deleteRequest(request),
       onAccept: () =>
           _handleRequestTap(request), // Ouvre le dialog de confirmation
-      onRefuse: () => _declineReplacementRequest(request), // Refuse directement
-      onValidate: () =>
-          _handleRequestTap(request), // À ajuster pour la validation chef
+      onRefuse: subTab == ReplacementSubTab.toValidate
+          ? () => _rejectAcceptanceFromRequest(request)
+          : () => _declineReplacementRequest(request),
+      onValidate: () => _validateAcceptanceFromRequest(request),
       onWaveTap: () => request.requestType == RequestType.availability
           ? _showNotifiedUsersDialog(request)
           : _showWaveDetailsDialog(request),
@@ -2871,6 +2876,154 @@ class _ReplacementRequestsListPageState
     }
   }
 
+  /// Valide une acceptation en attente depuis la tuile "À valider"
+  Future<void> _validateAcceptanceFromRequest(ReplacementRequest request) async {
+    if (_currentUserId == null) return;
+
+    final acceptancesPath = EnvironmentConfig.getCollectionPath(
+      'replacements/automatic/replacementAcceptances',
+      request.station,
+    );
+
+    final snapshot = await FirebaseFirestore.instance
+        .collection(acceptancesPath)
+        .where('requestId', isEqualTo: request.id)
+        .where('status', isEqualTo: 'pendingValidation')
+        .limit(1)
+        .get();
+
+    if (snapshot.docs.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Aucune acceptation en attente trouvée'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    final acceptanceId = snapshot.docs.first.id;
+
+    if (!mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Valider le remplacement'),
+        content: const Text(
+          'Confirmez-vous la validation de cette proposition de remplacement ?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green.shade700,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Valider'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await _notificationService.validateAcceptance(
+        acceptanceId: acceptanceId,
+        validatedBy: _currentUserId!,
+        stationId: request.station,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Remplacement validé avec succès'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur lors de la validation : $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  /// Refuse une acceptation en attente depuis la tuile "À valider" (motif obligatoire)
+  Future<void> _rejectAcceptanceFromRequest(ReplacementRequest request) async {
+    if (_currentUserId == null) return;
+
+    final acceptancesPath = EnvironmentConfig.getCollectionPath(
+      'replacements/automatic/replacementAcceptances',
+      request.station,
+    );
+
+    final snapshot = await FirebaseFirestore.instance
+        .collection(acceptancesPath)
+        .where('requestId', isEqualTo: request.id)
+        .where('status', isEqualTo: 'pendingValidation')
+        .limit(1)
+        .get();
+
+    if (snapshot.docs.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Aucune acceptation en attente trouvée'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    final acceptanceId = snapshot.docs.first.id;
+
+    if (!mounted) return;
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (context) => _AcceptanceRejectionReasonDialog(),
+    );
+
+    if (reason == null || reason.trim().isEmpty) return;
+
+    try {
+      await _acceptanceRepository.reject(
+        acceptanceId,
+        _currentUserId!,
+        reason,
+        stationId: request.station,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Proposition refusée'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur lors du refus : $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   /// Affiche le dialog avec les détails des vagues de notification
   Future<void> _showWaveDetailsDialog(ReplacementRequest request) async {
     try {
@@ -2947,44 +3100,29 @@ class _ReplacementRequestsListPageState
       }
 
       final Map<int, List<User>> waveGroups = {};
-      int maxWave = 5; // Par défaut pour le mode similarité
+      const int maxWave = 5;
 
-      // MODE SIMILARITÉ : Calculer les vagues selon les compétences
-      final waveCalculationService = WaveCalculationService();
+      // Construire waveGroups depuis waveUserIds Firestore (source de vérité).
+      // Le recalcul local divergeait de la CF (keySkills, logique exacte, etc.).
+      final userById = {for (final u in allUsers) u.id: u};
 
-      // Calculer les poids de rareté des compétences
-      final skillRarityWeights = waveCalculationService
-          .calculateSkillRarityWeights(
-            teamMembers: allUsers,
-            requesterSkills: requester.skills,
-          );
-
-      // Calculer la vague de chaque candidat
-      for (final user in stationUsers) {
-        final wave = waveCalculationService.calculateWave(
-          requester: requester,
-          candidate: user,
-          planningTeam: planningTeam,
-          agentsInPlanning: agentsInPlanning,
-          skillRarityWeights: skillRarityWeights,
-        );
-        waveGroups.putIfAbsent(wave, () => []).add(user);
+      for (final entry in request.waveUserIds.entries) {
+        final wave = entry.key;
+        final users = entry.value
+            .map((id) => userById[id])
+            .whereType<User>()
+            .toList();
+        waveGroups.putIfAbsent(wave, () => []).addAll(users);
       }
 
-      // Surcharger uniquement pour les agents débloqués manuellement :
-      // ils ont été placés en vague 5 via le déblocage de keySkills et doivent
-      // y rester même si le recalcul local (basé sur les keySkills originales)
-      // les placerait en vague 0.
-      if (request.unlockedAgentIds.isNotEmpty) {
-        final userById = {for (final u in stationUsers) u.id: u};
-        for (final agentId in request.unlockedAgentIds) {
-          for (final users in waveGroups.values) {
-            users.removeWhere((u) => u.id == agentId);
-          }
-          final user = userById[agentId];
-          if (user != null) {
-            waveGroups.putIfAbsent(5, () => []).add(user);
-          }
+      // Les agents non présents dans waveUserIds (ex: ajoutés à la station après
+      // la création de la demande) apparaissent en vague 0 côté affichage.
+      final assignedIds = request.waveUserIds.values
+          .expand((ids) => ids)
+          .toSet();
+      for (final user in stationUsers) {
+        if (!assignedIds.contains(user.id)) {
+          waveGroups.putIfAbsent(0, () => []).add(user);
         }
       }
 
@@ -3431,9 +3569,11 @@ class _AgentQueryAcceptDialog extends StatefulWidget {
 }
 
 class _AgentQueryAcceptDialogState extends State<_AgentQueryAcceptDialog> {
-  String _fmt(DateTime dt) =>
-      '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')} '
-      '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+  String _fmt(DateTime dt) {
+    final u = dt.toUtc();
+    return '${u.day.toString().padLeft(2, '0')}/${u.month.toString().padLeft(2, '0')} '
+        '${u.hour.toString().padLeft(2, '0')}:${u.minute.toString().padLeft(2, '0')}';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -4451,6 +4591,68 @@ class _ExpandingTabBarState extends State<_ExpandingTabBar> {
           ),
         );
       },
+    );
+  }
+}
+
+/// Dialog de saisie du motif de refus d'une acceptation en attente de validation
+class _AcceptanceRejectionReasonDialog extends StatefulWidget {
+  @override
+  State<_AcceptanceRejectionReasonDialog> createState() =>
+      _AcceptanceRejectionReasonDialogState();
+}
+
+class _AcceptanceRejectionReasonDialogState
+    extends State<_AcceptanceRejectionReasonDialog> {
+  final _controller = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Motif de refus'),
+      content: Form(
+        key: _formKey,
+        child: TextFormField(
+          controller: _controller,
+          decoration: const InputDecoration(
+            hintText: 'Entrez le motif du refus...',
+            border: OutlineInputBorder(),
+          ),
+          maxLines: 3,
+          autofocus: true,
+          validator: (value) {
+            if (value == null || value.trim().isEmpty) {
+              return 'Le motif est obligatoire';
+            }
+            return null;
+          },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Annuler'),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            if (_formKey.currentState!.validate()) {
+              Navigator.of(context).pop(_controller.text.trim());
+            }
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.red,
+            foregroundColor: Colors.white,
+          ),
+          child: const Text('Refuser'),
+        ),
+      ],
     );
   }
 }

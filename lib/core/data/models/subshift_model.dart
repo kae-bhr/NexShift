@@ -18,6 +18,9 @@ class Subshift {
   // Indique si le remplacement est issu d'un échange d'astreinte
   final bool isExchange;
 
+  // Indique si le remplacement est orphelin (planning supprimé sans nouveau planning couvrant la période)
+  final bool isOrphaned;
+
   Subshift({
     required this.id,
     required this.replacedId,
@@ -29,6 +32,7 @@ class Subshift {
     this.checkedAt,
     this.checkedBy,
     this.isExchange = false,
+    this.isOrphaned = false,
   });
 
   factory Subshift.create({
@@ -41,6 +45,7 @@ class Subshift {
     DateTime? checkedAt,
     String? checkedBy,
     bool isExchange = false,
+    bool isOrphaned = false,
   }) {
     return Subshift(
       id: const Uuid().v4(),
@@ -53,6 +58,7 @@ class Subshift {
       checkedAt: checkedAt,
       checkedBy: checkedBy,
       isExchange: isExchange,
+      isOrphaned: isOrphaned,
     );
   }
 
@@ -67,6 +73,7 @@ class Subshift {
     if (checkedAt != null) 'checkedAt': checkedAt!.toIso8601String(),
     if (checkedBy != null) 'checkedBy': checkedBy,
     'isExchange': isExchange,
+    'isOrphaned': isOrphaned,
   };
 
   factory Subshift.fromJson(Map<String, dynamic> json) {
@@ -82,6 +89,7 @@ class Subshift {
         checkedAt: json['checkedAt'] != null ? _parseDateTime(json['checkedAt']) : null,
         checkedBy: json['checkedBy'] as String?,
         isExchange: json['isExchange'] as bool? ?? false,
+        isOrphaned: json['isOrphaned'] as bool? ?? false,
       );
     } catch (e) {
       debugPrint('Error parsing Subshift: $e');
@@ -102,6 +110,7 @@ class Subshift {
     DateTime? checkedAt,
     String? checkedBy,
     bool? isExchange,
+    bool? isOrphaned,
   }) {
     return Subshift(
       id: id ?? this.id,
@@ -114,6 +123,7 @@ class Subshift {
       checkedAt: checkedAt ?? this.checkedAt,
       checkedBy: checkedBy ?? this.checkedBy,
       isExchange: isExchange ?? this.isExchange,
+      isOrphaned: isOrphaned ?? this.isOrphaned,
     );
   }
 
@@ -122,7 +132,9 @@ class Subshift {
     if (value == null) {
       return DateTime.now();
     } else if (value is Timestamp) {
-      return value.toDate();
+      return DateTime.fromMillisecondsSinceEpoch(
+          value.millisecondsSinceEpoch,
+          isUtc: true);
     } else if (value is String) {
       return DateTime.parse(value);
     } else {

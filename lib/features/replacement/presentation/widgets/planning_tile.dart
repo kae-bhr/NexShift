@@ -115,8 +115,8 @@ class PlanningTile extends StatelessWidget {
               const SizedBox(height: 8),
               _DateBlock(
                 label: 'Remplacement',
-                start: dateFormat.format(startDateTime!),
-                end: dateFormat.format(endDateTime!),
+                start: dateFormat.format(startDateTime!.toUtc()),
+                end: dateFormat.format(endDateTime!.toUtc()),
                 textColor: accentColor,
                 isSubtle: false,
               ),
@@ -284,11 +284,12 @@ class DateTimePickerService {
     required DateTime firstDate,
     required DateTime lastDate,
   }) async {
+    final initialUtc = initialDate.toUtc();
     final date = await showDatePicker(
       context: context,
-      initialDate: initialDate,
-      firstDate: firstDate,
-      lastDate: lastDate,
+      initialDate: initialUtc,
+      firstDate: firstDate.toUtc(),
+      lastDate: lastDate.toUtc(),
     );
     if (date == null) return null;
 
@@ -296,11 +297,11 @@ class DateTimePickerService {
 
     final time = await showTimePicker(
       context: context,
-      initialTime: TimeOfDay.fromDateTime(initialDate),
+      initialTime: TimeOfDay(hour: initialUtc.hour, minute: initialUtc.minute),
     );
     if (time == null) return null;
 
-    return DateTime(date.year, date.month, date.day, time.hour, time.minute);
+    return DateTime.utc(date.year, date.month, date.day, time.hour, time.minute);
   }
 
   /// Valide les dates de remplacement par rapport à l'astreinte

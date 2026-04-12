@@ -84,6 +84,14 @@ class TileActionsFooter extends StatelessWidget {
         onTap: onWaveTap,
       ));
     }
+    if (onUnlockKeySkills != null) {
+      items.add(_FooterItem(
+        icon: Icons.lock_open_rounded,
+        label: 'Débloquer',
+        color: Colors.deepPurple.shade600,
+        onTap: onUnlockKeySkills,
+      ));
+    }
     if (canAct) {
       if (onRefuse != null) {
         items.add(_FooterItem(
