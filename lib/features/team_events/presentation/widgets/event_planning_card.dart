@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/core/data/models/team_event_model.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:nexshift_app/features/team_events/presentation/widgets/create_team_event_dialog.dart';
 import 'package:nexshift_app/core/utils/station_name_cache.dart';
 
 /// Carte affichant un événement d'équipe dans la home_page.
@@ -163,8 +164,7 @@ class _EventPlanningCardState extends State<EventPlanningCard> {
                           children: [
                             if (widget.event.iconCodePoint != null) ...[
                               Icon(
-                                IconData(widget.event.iconCodePoint!,
-                                    fontFamily: 'MaterialIcons'),
+                                resolveEventIcon(widget.event.iconCodePoint),
                                 size: 18,
                                 color: KColors.appNameColor
                                     .withValues(alpha: 0.8),

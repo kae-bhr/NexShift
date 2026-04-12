@@ -262,7 +262,7 @@ class _TeamEventPageState extends State<TeamEventPage> {
             children: [
               if (_event.iconCodePoint != null) ...[
                 Icon(
-                  IconData(_event.iconCodePoint!, fontFamily: 'MaterialIcons'),
+                  resolveEventIcon(_event.iconCodePoint),
                   color: KColors.appNameColor,
                   size: 24,
                 ),

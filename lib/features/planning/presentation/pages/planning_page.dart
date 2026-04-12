@@ -6,6 +6,7 @@ import 'package:nexshift_app/core/data/models/team_event_model.dart';
 import 'package:nexshift_app/core/repositories/team_event_repository.dart';
 import 'package:nexshift_app/core/services/team_event_service.dart';
 import 'package:nexshift_app/features/team_events/presentation/pages/team_event_page.dart';
+import 'package:nexshift_app/features/team_events/presentation/widgets/create_team_event_dialog.dart';
 import 'package:nexshift_app/core/repositories/local_repositories.dart';
 import 'package:nexshift_app/core/repositories/subshift_repositories.dart';
 import 'package:nexshift_app/core/data/models/planning_model.dart';
@@ -503,9 +504,7 @@ class _PlanningPageState extends State<PlanningPage> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(
-                    event.iconCodePoint != null
-                        ? IconData(event.iconCodePoint!, fontFamily: 'MaterialIcons')
-                        : Icons.event_rounded,
+                    resolveEventIcon(event.iconCodePoint),
                     color: KColors.appNameColor,
                   ),
                 ),

@@ -39,6 +39,16 @@ class _IconOption {
   const _IconOption(this.icon, this.label);
 }
 
+/// Résout un codePoint stocké en Firestore vers l'[IconData] constant correspondant.
+/// Retourne [Icons.event_rounded] si le codePoint n'est pas reconnu ou est null.
+IconData resolveEventIcon(int? codePoint) {
+  if (codePoint == null) return Icons.event_rounded;
+  for (final opt in kEventIcons) {
+    if (opt.icon.codePoint == codePoint) return opt.icon;
+  }
+  return Icons.event_rounded;
+}
+
 // ============================================================================
 // DIALOG DE CRÉATION
 // ============================================================================
