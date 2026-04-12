@@ -1,6 +1,14 @@
 {
   "indexes": [
     {
+      "collectionGroup": "plannings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "team", "order": "ASCENDING"},
+        {"fieldPath": "startTime", "order": "ASCENDING"}
+      ]
+    },
+    {
       "collectionGroup": "replacementRequests",
       "queryScope": "COLLECTION",
       "fields": [

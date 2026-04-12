@@ -206,6 +206,21 @@ service cloud.firestore {
           allow write: if hasStationAccess(sdisId, stationId);
         }
 
+        match /replacements/automatic/suspensionTriggers/{triggerId} {
+          allow read: if hasStationAccess(sdisId, stationId);
+          allow write: if isStationLeaderOrAbove(sdisId, stationId);
+        }
+
+        match /replacements/automatic/reinstatementTriggers/{triggerId} {
+          allow read: if hasStationAccess(sdisId, stationId);
+          allow write: if isStationLeaderOrAbove(sdisId, stationId);
+        }
+
+        match /replacements/automatic/teamChangeTriggers/{triggerId} {
+          allow read: if hasStationAccess(sdisId, stationId);
+          allow write: if isStationLeaderOrAbove(sdisId, stationId);
+        }
+
         // Sous-collection: replacementRequests (LEGACY)
         match /replacementRequests/{requestId} {
           allow read: if hasStationAccess(sdisId, stationId);
