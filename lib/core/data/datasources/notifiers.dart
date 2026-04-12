@@ -46,6 +46,10 @@ final ValueNotifier<int> teamDataChangedNotifier = ValueNotifier<int>(0);
 final ValueNotifier<SubscriptionStatus> subscriptionStatusNotifier =
     ValueNotifier<SubscriptionStatus>(SubscriptionStatus.unknown);
 
+// Maintenance notifier combiné (global + SDIS) — mis à jour par MaintenanceService._updateCombinedState().
+// True quand l'utilisateur courant est bloqué par la maintenance, quelle que soit son origine.
+final ValueNotifier<bool> isBlockedByMaintenanceNotifier = ValueNotifier<bool>(false);
+
 // Notifiers partagés entre HomePage et PlanningPage (persistance inter-pages)
 final ValueNotifier<ViewMode> viewModeNotifier = ValueNotifier<ViewMode>(ViewMode.week);
 final ValueNotifier<DateTime> currentMonthNotifier = ValueNotifier<DateTime>(

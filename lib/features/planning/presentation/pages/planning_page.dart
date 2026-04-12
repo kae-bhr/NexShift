@@ -1275,7 +1275,11 @@ class _PlanningPageState extends State<PlanningPage> {
     final hourDouble = ratio * 24.0;
     final hour = hourDouble.floor();
     final minute = ((hourDouble - hour) * 60).round();
-    return DateTime(day.year, day.month, day.day, hour, minute);
+    // Les barres (barStart/barEnd) viennent de Firestore en UTC, mais sont
+    // affichées avec .hour/.minute UTC directement (pas de conversion locale).
+    // On construit donc un DateTime UTC avec les composantes LOCALES du jour
+    // (année/mois/jour de l'affichage) + l'heure lue sur l'écran.
+    return DateTime.utc(day.year, day.month, day.day, hour, minute);
   }
 
   @override
@@ -2051,7 +2055,7 @@ class _TooltipWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final timeFormatted = DateFormat('HH:mm').format(selectedTime);
+    final timeFormatted = DateFormat('HH:mm').format(selectedTime.toUtc());
 
     // Décaler l'infobulle horizontalement pour la centrer sur le curseur
     // et la fixer verticalement 45px au-dessus du container de planning

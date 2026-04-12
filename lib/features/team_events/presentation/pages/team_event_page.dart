@@ -374,7 +374,6 @@ class _TeamEventPageState extends State<TeamEventPage> {
     final accepted = _event.acceptedUserIds.length;
     final declined = _event.declinedUserIds.length;
     final pending = (total - accepted - declined).clamp(0, total);
-    final progress = total > 0 ? accepted / total : 0.0;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -389,17 +388,33 @@ class _TeamEventPageState extends State<TeamEventPage> {
           ),
         ),
         const SizedBox(height: 8),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(
-            value: progress,
-            minHeight: 6,
-            backgroundColor:
-                isDark ? Colors.white12 : Colors.grey.shade200,
-            valueColor:
-                const AlwaysStoppedAnimation<Color>(Colors.green),
+        // Jauge segmentée [Vert | Gris | Rouge]
+        if (total > 0)
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: Row(
+              children: [
+                if (accepted > 0)
+                  Flexible(
+                    flex: accepted,
+                    child: Container(height: 6, color: Colors.green),
+                  ),
+                if (pending > 0)
+                  Flexible(
+                    flex: pending,
+                    child: Container(
+                      height: 6,
+                      color: isDark ? Colors.white12 : Colors.grey.shade300,
+                    ),
+                  ),
+                if (declined > 0)
+                  Flexible(
+                    flex: declined,
+                    child: Container(height: 6, color: Colors.red.shade400),
+                  ),
+              ],
+            ),
           ),
-        ),
         const SizedBox(height: 10),
         Row(
           children: [

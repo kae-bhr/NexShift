@@ -266,4 +266,20 @@ class CustomBadge extends StatelessWidget {
       compact: compact,
     );
   }
+
+  /// Factory pour créer un badge "Historique" cliquable
+  factory CustomBadge.history({
+    required VoidCallback onTap,
+    bool compact = false,
+  }) {
+    return CustomBadge(
+      text: 'Historique',
+      backgroundColor: Colors.grey.shade100,
+      foregroundColor: Colors.grey.shade600,
+      icon: Icons.history_rounded,
+      onTap: onTap,
+      showInfoIcon: false,
+      compact: compact,
+    );
+  }
 }

@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:nexshift_app/core/presentation/widgets/unified_request_tile/unified_request_tile_exports.dart';
 import 'package:nexshift_app/core/data/models/shift_exchange_request_model.dart';
-import 'package:nexshift_app/core/data/models/shift_exchange_proposal_model.dart';
+import 'package:nexshift_app/core/data/models/shift_exchange_proposal_model.dart' hide TeamValidationState;
+import 'package:nexshift_app/core/data/models/shift_exchange_proposal_model.dart' as proposal_model show TeamValidationState;
 import 'package:nexshift_app/core/data/models/planning_model.dart';
 import 'package:nexshift_app/core/repositories/planning_repository.dart';
 import 'package:nexshift_app/core/repositories/user_repository.dart';
@@ -89,6 +90,13 @@ class _ExchangeTileWrapperState extends State<ExchangeTileWrapper> {
   String _stationName = '';
   bool _isLoading = true;
 
+  // Données chargées en mode history pour la validation chef
+  DateTime? _leaderValidatedAt;
+  String? _leaderValidatorName;
+
+  /// Nom du chef validateur par équipe (teamId → displayName du chef)
+  final Map<String, String> _validatorNameByTeam = {};
+
   @override
   void initState() {
     super.initState();
@@ -116,13 +124,19 @@ class _ExchangeTileWrapperState extends State<ExchangeTileWrapper> {
       _initiatorTeam = _initiatorPlanning?.team;
 
       // Charger le planning du proposeur si une proposition est sélectionnée
-      if (widget.selectedProposal != null &&
-          widget.selectedProposal!.proposerPlanningId != null) {
-        _proposerPlanning = await _planningRepository.getById(
-          widget.selectedProposal!.proposerPlanningId!,
-          stationId: widget.request.station,
-        );
-        _proposerTeam = _proposerPlanning?.team;
+      // Priorité : selectedPlanningId (nouveau format) → proposerPlanningId (legacy)
+      if (widget.selectedProposal != null) {
+        final planningId = widget.selectedProposal!.selectedPlanningId
+            ?? (widget.selectedProposal!.proposedPlanningIds.isNotEmpty
+                ? widget.selectedProposal!.proposedPlanningIds.first
+                : widget.selectedProposal!.proposerPlanningId);
+        if (planningId != null) {
+          _proposerPlanning = await _planningRepository.getById(
+            planningId,
+            stationId: widget.request.station,
+          );
+          _proposerTeam = _proposerPlanning?.team;
+        }
       }
 
       // Résoudre les noms des agents depuis le cache déchiffré
@@ -151,6 +165,39 @@ class _ExchangeTileWrapperState extends State<ExchangeTileWrapper> {
           _proposerName = widget.selectedProposal!.proposerName.trim().isNotEmpty
               ? widget.selectedProposal!.proposerName
               : 'Agent ${widget.selectedProposal!.proposerId}';
+        }
+      }
+
+      // Charger les noms des chefs validateurs par équipe (toValidate + history)
+      // Clé leaderValidations : "${teamId}_${leaderId}"
+      _validatorNameByTeam.clear();
+      if (widget.selectedProposal?.leaderValidations.isNotEmpty == true) {
+        // Pour le badge "Historique" en mode history : premier chef approuvant
+        LeaderValidation? firstApproval;
+        for (final entry in widget.selectedProposal!.leaderValidations.entries) {
+          final v = entry.value;
+          if (!v.approved) continue;
+          final teamId = entry.key.split('_').first;
+          if (!_validatorNameByTeam.containsKey(teamId)) {
+            final leader = await _userRepository.getById(
+              v.leaderId,
+              stationId: widget.request.station,
+            );
+            if (leader != null) {
+              _validatorNameByTeam[teamId] = leader.displayName;
+            }
+          }
+          firstApproval ??= v;
+        }
+        // Données pour le dialog Historique (inchangé)
+        if (widget.viewMode == TileViewMode.history && firstApproval != null) {
+          _leaderValidatedAt = firstApproval.validatedAt;
+          final teamId = widget.selectedProposal!.leaderValidations.entries
+              .firstWhere((e) => e.value == firstApproval)
+              .key
+              .split('_')
+              .first;
+          _leaderValidatorName = _validatorNameByTeam[teamId];
         }
       }
 
@@ -187,10 +234,15 @@ class _ExchangeTileWrapperState extends State<ExchangeTileWrapper> {
       );
     }
 
-    // Construire les données de validation des chefs
-    List<ChiefValidationData>? validationChiefs;
-    if (widget.selectedProposal != null) {
-      validationChiefs = _buildValidationChiefs(widget.selectedProposal!);
+    // Badges de colonnes pour échanges (toValidate et history)
+    Widget? leftBadge;
+    Widget? rightBadge;
+    if (widget.selectedProposal != null &&
+        (widget.viewMode == TileViewMode.toValidate ||
+         widget.viewMode == TileViewMode.history)) {
+      final badges = _buildColumnBadges(widget.selectedProposal!);
+      leftBadge = badges.$1;
+      rightBadge = badges.$2;
     }
 
     // Convertir en UnifiedTileData (avec nom de station et noms d'agents résolus)
@@ -199,7 +251,7 @@ class _ExchangeTileWrapperState extends State<ExchangeTileWrapper> {
       proposerPlanning: _proposerPlanning,
       initiatorTeam: _initiatorTeam,
       proposerTeam: _proposerTeam,
-      validationChiefs: validationChiefs,
+      validationChiefs: null,
     ).withStationName(_stationName);
 
     // Remplacer les noms d'agents par les noms déchiffrés si disponibles
@@ -236,6 +288,7 @@ class _ExchangeTileWrapperState extends State<ExchangeTileWrapper> {
     // Déterminer les actions disponibles selon le mode
     VoidCallback? onAccept;
     VoidCallback? onRefuse;
+    VoidCallback? onValidateCallback;
 
     switch (widget.viewMode) {
       case TileViewMode.pending:
@@ -247,7 +300,7 @@ class _ExchangeTileWrapperState extends State<ExchangeTileWrapper> {
         // Le bouton "Sélectionner proposition" est géré séparément
         break;
       case TileViewMode.toValidate:
-        onAccept = widget.onValidate;
+        onValidateCallback = widget.onValidate;
         onRefuse = widget.onReject;
         break;
       case TileViewMode.history:
@@ -255,6 +308,42 @@ class _ExchangeTileWrapperState extends State<ExchangeTileWrapper> {
     }
 
     final isInitiator = widget.request.initiatorId == widget.currentUserId;
+
+    // Badge "Historique" en mode history
+    VoidCallback? onHistoryTap;
+    if (widget.viewMode == TileViewMode.history) {
+      // Construire une entrée par équipe ayant validé, triées par date croissante
+      List<TeamValidationEntry>? teamValidations;
+      if (widget.selectedProposal != null) {
+        final entries = <TeamValidationEntry>[];
+        for (final entry in widget.selectedProposal!.leaderValidations.entries) {
+          final v = entry.value;
+          if (!v.approved) continue;
+          final teamId = entry.key.split('_').first;
+          if (entries.any((e) => e.teamId == teamId)) continue;
+          entries.add(TeamValidationEntry(
+            teamId: teamId,
+            validatorName: _validatorNameByTeam[teamId],
+            validatedAt: v.validatedAt,
+          ));
+        }
+        entries.sort((a, b) => a.validatedAt.compareTo(b.validatedAt));
+        if (entries.isNotEmpty) teamValidations = entries;
+      }
+
+      onHistoryTap = () => showHistoryDialog(
+        context,
+        HistoryDialogData(
+          createdAt: widget.request.createdAt,
+          acceptedAt: widget.selectedProposal?.acceptedAt ?? widget.request.completedAt,
+          teamValidations: teamValidations,
+          // Fallback mono-validation si aucune entrée par équipe
+          validatedAt: teamValidations == null ? _leaderValidatedAt : null,
+          validatorName: teamValidations == null ? _leaderValidatorName : null,
+          requestTypeLabel: 'Échange de garde',
+        ),
+      );
+    }
 
     return UnifiedRequestTile(
       data: tileData,
@@ -264,29 +353,126 @@ class _ExchangeTileWrapperState extends State<ExchangeTileWrapper> {
       onDelete: widget.viewMode == TileViewMode.myRequests ? widget.onDelete : null,
       onAccept: onAccept,
       onRefuse: onRefuse,
+      onValidate: onValidateCallback,
       onProposalsTap: widget.onSelectProposal,
       onResendNotifications: widget.viewMode == TileViewMode.myRequests && isInitiator ? widget.onResendNotifications : null,
+      onHistoryTap: onHistoryTap,
+      leftBadgeOverride: leftBadge,
+      rightBadgeOverride: rightBadge,
       acceptButtonText: 'Accepter',
       refuseButtonText: 'Refuser',
     );
   }
 
-  /// Construit les données de validation des chefs
-  List<ChiefValidationData> _buildValidationChiefs(ShiftExchangeProposal proposal) {
-    final chiefs = <ChiefValidationData>[];
+  /// Construit les badges de colonnes pour le mode toValidate.
+  ///
+  /// Colonne gauche (initiateur) : badge statut équipe initiateur
+  /// Colonne droite (proposeur)  : badge statut équipe proposeur + nom du validateur si validé
+  (Widget?, Widget?) _buildColumnBadges(ShiftExchangeProposal proposal) {
+    final states = proposal.teamValidationStates;
 
-    for (final entry in proposal.leaderValidations.entries) {
-      final teamId = entry.key;
-      final validation = entry.value;
-
-      chiefs.add(ChiefValidationData(
-        chiefId: validation.leaderId,
-        chiefName: 'Chef équipe $teamId',
-        team: teamId,
-        hasValidated: validation.approved,
-      ));
+    Widget? left;
+    if (_initiatorTeam != null) {
+      final badge = _buildTeamStatusBadge(_initiatorTeam!, states[_initiatorTeam]);
+      final validatorName = _resolveValidatorName(_initiatorTeam!, proposal);
+      if (validatorName != null) {
+        left = Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(
+                validatorName,
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 4),
+            badge,
+          ],
+        );
+      } else {
+        left = badge;
+      }
     }
 
-    return chiefs;
+    Widget? right;
+    if (_proposerTeam != null) {
+      final state = states[_proposerTeam];
+      final badge = _buildTeamStatusBadge(_proposerTeam!, state);
+      // Si validé, afficher le nom du validateur à côté du badge
+      final validatorName = _resolveValidatorName(_proposerTeam!, proposal);
+      if (validatorName != null) {
+        right = Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            Flexible(
+              child: Text(
+                validatorName,
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 4),
+            badge,
+          ],
+        );
+      } else {
+        right = badge;
+      }
+    }
+
+    return (left, right);
   }
+
+  /// Retourne le nom du chef ayant validé pour une équipe donnée, ou null si pas encore validé.
+  String? _resolveValidatorName(String teamId, ShiftExchangeProposal proposal) {
+    return _validatorNameByTeam[teamId];
+  }
+
+  Widget _buildTeamStatusBadge(String teamId, proposal_model.TeamValidationState? state) {
+    final IconData icon;
+    final String label;
+    final Color bg;
+    final Color fg;
+
+    switch (state) {
+      case proposal_model.TeamValidationState.validatedTemporarily:
+      case proposal_model.TeamValidationState.autoValidated:
+        icon = Icons.check_circle_rounded;
+        label = 'Validé';
+        bg = Colors.green.shade50;
+        fg = Colors.green.shade700;
+        break;
+      case proposal_model.TeamValidationState.rejected:
+        icon = Icons.cancel_rounded;
+        label = 'Refusé';
+        bg = Colors.red.shade50;
+        fg = Colors.red.shade700;
+        break;
+      case proposal_model.TeamValidationState.pending:
+      case null:
+        icon = Icons.schedule_rounded;
+        label = 'En attente';
+        bg = Colors.blue.shade50;
+        fg = Colors.blue.shade700;
+        break;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 11, color: fg),
+          const SizedBox(width: 3),
+          Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: fg)),
+        ],
+      ),
+    );
+  }
+
 }

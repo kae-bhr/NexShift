@@ -63,6 +63,7 @@ class AgentQueryAdapter {
         'planningId': query.planningId,
         'createdById': query.createdById,
         'matchedAgentId': query.matchedAgentId,
+        'completedAt': query.completedAt,
       },
     );
   }

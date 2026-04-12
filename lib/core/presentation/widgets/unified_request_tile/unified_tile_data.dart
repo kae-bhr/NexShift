@@ -74,12 +74,25 @@ class ChiefValidationData {
   /// Statut de validation (null = pas encore répondu)
   final bool? hasValidated;
 
+  /// Statuts de validation par équipe (format échange, une entrée par équipe)
+  /// Si renseigné, le header affiche le layout "échange" :
+  ///   [icône] Nom  éq    [badge éq1]  [badge éq2]
+  final Map<String, ChiefTeamStatus>? teamStatuses;
+
   const ChiefValidationData({
     required this.chiefId,
     required this.chiefName,
     this.team,
     this.hasValidated,
+    this.teamStatuses,
   });
+}
+
+/// État de validation d'une équipe pour l'affichage dans le header chef
+enum ChiefTeamStatus {
+  pending,
+  validated,
+  rejected,
 }
 
 /// Modèle de données unifié pour toutes les tuiles de demande

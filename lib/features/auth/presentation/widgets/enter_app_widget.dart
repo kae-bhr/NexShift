@@ -6,6 +6,7 @@ import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/repositories/local_repositories.dart';
+import 'package:nexshift_app/core/services/maintenance_service.dart';
 import 'package:nexshift_app/core/services/push_notification_service.dart';
 import 'package:nexshift_app/core/services/local_reminder_service.dart';
 import 'package:nexshift_app/core/services/subscription_service.dart';
@@ -73,6 +74,13 @@ class EnterApp {
       // Mettre à jour le cache si la valeur a changé ou était absente
       await UserStorageHelper.saveSdisId(resolvedSdisId);
       debugPrint('🟣 [ENTER_APP] restore() - SDIS context set: $resolvedSdisId');
+
+      // Vérifier l'état de maintenance SDIS de façon synchrone (one-shot)
+      // AVANT de positionner les notifiers pour que isBlockedByMaintenanceNotifier
+      // soit correct dès le premier rebuild.
+      await MaintenanceService().checkSdisMaintenance(resolvedSdisId);
+      MaintenanceService().startListeningForSdis(resolvedSdisId);
+      debugPrint('🟣 [ENTER_APP] restore() - SDIS maintenance checked');
     } else {
       debugPrint('🟣 [ENTER_APP] restore() - could not resolve SDIS ID');
     }
@@ -118,6 +126,8 @@ class EnterApp {
     // SDISContext est déjà prêt → les listeners de userNotifier (HomePage._onUserChanged)
     // pourront charger les données correctement dès le premier appel.
     // isUserAuthentifiedNotifier AVANT userNotifier pour éviter un rebuild vers WelcomePage.
+    // Note : _updateCombinedState() dans MaintenanceService sera déclenché par userNotifier
+    // et bloquera l'accès si la maintenance est active pour cet utilisateur.
     isUserAuthentifiedNotifier.value = true;
     userNotifier.value = cachedUser;
     debugPrint('🟣 [ENTER_APP] restore() - notifiers updated');
@@ -214,7 +224,28 @@ class EnterApp {
     // Définir le contexte SDIS global pour que les repositories aient le bon chemin
     if (sdisId != null && sdisId.isNotEmpty) {
       SDISContext().setCurrentSDISId(sdisId);
+
+      // Vérifier l'état de maintenance de façon synchrone (one-shot) :
+      // global (au cas où le listener stream n'a pas encore reçu son premier snapshot)
+      // et SDIS (le document SDIS-level n'est pas encore écouté à ce stade).
+      // Cela garantit que isBlockedByMaintenanceNotifier est correct avant de
+      // positionner isUserAuthentifiedNotifier.
+      await MaintenanceService().checkGlobalMaintenance();
+      await MaintenanceService().checkSdisMaintenance(sdisId);
+      MaintenanceService().startListeningForSdis(sdisId);
+      debugPrint('🟣 [ENTER_APP] build() - maintenance state checked for SDIS $sdisId');
     }
+
+    // Pré-calcul du blocage maintenance avec les données maintenant disponibles
+    // (user chargé + SDIS context défini + maintenance vérifiée)
+    final effectiveSdisId = SDISContext().currentSDISId;
+    final globalBlocked = MaintenanceService().isMaintenanceNotifier.value &&
+        !MaintenanceService().isUserAllowed(loadedUser.id, effectiveSdisId);
+    final sdisBlocked = MaintenanceService().isSdisMaintenanceNotifier.value &&
+        !MaintenanceService().isSdisUserAllowed(loadedUser.id);
+    isBlockedByMaintenanceNotifier.value = globalBlocked || sdisBlocked;
+    debugPrint(
+        '🟣 [ENTER_APP] build() - maintenance block: global=$globalBlocked, sdis=$sdisBlocked');
 
     // Sauvegarder l'utilisateur ET le SDIS ID
     await UserStorageHelper.saveUser(loadedUser, sdisId: sdisId);
@@ -240,22 +271,26 @@ class EnterApp {
     }
 
     // IMPORTANT: Mettre à jour isUserAuthentifiedNotifier AVANT userNotifier
-    // pour éviter un rebuild intermédiaire qui naviguerait vers WelcomePage
+    // pour éviter un rebuild intermédiaire qui naviguerait vers WelcomePage.
+    // Note : _updateCombinedState() dans MaintenanceService sera déclenché par
+    // userNotifier, mais isBlockedByMaintenanceNotifier est déjà positionné ci-dessus.
     isUserAuthentifiedNotifier.value = true;
     debugPrint('🟣 [ENTER_APP] isUserAuthentifiedNotifier set to true');
 
     // Maintenant on peut mettre à jour le userNotifier
     // Le MaterialApp détectera ce changement et naviguera automatiquement
-    // vers WidgetTree ou ProfileCompletionPage selon le profil
+    // vers WidgetTree, MaintenancePage ou ProfileCompletionPage selon l'état.
     userNotifier.value = loadedUser;
     debugPrint('🟣 [ENTER_APP] userNotifier.value updated');
 
-    // Planifier le rappel quotidien local
-    try {
-      await LocalReminderService().reschedule(loadedUser);
-      debugPrint('🟣 [ENTER_APP] build() - local reminder scheduled');
-    } catch (e) {
-      debugPrint('🟣 [ENTER_APP] build() - local reminder scheduling failed (non-blocking): $e');
+    // Planifier le rappel quotidien local (seulement si pas bloqué)
+    if (!isBlockedByMaintenanceNotifier.value) {
+      try {
+        await LocalReminderService().reschedule(loadedUser);
+        debugPrint('🟣 [ENTER_APP] build() - local reminder scheduled');
+      } catch (e) {
+        debugPrint('🟣 [ENTER_APP] build() - local reminder scheduling failed (non-blocking): $e');
+      }
     }
 
     debugPrint('🟣 [ENTER_APP] EnterApp.build completed - MaterialApp should now navigate');

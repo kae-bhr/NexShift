@@ -74,6 +74,18 @@ class UnifiedRequestTile extends StatefulWidget {
   /// Callback pour voir le détail (navigation vers la page de détail)
   final VoidCallback? onViewDetails;
 
+  /// Callback au tap sur le badge "Historique" (mode history uniquement)
+  final VoidCallback? onHistoryTap;
+
+  /// Widget d'en-tête personnalisé (remplace ValidationHeader si fourni)
+  final Widget? headerWidget;
+
+  /// Badge personnalisé pour la colonne gauche (remplace le badge calculé automatiquement)
+  final Widget? leftBadgeOverride;
+
+  /// Badge personnalisé pour la colonne droite (remplace le badge calculé automatiquement)
+  final Widget? rightBadgeOverride;
+
   /// Afficher le bouton DEV (uniquement en mode dev)
   final bool showDevButton;
 
@@ -104,6 +116,10 @@ class UnifiedRequestTile extends StatefulWidget {
     this.onResendNotifications,
     this.onUnlockKeySkills,
     this.onViewDetails,
+    this.onHistoryTap,
+    this.headerWidget,
+    this.leftBadgeOverride,
+    this.rightBadgeOverride,
     this.showDevButton = false,
     this.acceptButtonText,
     this.refuseButtonText,
@@ -173,10 +189,6 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
     // Construire les chefs pour l'en-tête de validation
     final validationChiefs = _buildValidationChiefs();
 
-    // Calculer l'alignement des colonnes
-    final leftChiefsCount = validationChiefs.length;
-    final rightChiefsCount = 0; // Pour l'instant, pas de chefs côté droit
-
     // Calculer le footer avant la construction de la carte
     final footer = TileActionsFooter(
       viewMode: widget.viewMode,
@@ -220,16 +232,32 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // En-tête de validation (si présent)
-                  if (validationChiefs.isNotEmpty) ...[
-                    ValidationHeader(chiefs: validationChiefs, showDivider: true),
+                  // En-tête personnalisé (priorité) ou en-tête de validation générique
+                  if (widget.headerWidget != null) ...[
+                    widget.headerWidget!,
+                    const SizedBox(height: 12),
+                  ] else if (validationChiefs.isNotEmpty) ...[
+                    ValidationHeader(
+                      chiefs: validationChiefs,
+                      showDivider: true,
+                      compact: widget.viewMode == TileViewMode.history,
+                    ),
                     const SizedBox(height: 12),
                   ],
 
                   // Layout principal : 2 colonnes avec icône centrale
                   Builder(
                     builder: (context) {
-                      final badgeVisibility = _calculateBadgeVisibility(hasDeclined);
+                      // Masquer les badges de statut dans les colonnes quand un header
+                      // les remplace déjà (headerWidget personnalisé, ou history)
+                      final hasValidationHeader =
+                          widget.headerWidget != null ||
+                          (validationChiefs.isNotEmpty &&
+                           widget.viewMode == TileViewMode.history);
+                      final badgeVisibility = _calculateBadgeVisibility(
+                        hasDeclined,
+                        suppressIfValidationHeader: hasValidationHeader,
+                      );
 
                       return Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -237,12 +265,8 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
                           Expanded(
                             child: RequestColumn(
                               data: widget.data.leftColumn,
-                              statusBadge: _buildLeftStatusBadge(hasDeclined),
-                              showBadge: badgeVisibility.leftBadge,
-                              emptyLinesForAlignment:
-                                  rightChiefsCount > leftChiefsCount
-                                  ? rightChiefsCount - leftChiefsCount
-                                  : 0,
+                              statusBadge: widget.leftBadgeOverride ?? _buildLeftStatusBadge(hasDeclined),
+                              showBadge: widget.leftBadgeOverride != null ? true : badgeVisibility.leftBadge,
                             ),
                           ),
                           Padding(
@@ -260,12 +284,8 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
                             child: widget.data.hasRightColumn
                                 ? RequestColumn(
                                     data: widget.data.rightColumn!,
-                                    statusBadge: _buildRightStatusBadge(),
-                                    showBadge: badgeVisibility.rightBadge,
-                                    emptyLinesForAlignment:
-                                        leftChiefsCount > rightChiefsCount
-                                        ? leftChiefsCount - rightChiefsCount
-                                        : 0,
+                                    statusBadge: widget.rightBadgeOverride ?? _buildRightStatusBadge(),
+                                    showBadge: widget.rightBadgeOverride != null ? true : badgeVisibility.rightBadge,
                                     showDates: widget.data.requestType !=
                                         UnifiedRequestType.agentQuery,
                                     showStation: widget.data.requestType !=
@@ -295,6 +315,7 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
                       onNotifiedTap: widget.onWaveTap,
                       onProposalsTap: widget.onProposalsTap,
                       onNotNotifiedTap: widget.onWaveTap,
+                      onHistoryTap: widget.onHistoryTap,
                     ),
                   ],
                 ],
@@ -336,8 +357,9 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
   /// - Le badge "Refusé par vous" est toujours affiché si l'utilisateur a décliné
   /// - Le badge "Expiré" est toujours affiché pour les demandes expirées
   Widget _buildLeftStatusBadge(bool hasDeclined) {
-    // Toujours afficher "Refusé par vous" si l'utilisateur a décliné
-    if (hasDeclined) {
+    // Afficher "Refusé par vous" si l'utilisateur a décliné — sauf en mode historique
+    // (en historique, le statut final de la demande est plus pertinent)
+    if (hasDeclined && widget.viewMode != TileViewMode.history) {
       return const StatusBadge(
         status: TileStatus.declined,
         customText: 'Refusé par vous',
@@ -412,8 +434,15 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
   /// - leftBadge: true (afficher), false (placeholder), null (masquer avec divider)
   /// - rightBadge: true (afficher), false (placeholder), null (masquer avec divider)
   ({bool? leftBadge, bool? rightBadge}) _calculateBadgeVisibility(
-    bool hasDeclined,
-  ) {
+    bool hasDeclined, {
+    bool suppressIfValidationHeader = false,
+  }) {
+    // Si un header de validation pleine largeur est affiché, masquer tous les badges
+    // de statut dans les colonnes (ils seraient redondants et créeraient un décalage)
+    if (suppressIfValidationHeader) {
+      return (leftBadge: null, rightBadge: null);
+    }
+
     // Déterminer si chaque colonne a un badge à afficher
     final leftHasBadge = _shouldShowLeftBadge(hasDeclined);
     final rightHasBadge = _shouldShowRightBadge();
@@ -438,8 +467,8 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
 
   /// Vérifie si la colonne gauche doit afficher un badge
   bool _shouldShowLeftBadge(bool hasDeclined) {
-    // "Refusé par vous" est toujours affiché
-    if (hasDeclined) return true;
+    // "Refusé par vous" affiché sauf en mode historique
+    if (hasDeclined && widget.viewMode != TileViewMode.history) return true;
 
     // "Expiré" est toujours affiché
     if (widget.data.status == TileStatus.expired) return true;
@@ -516,6 +545,7 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
             name: chief.chiefName,
             hasValidated: chief.hasValidated,
             teamLabel: chief.team,
+            teamStatuses: chief.teamStatuses,
           ),
         )
         .toList();
@@ -559,6 +589,11 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
         widget.data.notifiedUserIds.isNotEmpty &&
         (widget.viewMode == TileViewMode.myRequests ||
             widget.viewMode == TileViewMode.history)) {
+      return true;
+    }
+
+    // Badge "Historique" si onHistoryTap fourni (mode history uniquement)
+    if (widget.viewMode == TileViewMode.history && widget.onHistoryTap != null) {
       return true;
     }
 

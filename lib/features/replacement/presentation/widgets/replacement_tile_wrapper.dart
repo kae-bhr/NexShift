@@ -90,6 +90,11 @@ class _ReplacementTileWrapperState extends State<ReplacementTileWrapper> {
   DateTime? _pendingAcceptanceEndTime;
   bool _isLoading = true;
 
+  // Données chargées en mode history pour la validation chef
+  DateTime? _validatedAt;
+  String? _validatorName;
+  String? _validatedById;
+
   @override
   void initState() {
     super.initState();
@@ -156,6 +161,42 @@ class _ReplacementTileWrapperState extends State<ReplacementTileWrapper> {
         stationName = await StationNameCache().getStationName(sdisId, widget.request.station);
       }
 
+      // En mode historique, charger l'acceptance validée pour récupérer
+      // l'horodatage de validation et le nom du chef validateur
+      DateTime? validatedAt;
+      String? validatorName;
+      String? validatedById;
+      if (widget.viewMode == TileViewMode.history &&
+          widget.request.replacerId != null) {
+        try {
+          final acceptancesPath = EnvironmentConfig.getCollectionPath(
+            'replacements/automatic/replacementAcceptances',
+            widget.request.station,
+          );
+          final snap = await FirebaseFirestore.instance
+              .collection(acceptancesPath)
+              .where('requestId', isEqualTo: widget.request.id)
+              .where('status', isEqualTo: 'validated')
+              .limit(1)
+              .get();
+          if (snap.docs.isNotEmpty) {
+            final data = snap.docs.first.data();
+            final rawValidatedAt = data['validatedAt'];
+            final validatedBy = data['validatedBy'] as String?;
+            validatedAt = rawValidatedAt != null
+                ? (rawValidatedAt as Timestamp).toDate()
+                : null;
+            validatedById = validatedBy;
+            if (validatedBy != null) {
+              final validator = await _userRepository.getById(validatedBy);
+              validatorName = validator?.displayName;
+            }
+          }
+        } catch (_) {
+          // Silencieux — validatedAt restera null → "Inconnu" dans le dialog
+        }
+      }
+
       if (mounted) {
         setState(() {
           _requesterName = requesterName;
@@ -163,6 +204,9 @@ class _ReplacementTileWrapperState extends State<ReplacementTileWrapper> {
           _pendingAcceptanceStartTime = pendingStart;
           _pendingAcceptanceEndTime = pendingEnd;
           _stationName = stationName;
+          _validatedAt = validatedAt;
+          _validatorName = validatorName;
+          _validatedById = validatedById;
           _isLoading = false;
         });
       }
@@ -277,9 +321,41 @@ class _ReplacementTileWrapperState extends State<ReplacementTileWrapper> {
         widget.request.status == ReplacementRequestStatus.pending &&
         widget.request.requestType == RequestType.replacement;
 
+    // En mode historique, injecter le validateur dans validationChiefs si disponible
+    if (widget.viewMode == TileViewMode.history &&
+        _validatorName != null &&
+        _validatedById != null) {
+      tileData = tileData.copyWith(
+        validationChiefs: [
+          ChiefValidationData(
+            chiefId: _validatedById!,
+            chiefName: _validatorName!,
+            hasValidated: true,
+          ),
+        ],
+      );
+    }
+
     // onTap uniquement pour le mode "Mes demandes" (ouvre le BottomSheet)
     // Dans les autres modes, l'accès aux dialogs se fait via les boutons
     final effectiveOnTap = widget.viewMode == TileViewMode.myRequests ? widget.onTap : null;
+
+    // Badge "Historique" en mode history
+    VoidCallback? onHistoryTap;
+    if (widget.viewMode == TileViewMode.history) {
+      onHistoryTap = () => showHistoryDialog(
+        context,
+        HistoryDialogData(
+          createdAt: widget.request.createdAt,
+          acceptedAt: widget.request.acceptedAt,
+          validatedAt: _validatedAt,
+          validatorName: _validatorName,
+          requestTypeLabel: widget.request.isSOS
+              ? 'Remplacement SOS'
+              : 'Remplacement automatique',
+        ),
+      );
+    }
 
     return UnifiedRequestTile(
       data: tileData,
@@ -303,6 +379,7 @@ class _ReplacementTileWrapperState extends State<ReplacementTileWrapper> {
                           widget.viewMode == TileViewMode.pending)
           ? widget.onUnlockKeySkills
           : null,
+      onHistoryTap: onHistoryTap,
       acceptButtonText: 'Accepter',
       refuseButtonText: 'Refuser',
     );
@@ -462,6 +539,19 @@ class _ManualProposalTileWrapperState extends State<ManualProposalTileWrapper> {
     // onTap uniquement pour le mode "Mes demandes" (ouvre le BottomSheet)
     final effectiveOnTap = widget.viewMode == TileViewMode.myRequests && isReplaced ? widget.onTap : null;
 
+    // Badge "Historique" en mode history
+    VoidCallback? onHistoryTap;
+    if (widget.viewMode == TileViewMode.history) {
+      onHistoryTap = () => showHistoryDialog(
+        context,
+        HistoryDialogData(
+          createdAt: widget.proposal.createdAt ?? DateTime.now(),
+          acceptedAt: null, // Non stocké sur le modèle actuel
+          requestTypeLabel: 'Remplacement manuel',
+        ),
+      );
+    }
+
     return UnifiedRequestTile(
       data: tileData,
       viewMode: widget.viewMode,
@@ -472,6 +562,7 @@ class _ManualProposalTileWrapperState extends State<ManualProposalTileWrapper> {
       onAccept: widget.viewMode == TileViewMode.pending && isDesignatedReplacer ? widget.onAccept : null,
       onRefuse: widget.viewMode == TileViewMode.pending && isDesignatedReplacer ? widget.onRefuse : null,
       onResendNotifications: widget.viewMode == TileViewMode.myRequests && isReplaced ? widget.onResendNotifications : null,
+      onHistoryTap: onHistoryTap,
       acceptButtonText: 'Accepter',
       refuseButtonText: 'Refuser',
     );

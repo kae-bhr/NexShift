@@ -29,12 +29,10 @@ import 'package:nexshift_app/features/replacement/presentation/pages/replacement
 import 'package:nexshift_app/core/services/preferences_service.dart';
 import 'package:nexshift_app/core/services/local_reminder_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:nexshift_app/core/navigation/navigator_key.dart';
 import 'package:nexshift_app/firebase_options.dart';
 import 'package:timezone/data/latest_10y.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
-
-// Global key for navigation
-final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -345,18 +343,17 @@ class _NexShiftState extends State<NexShift> with WidgetsBindingObserver {
         return ValueListenableBuilder(
           valueListenable: userNotifier,
           builder: (context, user, _) {
-            return ValueListenableBuilder2<bool, String>(
-              first: _maintenanceService.isMaintenanceNotifier,
-              second: _maintenanceService.maintenanceMessageNotifier,
-              builder: (context, isMaintenance, maintenanceMessage, _) {
+            return ValueListenableBuilder<bool>(
+              valueListenable: isBlockedByMaintenanceNotifier,
+              builder: (context, isBlocked, _) {
                 return ValueListenableBuilder<SubscriptionStatus>(
                   valueListenable: subscriptionStatusNotifier,
                   builder: (context, subscriptionStatus, _) {
                 // Déterminer la page d'accueil en fonction de l'état
                 Widget homePage;
-                final isAllowed = _maintenanceService.isUserAllowed(user?.id);
-                if (isMaintenance && !isAllowed) {
-                  homePage = MaintenancePage(message: maintenanceMessage);
+                if (isBlocked) {
+                  homePage = MaintenancePage(
+                      message: _maintenanceService.effectiveMaintenanceMessage);
                 } else if (!_isOnline) {
                   homePage = const OfflinePage();
                 } else if (isUserAuthentified == true &&

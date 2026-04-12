@@ -107,13 +107,12 @@ class RequestColumn extends StatelessWidget {
         // showBadge == false : afficher un placeholder de la même hauteur
         // showBadge == null : ne rien afficher (ni badge ni divider)
         if (showBadge != null) ...[
-          Align(
-            alignment: Alignment.centerRight,
-            child: showBadge == true
-                ? statusBadge
-                : const SizedBox(
-                    height: 22,
-                  ), // Hauteur approximative d'un badge compact
+          SizedBox(
+            height: 22, // Hauteur fixe identique pour badge ET placeholder
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: showBadge == true ? statusBadge : const SizedBox.shrink(),
+            ),
           ),
 
           const SizedBox(height: 8),

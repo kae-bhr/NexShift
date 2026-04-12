@@ -103,6 +103,8 @@ class _TeamEventTileWrapperState extends State<TeamEventTileWrapper> {
     final stationName = _stationName ?? event.stationId;
 
     final hasDeclined = event.declinedUserIds.contains(uid);
+    final hasAccepted = event.acceptedUserIds.contains(uid);
+    final hasResponded = hasDeclined || hasAccepted;
     final isOrganizer = event.createdById == uid;
     final isPast = event.endTime.isBefore(DateTime.now());
     final isCancelled = event.status == TeamEventStatus.cancelled;
@@ -146,7 +148,7 @@ class _TeamEventTileWrapperState extends State<TeamEventTileWrapper> {
     final isInvited = event.invitedUserIds.contains(uid) ||
         event.acceptedUserIds.contains(uid) ||
         event.declinedUserIds.contains(uid);
-    final canAct = !isPast && !isCancelled && isInvited && !hasDeclined;
+    final canAct = !isPast && !isCancelled && isInvited && !hasResponded;
 
     return UnifiedRequestTile(
       data: tileData,
@@ -157,10 +159,10 @@ class _TeamEventTileWrapperState extends State<TeamEventTileWrapper> {
         context,
         MaterialPageRoute(builder: (_) => TeamEventPage(event: event)),
       ),
-      onAccept: viewMode == TileViewMode.pending && !hasDeclined && !isOrganizer
+      onAccept: viewMode == TileViewMode.pending && !hasResponded && !isOrganizer
           ? () => _respond(true)
           : null,
-      onRefuse: viewMode == TileViewMode.pending && !hasDeclined && !isOrganizer
+      onRefuse: viewMode == TileViewMode.pending && !hasResponded && !isOrganizer
           ? () => _respond(false)
           : null,
       onDelete: viewMode == TileViewMode.myRequests && isOrganizer

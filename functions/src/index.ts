@@ -649,6 +649,25 @@ export const sendReplacementNotificationsV2 = onDocumentCreated(
         break;
       }
 
+      case "team_event_invitation": {
+        const organizerName = await resolveUserName(trigger.createdById);
+        const startStr = formatShort(trigger.startTime.toDate());
+        notification = {
+          title: `📅 Nouvel événement : ${trigger.title}`,
+          body: organizerName
+            ? `${organizerName} vous invite à "${trigger.title}" le ${startStr}`
+            : `Vous êtes invité(e) à "${trigger.title}" le ${startStr}`,
+        };
+        data = {
+          type: "team_event_invitation",
+          eventId: trigger.eventId || "",
+          createdById: trigger.createdById || "",
+          stationId: trigger.stationId || "",
+          title: trigger.title || "",
+        };
+        break;
+      }
+
       default:
         console.error("❌ Unknown notification type:", type);
         await snapshot.ref.update({

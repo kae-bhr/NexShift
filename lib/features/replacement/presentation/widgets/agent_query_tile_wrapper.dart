@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/core/data/models/agent_query_model.dart';
 import 'package:nexshift_app/core/presentation/widgets/unified_request_tile/adapters/agent_query_adapter.dart';
+import 'package:nexshift_app/core/presentation/widgets/unified_request_tile/components/history_dialog.dart';
 import 'package:nexshift_app/core/presentation/widgets/unified_request_tile/unified_request_tile.dart';
 import 'package:nexshift_app/core/presentation/widgets/unified_request_tile/unified_tile_enums.dart';
 import 'package:nexshift_app/core/repositories/planning_repository.dart';
@@ -101,6 +102,19 @@ class _AgentQueryTileWrapperState extends State<AgentQueryTileWrapper> {
     final showActionsForCreator =
         viewMode == TileViewMode.myRequests && canAct && isNotified && !hasDeclined;
 
+    // Badge "Historique" en mode history
+    VoidCallback? onHistoryTap;
+    if (viewMode == TileViewMode.history) {
+      onHistoryTap = () => showHistoryDialog(
+        context,
+        HistoryDialogData(
+          createdAt: widget.query.createdAt,
+          acceptedAt: widget.query.completedAt,
+          requestTypeLabel: 'Recherche d\'agent',
+        ),
+      );
+    }
+
     return UnifiedRequestTile(
       data: data,
       viewMode: viewMode,
@@ -120,6 +134,7 @@ class _AgentQueryTileWrapperState extends State<AgentQueryTileWrapper> {
           ? widget.onResendNotifications
           : null,
       onMarkAsSeen: viewMode == TileViewMode.pending ? widget.onMarkAsSeen : null,
+      onHistoryTap: onHistoryTap,
       acceptButtonText: 'Accepter',
       refuseButtonText: 'Refuser',
     );

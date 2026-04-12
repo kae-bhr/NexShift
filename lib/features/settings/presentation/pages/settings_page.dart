@@ -21,6 +21,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:nexshift_app/core/services/maintenance_service.dart';
 
 const String appVersion = '1.0.0';
 
@@ -612,6 +613,11 @@ class _SettingsPageState extends State<SettingsPage> {
                   debugPrint('🔴 [LOGOUT] Signing out from Firebase Auth');
                   await FirebaseAuth.instance.signOut();
                   debugPrint('🔴 [LOGOUT] Firebase Auth signed out');
+
+                  // Arrêter l'écoute maintenance SDIS et réinitialiser l'état
+                  MaintenanceService().stopListeningForSdis();
+                  MaintenanceService().resetSdisState();
+                  debugPrint('🔴 [LOGOUT] SDIS maintenance listener stopped');
 
                   // Suppression de l'instance de l'utilisateur stockée
                   await UserStorageHelper.clearUser();

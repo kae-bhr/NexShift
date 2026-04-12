@@ -55,6 +55,7 @@ class ReplacementRequestAdapter {
         'mode': request.mode,
         'wavesSuspended': request.wavesSuspended,
         'pendingValidationUserIds': request.pendingValidationUserIds,
+        'acceptedAt': request.acceptedAt,
       },
     );
   }

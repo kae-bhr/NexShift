@@ -1238,6 +1238,11 @@ class ShiftExchangeService {
         '🔍 [EXCHANGE_SERVICE] getProposalsRequiringValidationForLeader for user $userId, team: $userTeam',
       );
 
+      // Seuls les chefs et leaders peuvent valider
+      if (user.status != 'chief' && user.status != 'leader' && !user.admin) {
+        return [];
+      }
+
       // Récupérer toutes les propositions avec statut selectedByInitiator
       final allProposals = await _exchangeRepository.getProposalsByStatus(
         ShiftExchangeProposalStatus.selectedByInitiator,

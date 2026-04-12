@@ -61,6 +61,7 @@ class ExchangeRequestAdapter {
         'refusedByUserIds': request.refusedByUserIds,
         'requiredKeySkills': request.requiredKeySkills,
         'selectedProposal': selectedProposal,
+        'completedAt': request.completedAt,
       },
     );
   }

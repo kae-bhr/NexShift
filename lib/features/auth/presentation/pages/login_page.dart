@@ -18,7 +18,9 @@ import 'package:nexshift_app/features/auth/presentation/pages/station_search_pag
 import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
 import 'package:nexshift_app/features/app_shell/presentation/widgets/widget_tree.dart';
 import 'package:nexshift_app/core/services/cloud_functions_service.dart';
+import 'package:nexshift_app/core/services/maintenance_service.dart';
 import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
+import 'package:nexshift_app/core/presentation/pages/maintenance_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({
@@ -432,6 +434,19 @@ class _LoginPageState extends State<LoginPage> {
 
       debugPrint('🟢 [LOGIN] Force navigation');
       if (!mounted) return;
+
+      // Vérifier le blocage maintenance en priorité
+      if (isBlockedByMaintenanceNotifier.value) {
+        debugPrint('🟢 [LOGIN] Redirecting to MaintenancePage');
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(
+            builder: (context) => MaintenancePage(
+                message: MaintenanceService().effectiveMaintenanceMessage),
+          ),
+          (route) => false,
+        );
+        return;
+      }
 
       // Vérifier si l'abonnement est expiré avant de naviguer
       final Widget destination;

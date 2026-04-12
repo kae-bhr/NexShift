@@ -543,7 +543,7 @@ class _ReplacementRequestsListPageState
         }
 
         return ListView.builder(
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.all(12),
           itemCount: events.length,
           itemBuilder: (_, i) => TeamEventTileWrapper(
             event: events[i],
@@ -646,7 +646,7 @@ class _ReplacementRequestsListPageState
               }
 
               return ListView.builder(
-                padding: const EdgeInsets.symmetric(vertical: 8),
+                padding: const EdgeInsets.all(12),
                 itemCount: events.length,
                 itemBuilder: (_, i) => TeamEventTileWrapper(
                   event: events[i],

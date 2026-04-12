@@ -20,6 +20,7 @@ export 'components/request_column.dart';
 export 'components/tile_action_bar.dart';
 export 'components/tile_actions_footer.dart';
 export 'components/special_indicators.dart';
+export 'components/history_dialog.dart';
 
 // Adaptateurs
 export 'adapters/replacement_request_adapter.dart';
