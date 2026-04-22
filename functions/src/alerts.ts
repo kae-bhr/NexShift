@@ -192,17 +192,28 @@ export const sendDailyShiftReminder = onSchedule(
 );
 
 /**
+ * Extrait les composantes UTC d'une date.
+ * Convention : les timestamps sont stockés en "flat UTC"
+ * (06:00 UTC = affichage 06h, aucune conversion de fuseau).
+ */
+function getUtcComponents(date: Date): {
+  day: string; month: string; year: number;
+  hours: string; minutes: string;
+} {
+  return {
+    day: String(date.getUTCDate()).padStart(2, "0"),
+    month: String(date.getUTCMonth() + 1).padStart(2, "0"),
+    year: date.getUTCFullYear(),
+    hours: String(date.getUTCHours()).padStart(2, "0"),
+    minutes: String(date.getUTCMinutes()).padStart(2, "0"),
+  };
+}
+
+/**
  * Formater une date au format français DD/MM/YYYY HH:mm
  */
 export function formatDateFR(date: Date): string {
-  const parisDate = new Date(
-    date.toLocaleString("en-US", {timeZone: "Europe/Paris"}),
-  );
-  const day = String(parisDate.getDate()).padStart(2, "0");
-  const month = String(parisDate.getMonth() + 1).padStart(2, "0");
-  const year = parisDate.getFullYear();
-  const hours = String(parisDate.getHours()).padStart(2, "0");
-  const minutes = String(parisDate.getMinutes()).padStart(2, "0");
+  const {day, month, year, hours, minutes} = getUtcComponents(date);
   return `${day}/${month}/${year} ${hours}:${minutes}`;
 }
 
@@ -210,11 +221,7 @@ export function formatDateFR(date: Date): string {
  * Formater uniquement la date (sans l'année) : DD/MM
  */
 export function formatShortDateFR(date: Date): string {
-  const parisDate = new Date(
-    date.toLocaleString("en-US", {timeZone: "Europe/Paris"}),
-  );
-  const day = String(parisDate.getDate()).padStart(2, "0");
-  const month = String(parisDate.getMonth() + 1).padStart(2, "0");
+  const {day, month} = getUtcComponents(date);
   return `${day}/${month}`;
 }
 
@@ -222,10 +229,6 @@ export function formatShortDateFR(date: Date): string {
  * Formater uniquement l'heure : HHhMM (ex: 19h, 04h30)
  */
 export function formatTimeFR(date: Date): string {
-  const parisDate = new Date(
-    date.toLocaleString("en-US", {timeZone: "Europe/Paris"}),
-  );
-  const hours = String(parisDate.getHours()).padStart(2, "0");
-  const minutes = String(parisDate.getMinutes()).padStart(2, "0");
+  const {hours, minutes} = getUtcComponents(date);
   return minutes !== "00" ? `${hours}h${minutes}` : `${hours}h`;
 }

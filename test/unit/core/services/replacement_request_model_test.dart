@@ -184,7 +184,10 @@ void main() {
       expect(reconstructed.station, equals(original.station));
       expect(reconstructed.currentWave, equals(original.currentWave));
       expect(reconstructed.seenByUserIds, equals(original.seenByUserIds));
-      expect(reconstructed.declinedByUserIds, equals(original.declinedByUserIds));
+      expect(
+        reconstructed.declinedByUserIds,
+        equals(original.declinedByUserIds),
+      );
       expect(reconstructed.mode, equals(original.mode));
       expect(reconstructed.wavesSuspended, equals(original.wavesSuspended));
     });
@@ -192,12 +195,7 @@ void main() {
 
   group('ReplacementMode Enum', () {
     test('Tous les modes sont parsables', () {
-      final modes = [
-        'similarity',
-        'position',
-        'manual',
-        'availability',
-      ];
+      final modes = ['similarity', 'position', 'manual', 'availability'];
 
       for (final modeStr in modes) {
         final json = {
@@ -324,39 +322,42 @@ void main() {
       expect(updatedSeenBy.length, equals(1));
     });
 
-    test('Logique métier: Agent "Vu" n\'apparaît pas dans compteur pending', () {
-      // ARRANGE
-      final request = ReplacementRequest(
-        id: 'request-seen-5',
-        requesterId: 'user-1',
-        planningId: 'planning-1',
-        startTime: DateTime(2025, 12, 24, 8, 0),
-        endTime: DateTime(2025, 12, 24, 20, 0),
-        station: 'Station Epsilon',
-        createdAt: DateTime(2025, 12, 19, 12, 0),
-        status: ReplacementRequestStatus.pending,
-        notifiedUserIds: ['user-2', 'user-3', 'user-4'],
-        seenByUserIds: ['user-3'],
-        declinedByUserIds: ['user-4'],
-      );
+    test(
+      'Logique métier: Agent "Vu" n\'apparaît pas dans compteur pending',
+      () {
+        // ARRANGE
+        final request = ReplacementRequest(
+          id: 'request-seen-5',
+          requesterId: 'user-1',
+          planningId: 'planning-1',
+          startTime: DateTime(2025, 12, 24, 8, 0),
+          endTime: DateTime(2025, 12, 24, 20, 0),
+          station: 'Station Epsilon',
+          createdAt: DateTime(2025, 12, 19, 12, 0),
+          status: ReplacementRequestStatus.pending,
+          notifiedUserIds: ['user-2', 'user-3', 'user-4'],
+          seenByUserIds: ['user-3'],
+          declinedByUserIds: ['user-4'],
+        );
 
-      const currentUserId = 'user-3';
+        const currentUserId = 'user-3';
 
-      // ACT - Vérifier si l'utilisateur a vu la demande
-      final hasSeen = request.seenByUserIds.contains(currentUserId);
-      final hasDeclined = request.declinedByUserIds.contains(currentUserId);
-      final isNotified = request.notifiedUserIds.contains(currentUserId);
+        // ACT - Vérifier si l'utilisateur a vu la demande
+        final hasSeen = request.seenByUserIds.contains(currentUserId);
+        final hasDeclined = request.declinedByUserIds.contains(currentUserId);
+        final isNotified = request.notifiedUserIds.contains(currentUserId);
 
-      // ASSERT
-      expect(hasSeen, isTrue, reason: 'user-3 a marqué comme "Vu"');
-      expect(hasDeclined, isFalse, reason: 'user-3 n\'a pas refusé');
-      expect(isNotified, isTrue, reason: 'user-3 est notifié');
+        // ASSERT
+        expect(hasSeen, isTrue, reason: 'user-3 a marqué comme "Vu"');
+        expect(hasDeclined, isFalse, reason: 'user-3 n\'a pas refusé');
+        expect(isNotified, isTrue, reason: 'user-3 est notifié');
 
-      // Dans le compteur du drawer, cette demande ne devrait PAS être comptée
-      // car l'utilisateur l'a marquée comme "Vue"
-      final shouldCountInPending = isNotified && !hasSeen && !hasDeclined;
-      expect(shouldCountInPending, isFalse);
-    });
+        // Dans le compteur du drawer, cette demande ne devrait PAS être comptée
+        // car l'utilisateur l'a marquée comme "Vue"
+        final shouldCountInPending = isNotified && !hasSeen && !hasDeclined;
+        expect(shouldCountInPending, isFalse);
+      },
+    );
 
     test('Round-trip avec seenByUserIds préserve les données', () {
       // ARRANGE

@@ -49,25 +49,24 @@ class _AvailabilityPickerSectionState
     _selectedEnd = widget.initialEnd ?? widget.rangeEnd;
   }
 
-  String _fmt(DateTime dt) => DateFormat('dd/MM HH:mm').format(dt.toUtc());
+  String _fmt(DateTime dt) => DateFormat('dd/MM HH:mm').format(dt);
 
   Future<void> _pickStart() async {
-    final startUtc = _selectedStart.toUtc();
     final date = await showDatePicker(
       context: context,
-      initialDate: startUtc,
-      firstDate: widget.rangeStart.toUtc(),
-      lastDate: widget.rangeEnd.toUtc(),
+      initialDate: _selectedStart,
+      firstDate: widget.rangeStart,
+      lastDate: widget.rangeEnd,
     );
     if (date == null || !mounted) return;
 
     final time = await showTimePicker(
       context: context,
-      initialTime: TimeOfDay(hour: startUtc.hour, minute: startUtc.minute),
+      initialTime: TimeOfDay(hour: _selectedStart.hour, minute: _selectedStart.minute),
     );
     if (time == null || !mounted) return;
 
-    final newStart = DateTime.utc(
+    final newStart = DateTime(
       date.year,
       date.month,
       date.day,
@@ -91,22 +90,21 @@ class _AvailabilityPickerSectionState
   }
 
   Future<void> _pickEnd() async {
-    final endUtc = _selectedEnd.toUtc();
     final date = await showDatePicker(
       context: context,
-      initialDate: endUtc,
-      firstDate: _selectedStart.toUtc(),
-      lastDate: widget.rangeEnd.toUtc(),
+      initialDate: _selectedEnd,
+      firstDate: _selectedStart,
+      lastDate: widget.rangeEnd,
     );
     if (date == null || !mounted) return;
 
     final time = await showTimePicker(
       context: context,
-      initialTime: TimeOfDay(hour: endUtc.hour, minute: endUtc.minute),
+      initialTime: TimeOfDay(hour: _selectedEnd.hour, minute: _selectedEnd.minute),
     );
     if (time == null || !mounted) return;
 
-    final newEnd = DateTime.utc(
+    final newEnd = DateTime(
       date.year,
       date.month,
       date.day,

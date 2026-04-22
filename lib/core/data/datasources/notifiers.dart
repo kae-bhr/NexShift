@@ -50,6 +50,9 @@ final ValueNotifier<SubscriptionStatus> subscriptionStatusNotifier =
 // True quand l'utilisateur courant est bloqué par la maintenance, quelle que soit son origine.
 final ValueNotifier<bool> isBlockedByMaintenanceNotifier = ValueNotifier<bool>(false);
 
+// Mise à jour forcée — true quand le build courant est inférieur au minBuildNumber Firestore.
+final ValueNotifier<bool> isUpdateRequiredNotifier = ValueNotifier<bool>(false);
+
 // Notifiers partagés entre HomePage et PlanningPage (persistance inter-pages)
 final ValueNotifier<ViewMode> viewModeNotifier = ValueNotifier<ViewMode>(ViewMode.week);
 final ValueNotifier<DateTime> currentMonthNotifier = ValueNotifier<DateTime>(

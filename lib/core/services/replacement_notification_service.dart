@@ -2310,6 +2310,40 @@ class ReplacementNotificationService {
     }
   }
 
+  /// Annule toutes les demandes de remplacement actives (pending/accepted)
+  /// d'un agent donné sur un planning donné.
+  /// Utilisé lors de la suppression manuelle d'un remplacement dans le planning.
+  Future<void> cancelActiveRequestsForAgent({
+    required String planningId,
+    required String requesterId,
+    required String stationId,
+  }) async {
+    try {
+      debugPrint('🗑️ Cancelling active requests for agent $requesterId on planning $planningId');
+
+      final requestsPath = _getReplacementRequestsPath(stationId);
+      final snapshot = await firestore
+          .collection(requestsPath)
+          .where('planningId', isEqualTo: planningId)
+          .where('requesterId', isEqualTo: requesterId)
+          .where('status', whereIn: ['pending', 'accepted'])
+          .get();
+
+      for (final doc in snapshot.docs) {
+        await doc.reference.update({
+          'status': ReplacementRequestStatus.cancelled.toString().split('.').last,
+          'cancelledAt': FieldValue.serverTimestamp(),
+        });
+        debugPrint('  ✅ Cancelled request: ${doc.id}');
+      }
+
+      debugPrint('✅ Cancelled ${snapshot.docs.length} request(s)');
+    } catch (e) {
+      debugPrint('❌ Error cancelling active requests for agent: $e');
+      rethrow;
+    }
+  }
+
   /// Annule une demande de remplacement
   /// Le stationId DOIT être fourni pour éviter les erreurs avec collectionGroup
   Future<void> cancelReplacementRequest(String requestId, {required String stationId}) async {

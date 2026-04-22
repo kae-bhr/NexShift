@@ -68,7 +68,7 @@ class _SettingsPageState extends State<SettingsPage> {
           // Footer
           Center(
             child: Text(
-              '© NexShift 2025',
+              '© NexShift 2025-2026',
               style: TextStyle(fontSize: 12, color: Colors.grey[600]),
             ),
           ),
@@ -309,7 +309,6 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-
   Widget _buildInformationsSection(BuildContext context) {
     return Card(
       child: Column(
@@ -408,7 +407,6 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
     );
   }
-
 
   void _showClearCacheDialog() {
     showDialog(
@@ -630,10 +628,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
                   // Suppression de l'instance du token d'authentification stocké
                   isUserAuthentifiedNotifier.value = false;
-                  await prefs.setBool(
-                    KConstants.authentifiedKey,
-                    false,
-                  );
+                  await prefs.setBool(KConstants.authentifiedKey, false);
                   debugPrint('🔴 [LOGOUT] Auth notifier set to false');
 
                   // Retour à la page d'accueil en supprimant les pages intermédiaires
@@ -838,7 +833,9 @@ class _SettingsPageState extends State<SettingsPage> {
                               throw Exception('Utilisateur non trouvé');
                             }
 
-                            debugPrint('🔥 Suppression du compte utilisateur: $matricule (UID: ${user.uid})');
+                            debugPrint(
+                              '🔥 Suppression du compte utilisateur: $matricule (UID: ${user.uid})',
+                            );
 
                             // Ré-authentifier l'utilisateur (requis pour la suppression)
                             final credential = EmailAuthProvider.credential(
@@ -850,12 +847,16 @@ class _SettingsPageState extends State<SettingsPage> {
                             // 1. Supprimer le document utilisateur de Firestore AVANT de supprimer le compte Auth
                             // IMPORTANT: Le document Firestore utilise le matricule comme ID, pas l'UID Firebase
                             try {
-                              debugPrint('🗑️ Suppression du document Firestore users/$matricule...');
+                              debugPrint(
+                                '🗑️ Suppression du document Firestore users/$matricule...',
+                              );
                               await FirebaseFirestore.instance
                                   .collection('users')
                                   .doc(matricule)
                                   .delete();
-                              debugPrint('✅ Document Firestore users/$matricule supprimé');
+                              debugPrint(
+                                '✅ Document Firestore users/$matricule supprimé',
+                              );
                             } catch (e) {
                               debugPrint(
                                 '❌ Erreur lors de la suppression Firestore: $e',
@@ -864,7 +865,9 @@ class _SettingsPageState extends State<SettingsPage> {
                             }
 
                             // 2. Supprimer le compte Authentication
-                            debugPrint('🗑️ Suppression du compte Authentication...');
+                            debugPrint(
+                              '🗑️ Suppression du compte Authentication...',
+                            );
                             await user.delete();
                             debugPrint('✅ Compte Authentication supprimé');
 
@@ -953,5 +956,4 @@ class _SettingsPageState extends State<SettingsPage> {
       },
     );
   }
-
 }

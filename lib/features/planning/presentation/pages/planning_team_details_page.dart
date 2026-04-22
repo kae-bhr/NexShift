@@ -518,53 +518,6 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
     return events;
   }
 
-  /// Returns true if the given replaced agent is covered by replacer entries
-  /// over the entire current planning window (with a small tolerance).
-  bool _isFullyReplacedForPlanning(String replacedId) {
-    if (_currentPlanning == null) return false;
-
-    final planStart = _currentPlanning!.startTime;
-    final planEnd = _currentPlanning!.endTime;
-    final totalDuration = planEnd.difference(planStart);
-    if (totalDuration.isNegative || totalDuration == Duration.zero) {
-      return false;
-    }
-
-    // Collect intervals from replacer PlanningAgent entries for this agent
-    final intervals = _currentPlanning!.agents
-        .where((a) => a.replacedAgentId == replacedId)
-        .map((a) {
-          final start = a.start.isBefore(planStart) ? planStart : a.start;
-          final end = a.end.isAfter(planEnd) ? planEnd : a.end;
-          return end.isAfter(start) ? [start, end] : null;
-        })
-        .whereType<List<DateTime>>()
-        .toList();
-
-    if (intervals.isEmpty) return false;
-
-    intervals.sort((a, b) => a[0].compareTo(b[0]));
-    DateTime curStart = intervals.first[0];
-    DateTime curEnd = intervals.first[1];
-    var covered = Duration.zero;
-
-    for (var i = 1; i < intervals.length; i++) {
-      final s = intervals[i][0];
-      final e = intervals[i][1];
-      if (s.isAfter(curEnd)) {
-        covered += curEnd.difference(curStart);
-        curStart = s;
-        curEnd = e;
-      } else {
-        if (e.isAfter(curEnd)) curEnd = e;
-      }
-    }
-    covered += curEnd.difference(curStart);
-
-    const tolerance = Duration(minutes: 1);
-    return covered >= totalDuration - tolerance;
-  }
-
   /// Navigue vers l'événement précédent
   void _goToPreviousEvent() {
     final events = _getAllEvents();
@@ -706,28 +659,61 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
                     child: _agents.isEmpty
                         ? null
                         : Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: _agents.map((a) {
                               final replacerId = activeReplacementByReplaced[a.id];
                               if (replacerId != null) {
                                 final replacer = _findUserById(replacerId);
-                                final isFullyReplaced =
-                                    _isFullyReplacedForPlanning(a.id);
+                                // Plage de présence de l'agent remplacé (entrée base)
+                                final replacedEntry = _currentPlanning?.agents
+                                    .where((pa) =>
+                                        pa.agentId == a.id &&
+                                        pa.replacedAgentId == null)
+                                    .firstOrNull;
+                                // Entrée du remplaçant active à atUtc
+                                final replacerEntry = _currentPlanning?.agents
+                                    .where((pa) =>
+                                        pa.agentId == replacerId &&
+                                        pa.replacedAgentId == a.id &&
+                                        (pa.start.toUtc().isBefore(atUtc) ||
+                                            pa.start.toUtc().isAtSameMomentAs(atUtc)) &&
+                                        pa.end.toUtc().isAfter(atUtc))
+                                    .firstOrNull;
+                                // Niveau et couleur du remplaçant
+                                final replacerRawLevelId = replacerEntry?.levelId;
+                                final replacerEffectiveLevelId =
+                                    replacerRawLevelId != null && replacerRawLevelId.isNotEmpty
+                                        ? replacerRawLevelId
+                                        : _onCallLevels
+                                            .where((l) => !l.isAvailability)
+                                            .map((l) => l.id)
+                                            .firstOrNull;
+                                final replacerLevel = replacerEffectiveLevelId != null
+                                    ? _onCallLevels
+                                        .where((l) => l.id == replacerEffectiveLevelId)
+                                        .firstOrNull
+                                    : null;
                                 return _AgentReplacementRow(
                                   replaced: a,
                                   replacer: replacer,
-                                  isFullyReplaced: isFullyReplaced,
                                   replacedStyle: _replacedNameStyle(context),
+                                  replacedPresenceStart: replacedEntry?.start,
+                                  replacedPresenceEnd: replacedEntry?.end,
+                                  replacerLevelName: replacerLevel?.name,
+                                  replacerLevelColor: replacerLevel?.color,
+                                  replacerPresenceStart: replacerEntry?.start,
+                                  replacerPresenceEnd: replacerEntry?.end,
                                 );
                               }
-                              final rawLevelId = _currentPlanning?.agents
+                              final baseEntry = _currentPlanning?.agents
                                   .where((pa) =>
                                       pa.agentId == a.id &&
                                       pa.replacedAgentId == null &&
                                       (pa.start.toUtc().isBefore(atUtc) ||
                                           pa.start.toUtc().isAtSameMomentAs(atUtc)) &&
                                       pa.end.toUtc().isAfter(atUtc))
-                                  .map((pa) => pa.levelId)
                                   .firstOrNull;
+                              final rawLevelId = baseEntry?.levelId;
                               // Si levelId vide, fallback sur le premier niveau non-dispo
                               final effectiveLevelId =
                                   rawLevelId != null && rawLevelId.isNotEmpty
@@ -736,13 +722,18 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
                                           .where((l) => !l.isAvailability)
                                           .map((l) => l.id)
                                           .firstOrNull;
-                              final levelName = effectiveLevelId != null
+                              final level = effectiveLevelId != null
                                   ? _onCallLevels
                                       .where((l) => l.id == effectiveLevelId)
-                                      .map((l) => l.name)
                                       .firstOrNull
                                   : null;
-                              return _AgentRow(agent: a, levelName: levelName);
+                              return _AgentRow(
+                                agent: a,
+                                levelName: level?.name,
+                                levelColor: level?.color,
+                                presenceStart: baseEntry?.start,
+                                presenceEnd: baseEntry?.end,
+                              );
                             }).toList(),
                           ),
                   ),
@@ -758,17 +749,21 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
                     child: _availableAgents.isEmpty
                         ? null
                         : Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: _availableAgents
-                                .map((e) => _AgentRow(
-                                      agent: e.user,
-                                      isAvailable: true,
-                                      levelName: _onCallLevels
-                                          .where((l) =>
-                                              l.id ==
-                                              e.availability.levelId)
-                                          .map((l) => l.name)
-                                          .firstOrNull,
-                                    ))
+                                .map((e) {
+                                  final level = _onCallLevels
+                                      .where((l) => l.id == e.availability.levelId)
+                                      .firstOrNull;
+                                  return _AgentRow(
+                                    agent: e.user,
+                                    isAvailable: true,
+                                    levelName: level?.name,
+                                    levelColor: level?.color,
+                                    presenceStart: e.availability.start,
+                                    presenceEnd: e.availability.end,
+                                  );
+                                })
                                 .toList(),
                           ),
                   ),
@@ -1413,11 +1408,17 @@ class _AgentRow extends StatelessWidget {
   final User agent;
   final bool isAvailable;
   final String? levelName;
+  final Color? levelColor;
+  final DateTime? presenceStart;
+  final DateTime? presenceEnd;
 
   const _AgentRow({
     required this.agent,
     this.isAvailable = false,
     this.levelName,
+    this.levelColor,
+    this.presenceStart,
+    this.presenceEnd,
   });
 
   @override
@@ -1426,76 +1427,37 @@ class _AgentRow extends StatelessWidget {
     final color = isAvailable
         ? (isDark ? Colors.blue.shade300 : Colors.blue.shade600)
         : (isDark ? Colors.grey.shade200 : Colors.grey.shade800);
-    final badgeColor = isAvailable ? Colors.blue : Colors.grey;
+    final badgeColor = isAvailable ? Colors.blue : (levelColor ?? Colors.grey);
+    final hasSubline = presenceStart != null || levelName != null;
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Avatar initiale
-          Container(
-            width: 30,
-            height: 30,
-            decoration: BoxDecoration(
-              color: isAvailable
-                  ? Colors.blue.withValues(alpha: isDark ? 0.20 : 0.10)
-                  : (isDark
-                      ? Colors.white.withValues(alpha: 0.08)
-                      : Colors.grey.shade100),
-              shape: BoxShape.circle,
-              border: isAvailable
-                  ? Border.all(
-                      color: Colors.blue.withValues(alpha: 0.35), width: 1)
-                  : null,
+          Text(
+            agent.displayName,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              color: color,
             ),
-            child: Center(
-              child: Text(
-                agent.displayName.isNotEmpty
-                    ? agent.displayName[0].toUpperCase()
-                    : '?',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: color,
-                ),
-              ),
-            ),
+            overflow: TextOverflow.ellipsis,
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              agent.displayName,
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: color,
-              ),
+          if (hasSubline) ...[
+            const SizedBox(height: 3),
+            Wrap(
+              spacing: 5,
+              runSpacing: 3,
+              children: [
+                if (presenceStart != null && presenceEnd != null)
+                  _PresencePill(start: presenceStart!, end: presenceEnd!),
+                if (levelName != null)
+                  _LevelBadge(
+                      name: levelName!, color: badgeColor, isDark: isDark),
+              ],
             ),
-          ),
-          if (levelName != null)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-              decoration: BoxDecoration(
-                color: badgeColor.withValues(alpha: isDark ? 0.18 : 0.08),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                    color: badgeColor.withValues(alpha: 0.3), width: 1),
-              ),
-              child: Text(
-                levelName!,
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  color: isDark
-                      ? (isAvailable
-                          ? Colors.blue.shade300
-                          : Colors.grey.shade400)
-                      : (isAvailable
-                          ? Colors.blue.shade600
-                          : Colors.grey.shade600),
-                ),
-              ),
-            ),
+          ],
         ],
       ),
     );
@@ -1506,95 +1468,189 @@ class _AgentRow extends StatelessWidget {
 class _AgentReplacementRow extends StatelessWidget {
   final User replaced;
   final User? replacer;
-  final bool isFullyReplaced;
   final TextStyle replacedStyle;
+  final DateTime? replacedPresenceStart;
+  final DateTime? replacedPresenceEnd;
+  final String? replacerLevelName;
+  final Color? replacerLevelColor;
+  final DateTime? replacerPresenceStart;
+  final DateTime? replacerPresenceEnd;
 
   const _AgentReplacementRow({
     required this.replaced,
     required this.replacer,
-    required this.isFullyReplaced,
     required this.replacedStyle,
+    this.replacedPresenceStart,
+    this.replacedPresenceEnd,
+    this.replacerLevelName,
+    this.replacerLevelColor,
+    this.replacerPresenceStart,
+    this.replacerPresenceEnd,
   });
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final arrowColor =
-        isFullyReplaced ? Colors.red.shade400 : Colors.orange.shade400;
+    final arrowColor = isDark ? Colors.grey.shade500 : Colors.grey.shade400;
+    final replacerNameColor =
+        isDark ? Colors.grey.shade200 : Colors.grey.shade800;
+    final badgeColor = replacerLevelColor ?? Colors.grey;
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Remplacé (barré)
-          Container(
-            width: 30,
-            height: 30,
-            decoration: BoxDecoration(
-              color: isDark
-                  ? Colors.white.withValues(alpha: 0.05)
-                  : Colors.grey.shade100,
-              shape: BoxShape.circle,
-            ),
-            child: Center(
-              child: Text(
-                replaced.displayName.isNotEmpty
-                    ? replaced.displayName[0].toUpperCase()
-                    : '?',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: isDark ? Colors.grey.shade500 : Colors.grey.shade400,
+          // ── Remplacé ──────────────────────────────────────────
+          Text(
+            replaced.displayName,
+            style: replacedStyle,
+            overflow: TextOverflow.ellipsis,
+          ),
+          if (replacedPresenceStart != null && replacedPresenceEnd != null) ...[
+            const SizedBox(height: 3),
+            _PresencePill(
+                start: replacedPresenceStart!, end: replacedPresenceEnd!),
+          ],
+          const SizedBox(height: 5),
+          // ── Flèche + remplaçant ───────────────────────────────
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Ligne verticale + flèche
+              Column(
+                children: [
+                  Icon(Icons.subdirectory_arrow_right_rounded,
+                      size: 16, color: arrowColor),
+                ],
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      replacer?.displayName ?? 'Inconnu',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: replacerNameColor,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (replacerPresenceStart != null ||
+                        replacerLevelName != null) ...[
+                      const SizedBox(height: 3),
+                      Wrap(
+                        spacing: 5,
+                        runSpacing: 3,
+                        children: [
+                          if (replacerPresenceStart != null &&
+                              replacerPresenceEnd != null)
+                            _PresencePill(
+                              start: replacerPresenceStart!,
+                              end: replacerPresenceEnd!,
+                            ),
+                          if (replacerLevelName != null)
+                            _LevelBadge(
+                              name: replacerLevelName!,
+                              color: badgeColor,
+                              isDark: isDark,
+                            ),
+                        ],
+                      ),
+                    ],
+                  ],
                 ),
               ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              replaced.displayName,
-              style: replacedStyle,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          const SizedBox(width: 6),
-          Icon(Icons.arrow_forward_rounded, size: 16, color: arrowColor),
-          const SizedBox(width: 6),
-          // Remplaçant
-          Container(
-            width: 30,
-            height: 30,
-            decoration: BoxDecoration(
-              color: arrowColor.withValues(alpha: isDark ? 0.20 : 0.10),
-              shape: BoxShape.circle,
-              border: Border.all(color: arrowColor.withValues(alpha: 0.4)),
-            ),
-            child: Center(
-              child: Text(
-                replacer != null && replacer!.displayName.isNotEmpty
-                    ? replacer!.displayName[0].toUpperCase()
-                    : '?',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: arrowColor,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              replacer?.displayName ?? 'Inconnu',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: isDark ? Colors.grey.shade200 : Colors.grey.shade800,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
+            ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Badge coloré affichant le nom d'un niveau d'astreinte
+class _LevelBadge extends StatelessWidget {
+  final String name;
+  final Color color;
+  final bool isDark;
+
+  const _LevelBadge({
+    required this.name,
+    required this.color,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: isDark ? 0.18 : 0.10),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.35), width: 1),
+      ),
+      child: Text(
+        name,
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+          color: color.withValues(alpha: isDark ? 0.85 : 0.9),
+        ),
+      ),
+    );
+  }
+}
+
+/// Petite capsule affichant la plage horaire de présence d'un agent
+class _PresencePill extends StatelessWidget {
+  final DateTime start;
+  final DateTime end;
+
+  const _PresencePill({required this.start, required this.end});
+
+  String _fmt(DateTime dt, DateTime ref) {
+    final local = dt.toLocal();
+    final refLocal = ref.toLocal();
+    final sameDay = local.year == refLocal.year &&
+        local.month == refLocal.month &&
+        local.day == refLocal.day;
+    return sameDay
+        ? DateFormat('HH:mm').format(local)
+        : DateFormat('dd/MM HH:mm').format(local);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final label = '${_fmt(start, start)}–${_fmt(end, start)}';
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+        decoration: BoxDecoration(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.07)
+              : Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.12)
+                : Colors.grey.shade300,
+            width: 1,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 9,
+            fontWeight: FontWeight.w500,
+            color: isDark ? Colors.grey.shade400 : Colors.grey.shade500,
+            letterSpacing: 0.1,
+          ),
+        ),
       ),
     );
   }

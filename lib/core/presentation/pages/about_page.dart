@@ -165,7 +165,7 @@ class AboutPage extends StatelessWidget {
             icon: Icons.copyright,
             title: "Propriété intellectuelle",
             content: [
-              "© 2025 BHR - Benjamin HOLZER",
+              "© 2025-2026 BHR - Benjamin HOLZER",
               "Tous droits réservés.",
               "",
               "NexShift est une application propriétaire.\nAucun droit n'est transféré à l'utilisateur autre que celui d'exécuter l'application dans le cadre prévu par son usage normal.",

@@ -77,13 +77,11 @@ class WelcomePage extends StatelessWidget {
                   : () {
                       Navigator.push(
                         context,
-                        MaterialPageRoute(
-                          builder: (context) => AboutPage(),
-                        ),
+                        MaterialPageRoute(builder: (context) => AboutPage()),
                       );
                     },
               child: const Text(
-                'À propos © NexShift 2025',
+                'À propos © NexShift 2025-2026',
                 textAlign: TextAlign.center,
               ),
             ),
@@ -114,7 +112,10 @@ class _RestoringSessionOverlay extends StatelessWidget {
             children: [
               // Zone de chargement en bas, au-dessus des boutons
               Container(
-                margin: const EdgeInsets.symmetric(horizontal: 32, vertical: 80),
+                margin: const EdgeInsets.symmetric(
+                  horizontal: 32,
+                  vertical: 80,
+                ),
                 padding: const EdgeInsets.symmetric(
                   horizontal: 24,
                   vertical: 20,

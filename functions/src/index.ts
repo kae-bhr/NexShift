@@ -7,8 +7,8 @@ import {encryptionKey, decryptPII} from "./crypto-utils.js";
 import {checkIfFullyCovered} from "./planning-utils.js";
 
 // Re-export des nouvelles Cloud Functions
-export {cleanupOldData} from "./cleanup";
-export {sendPendingWavesAfterNightPause} from "./night-pause";
+export {cleanupOldData} from "./cleanup.js";
+export {sendPendingWavesAfterNightPause} from "./night-pause.js";
 // Désactivé : remplacé par les rappels locaux dans l'app Flutter
 // export {sendDailyShiftReminder} from "./alerts";
 
@@ -42,34 +42,38 @@ export {
 initializeApp();
 
 /**
- * Helper pour formater les dates au format français avec timezone Europe/Paris
- * Format : DD/MM/YYYY HH:mm
+ * Extrait les composantes d'une date en lisant directement les valeurs UTC.
+ * Les dates sont stockées en Firestore en UTC "naïf" : 06h00 UTC = 06h00 affiché.
+ * Pas de conversion de timezone — on lit getUTCHours/getUTCDate directement.
+ */
+function getUtcComponents(date: Date): {
+  day: string; month: string; year: number;
+  hours: string; minutes: string;
+} {
+  return {
+    day: String(date.getUTCDate()).padStart(2, "0"),
+    month: String(date.getUTCMonth() + 1).padStart(2, "0"),
+    year: date.getUTCFullYear(),
+    hours: String(date.getUTCHours()).padStart(2, "0"),
+    minutes: String(date.getUTCMinutes()).padStart(2, "0"),
+  };
+}
+
+/**
+ * Helper pour formater les dates au format français DD/MM/YYYY HH:mm
+ * Les dates sont stockées en UTC naïf — pas de conversion timezone.
  * @param {Date} date - Date to format
  * @return {string} Formatted date string
  */
 function formatDate(date: Date): string {
-  // Convertir en timezone Europe/Paris (France)
-  const parisDate = new Date(date.toLocaleString("en-US", {
-    timeZone: "Europe/Paris",
-  }));
-
-  const day = String(parisDate.getDate()).padStart(2, "0");
-  const month = String(parisDate.getMonth() + 1).padStart(2, "0");
-  const year = parisDate.getFullYear();
-  const hours = String(parisDate.getHours()).padStart(2, "0");
-  const minutes = String(parisDate.getMinutes()).padStart(2, "0");
-
+  const {day, month, year, hours, minutes} = getUtcComponents(date);
   return `${day}/${month}/${year} ${hours}:${minutes}`;
 }
 
 /** Format court : DD/MM HHh(MM) — ex: "21/05 19h", "22/05 04h30" */
 function formatShort(date: Date): string {
-  const p = new Date(date.toLocaleString("en-US", {timeZone: "Europe/Paris"}));
-  const d = String(p.getDate()).padStart(2, "0");
-  const m = String(p.getMonth() + 1).padStart(2, "0");
-  const H = String(p.getHours()).padStart(2, "0");
-  const M = String(p.getMinutes()).padStart(2, "0");
-  return M !== "00" ? `${d}/${m} ${H}h${M}` : `${d}/${m} ${H}h`;
+  const {day, month, hours, minutes} = getUtcComponents(date);
+  return minutes !== "00" ? `${day}/${month} ${hours}h${minutes}` : `${day}/${month} ${hours}h`;
 }
 
 
@@ -479,18 +483,8 @@ export const sendReplacementNotificationsV2 = onDocumentCreated(
         const lines = plannings.map((p, idx) => {
           const start = new Date(p.startDate);
           const end = new Date(p.endDate);
-          const parisStart = new Date(
-            start.toLocaleString("en-US", {timeZone: "Europe/Paris"}),
-          );
-          const parisEnd = new Date(
-            end.toLocaleString("en-US", {timeZone: "Europe/Paris"}),
-          );
-          const day = String(parisStart.getDate()).padStart(2, "0");
-          const month = String(parisStart.getMonth() + 1).padStart(2, "0");
-          const startHH = String(parisStart.getHours()).padStart(2, "0");
-          const startMM = String(parisStart.getMinutes()).padStart(2, "0");
-          const endHH = String(parisEnd.getHours()).padStart(2, "0");
-          const endMM = String(parisEnd.getMinutes()).padStart(2, "0");
+          const {day, month, hours: startHH, minutes: startMM} = getUtcComponents(start);
+          const {hours: endHH, minutes: endMM} = getUtcComponents(end);
           const startStr = startMM !== "00" ? `${startHH}h${startMM}` : `${startHH}h`;
           const endStr = endMM !== "00" ? `${endHH}h${endMM}` : `${endHH}h`;
           return `- ${day}/${month} de ${startStr} à ${endStr}, ${resolvedPlanningTeamNames[idx]}`;

@@ -8,6 +8,7 @@ import 'package:nexshift_app/core/data/models/user_model.dart';
 import 'package:nexshift_app/core/repositories/local_repositories.dart';
 import 'package:nexshift_app/core/services/maintenance_service.dart';
 import 'package:nexshift_app/core/services/push_notification_service.dart';
+import 'package:nexshift_app/core/services/version_check_service.dart';
 import 'package:nexshift_app/core/services/local_reminder_service.dart';
 import 'package:nexshift_app/core/services/subscription_service.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
@@ -74,6 +75,13 @@ class EnterApp {
       // Mettre à jour le cache si la valeur a changé ou était absente
       await UserStorageHelper.saveSdisId(resolvedSdisId);
       debugPrint('🟣 [ENTER_APP] restore() - SDIS context set: $resolvedSdisId');
+
+      // Vérifier la version minimum requise (one-shot, avant maintenance)
+      await VersionCheckService().checkOnce();
+      if (isUpdateRequiredNotifier.value) {
+        debugPrint('🟣 [ENTER_APP] restore() - build trop ancien, mise à jour requise');
+        return false;
+      }
 
       // Vérifier l'état de maintenance SDIS de façon synchrone (one-shot)
       // AVANT de positionner les notifiers pour que isBlockedByMaintenanceNotifier
@@ -224,6 +232,13 @@ class EnterApp {
     // Définir le contexte SDIS global pour que les repositories aient le bon chemin
     if (sdisId != null && sdisId.isNotEmpty) {
       SDISContext().setCurrentSDISId(sdisId);
+
+      // Vérifier la version minimum requise (one-shot, avant maintenance)
+      await VersionCheckService().checkOnce();
+      if (isUpdateRequiredNotifier.value) {
+        debugPrint('🟣 [ENTER_APP] build() - build trop ancien, mise à jour requise');
+        return;
+      }
 
       // Vérifier l'état de maintenance de façon synchrone (one-shot) :
       // global (au cas où le listener stream n'a pas encore reçu son premier snapshot)

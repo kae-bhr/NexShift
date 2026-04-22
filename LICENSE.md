@@ -1,7 +1,7 @@
 Licence d'utilisation de l'application NexShift (Propriétaire)
 
 Version 1.0 — 2025
-Copyright © 2025 – NexShift. Tous droits réservés.
+Copyright © 2025-2026 – NexShift. Tous droits réservés.
 
 1. Objet
 

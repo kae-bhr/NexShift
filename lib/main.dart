@@ -18,6 +18,8 @@ import 'package:nexshift_app/core/services/log_service.dart';
 import 'package:nexshift_app/core/presentation/pages/offline_page.dart';
 import 'package:nexshift_app/core/presentation/pages/maintenance_page.dart';
 import 'package:nexshift_app/core/presentation/pages/subscription_expired_page.dart';
+import 'package:nexshift_app/core/presentation/pages/update_required_page.dart';
+import 'package:nexshift_app/core/services/version_check_service.dart';
 import 'package:nexshift_app/core/services/maintenance_service.dart';
 import 'package:nexshift_app/core/services/subscription_service.dart';
 import 'package:nexshift_app/features/app_shell/presentation/widgets/widget_tree.dart';
@@ -344,14 +346,22 @@ class _NexShiftState extends State<NexShift> with WidgetsBindingObserver {
           valueListenable: userNotifier,
           builder: (context, user, _) {
             return ValueListenableBuilder<bool>(
+              valueListenable: isUpdateRequiredNotifier,
+              builder: (context, isUpdateRequired, _) {
+                return ValueListenableBuilder<bool>(
               valueListenable: isBlockedByMaintenanceNotifier,
               builder: (context, isBlocked, _) {
                 return ValueListenableBuilder<SubscriptionStatus>(
                   valueListenable: subscriptionStatusNotifier,
                   builder: (context, subscriptionStatus, _) {
-                // Déterminer la page d'accueil en fonction de l'état
+                // Déterminer la page d'accueil en fonction de l'état (priorité décroissante)
                 Widget homePage;
-                if (isBlocked) {
+                if (isUpdateRequired) {
+                  homePage = UpdateRequiredPage(
+                    message: VersionCheckService().message,
+                    storeUrl: VersionCheckService().storeUrl,
+                  );
+                } else if (isBlocked) {
                   homePage = MaintenancePage(
                       message: _maintenanceService.effectiveMaintenanceMessage);
                 } else if (!_isOnline) {
@@ -402,6 +412,8 @@ class _NexShiftState extends State<NexShift> with WidgetsBindingObserver {
                 );
                   },
                 );
+              },
+            );
               },
             );
           },

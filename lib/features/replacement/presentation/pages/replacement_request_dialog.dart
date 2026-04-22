@@ -174,13 +174,11 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
           if (canAccept) {
             final existingSubshifts = await _subshiftRepository.getAll(stationId: widget.stationId);
             final hasConflict = existingSubshifts.any((subshift) {
-              // Vérifier si l'utilisateur est le remplaçant ou le remplacé
-              final isInvolved =
-                  subshift.replacerId == widget.currentUserId ||
-                  subshift.replacedId == widget.currentUserId;
-              if (!isInvolved) return false;
+              // Vérifier uniquement si l'utilisateur est remplaçant (pas remplacé :
+              // être remplacé par quelqu'un d'autre ne l'empêche pas de remplacer)
+              if (subshift.replacerId != widget.currentUserId) return false;
 
-              // Vérifier si les périodes se chevauchent
+              // Vérifier si les périodes se chevauchent (bornes strictes)
               final overlapStart = subshift.start.isBefore(request.endTime);
               final overlapEnd = subshift.end.isAfter(request.startTime);
               return overlapStart && overlapEnd;
@@ -304,12 +302,10 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
       }
 
       // Vérifier les conflits avec les subshifts existants
+      // Seul le rôle de remplaçant est bloquant : être remplacé en parallèle est autorisé
       final existingSubshifts = await _subshiftRepository.getAll(stationId: widget.stationId);
       final hasConflict = existingSubshifts.any((subshift) {
-        final isInvolved =
-            subshift.replacerId == widget.currentUserId ||
-            subshift.replacedId == widget.currentUserId;
-        if (!isInvolved) return false;
+        if (subshift.replacerId != widget.currentUserId) return false;
         final overlapStart = subshift.start.isBefore(actualEndTime);
         final overlapEnd = subshift.end.isAfter(actualStartTime);
         return overlapStart && overlapEnd;

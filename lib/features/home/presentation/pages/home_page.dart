@@ -1131,21 +1131,35 @@ class _HomePageState extends State<HomePage> {
           }
         }
 
-        // Supprimer aussi le subshift en base (historique)
-        final matchingSubshift = _allSubshifts
+        // Supprimer les subshifts en base correspondant à ce remplacement.
+        // On lit depuis Firestore (pas depuis _allSubshifts qui peut être stale)
+        // et on filtre par replacerId + replacedId + planningId + chevauchement
+        // avec la période de l'entrée supprimée (pour ne pas toucher d'autres
+        // remplacements du même agent sur ce planning).
+        final liveSubshifts = await SubshiftRepository().getByPlanningId(
+          planning.id,
+          stationId: _user.station,
+        );
+        final matchingSubshift = liveSubshifts
             .where(
               (s) =>
                   s.replacerId == entry.agentId &&
                   s.replacedId == replacedId &&
-                  s.planningId == planning.id &&
-                  s.start.isAtSameMomentAs(entry.start) &&
-                  s.end.isAtSameMomentAs(entry.end),
+                  s.start.isBefore(entry.end) &&
+                  s.end.isAfter(entry.start),
             )
             .toList();
         for (final sub in matchingSubshift) {
           await SubshiftRepository().delete(sub.id, stationId: _user.station);
           _allSubshifts.removeWhere((s) => s.id == sub.id);
         }
+
+        // Annuler les demandes de remplacement actives liées à ce remplacement
+        await ReplacementNotificationService().cancelActiveRequestsForAgent(
+          planningId: planning.id,
+          requesterId: replacedId,
+          stationId: _user.station,
+        );
       }
 
       final updatedPlanning = planning.copyWith(agents: updatedAgents);
