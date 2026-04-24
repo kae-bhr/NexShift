@@ -202,6 +202,7 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
       onValidate: widget.onValidate,
       onDelete: widget.onDelete,
       onWaveTap: widget.onWaveTap,
+      onHistoryTap: widget.onHistoryTap,
       onProposalsTap: widget.onProposalsTap,
       onResendNotifications: widget.onResendNotifications,
       onUnlockKeySkills: widget.onUnlockKeySkills,
@@ -209,7 +210,11 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
       acceptButtonText: widget.acceptButtonText,
       refuseButtonText: widget.refuseButtonText,
     );
-    final hasFooter = widget.viewMode != TileViewMode.history;
+    // En mode history, le footer est visible s'il y a des boutons (vague ou historique)
+    final hasHistoryFooter = widget.viewMode == TileViewMode.history &&
+        (widget.onHistoryTap != null ||
+            (usesWaveSystem && widget.data.currentWave != null));
+    final hasFooter = widget.viewMode != TileViewMode.history || hasHistoryFooter;
 
     Widget card = Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -298,9 +303,10 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
                     },
                   ),
 
-                  // Indicateurs spéciaux — uniquement en historique
+                  // Indicateurs spéciaux — uniquement pour les modes non-history
+                  // (en mode history, vague et historique sont dans le footer)
                   if (_hasSpecialIndicators(isUserNotified) &&
-                      widget.viewMode == TileViewMode.history) ...[
+                      widget.viewMode != TileViewMode.history) ...[
                     const SizedBox(height: 12),
                     SpecialIndicatorsBar(
                       currentWave: widget.data.currentWave,

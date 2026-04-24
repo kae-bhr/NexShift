@@ -437,6 +437,8 @@ class _ManualProposalTileWrapperState extends State<ManualProposalTileWrapper> {
   final _userRepository = UserRepository();
   String? _replacedTeam;
   String? _replacerTeam;
+  String? _replacedNameResolved;
+  String? _replacerNameResolved;
   String _stationName = '';
   bool _isLoading = true;
 
@@ -460,13 +462,15 @@ class _ManualProposalTileWrapperState extends State<ManualProposalTileWrapper> {
     setState(() => _isLoading = true);
 
     try {
-      // Charger l'équipe du remplacé
+      // Charger le remplacé (équipe + nom déchiffré)
       final replacedUser = await _userRepository.getById(widget.proposal.replacedId);
       final replacedTeam = replacedUser?.team;
+      final replacedNameResolved = replacedUser?.displayName;
 
-      // Charger l'équipe du remplaçant
+      // Charger le remplaçant (équipe + nom déchiffré)
       final replacerUser = await _userRepository.getById(widget.proposal.replacerId);
       final replacerTeam = replacerUser?.team;
+      final replacerNameResolved = replacerUser?.displayName;
 
       // Résoudre le nom de la station
       String stationName = widget.station ?? '';
@@ -479,6 +483,8 @@ class _ManualProposalTileWrapperState extends State<ManualProposalTileWrapper> {
         setState(() {
           _replacedTeam = replacedTeam;
           _replacerTeam = replacerTeam;
+          _replacedNameResolved = replacedNameResolved;
+          _replacerNameResolved = replacerNameResolved;
           _stationName = stationName;
           _isLoading = false;
         });
@@ -572,13 +578,15 @@ class _ManualProposalTileWrapperState extends State<ManualProposalTileWrapper> {
   UnifiedTileData _buildTileData() {
     final proposal = widget.proposal;
 
-    // Fallback "Agent <matricule>" si prénom/nom absent (agent créé mais non enregistré)
-    final replacedName = proposal.replacedName.trim().isNotEmpty
-        ? proposal.replacedName
-        : 'Agent ${proposal.replacedId}';
-    final replacerName = proposal.replacerName.trim().isNotEmpty
-        ? proposal.replacerName
-        : 'Agent ${proposal.replacerId}';
+    // Priorité : nom déchiffré via UserRepository > cache Firestore > fallback matricule
+    final replacedName = _replacedNameResolved ??
+        (proposal.replacedName.trim().isNotEmpty
+            ? proposal.replacedName
+            : 'Agent ${proposal.replacedId}');
+    final replacerName = _replacerNameResolved ??
+        (proposal.replacerName.trim().isNotEmpty
+            ? proposal.replacerName
+            : 'Agent ${proposal.replacerId}');
 
     return UnifiedTileData(
       id: proposal.id,

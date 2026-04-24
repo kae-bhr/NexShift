@@ -20,6 +20,7 @@ class TileActionsFooter extends StatelessWidget {
   final VoidCallback? onValidate;
   final VoidCallback? onDelete;
   final VoidCallback? onWaveTap;
+  final VoidCallback? onHistoryTap;
   final VoidCallback? onProposalsTap;
   final VoidCallback? onResendNotifications;
   final VoidCallback? onUnlockKeySkills;
@@ -41,6 +42,7 @@ class TileActionsFooter extends StatelessWidget {
     this.onValidate,
     this.onDelete,
     this.onWaveTap,
+    this.onHistoryTap,
     this.onProposalsTap,
     this.onResendNotifications,
     this.onUnlockKeySkills,
@@ -53,7 +55,7 @@ class TileActionsFooter extends StatelessWidget {
   Widget build(BuildContext context) {
     switch (viewMode) {
       case TileViewMode.history:
-        return const SizedBox.shrink();
+        return _buildTintedFooter(_historyItems());
       case TileViewMode.pending:
         return _buildTintedFooter(_pendingItems());
       case TileViewMode.toValidate:
@@ -64,6 +66,27 @@ class TileActionsFooter extends StatelessWidget {
   }
 
   // ── Items par mode ────────────────────────────────────────────────────────
+
+  List<_FooterItem> _historyItems() {
+    final items = <_FooterItem>[];
+    if (usesWaveSystem && currentWave != null) {
+      items.add(_FooterItem(
+        icon: Icons.waves_rounded,
+        label: 'Vague $currentWave',
+        color: Colors.blue.shade700,
+        onTap: onWaveTap,
+      ));
+    }
+    if (onHistoryTap != null) {
+      items.add(_FooterItem(
+        icon: Icons.history_rounded,
+        label: 'Historique',
+        color: Colors.grey.shade600,
+        onTap: onHistoryTap,
+      ));
+    }
+    return items;
+  }
 
   List<_FooterItem> _pendingItems() {
     final items = <_FooterItem>[];

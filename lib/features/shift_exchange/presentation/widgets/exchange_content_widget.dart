@@ -13,6 +13,7 @@ import 'package:nexshift_app/features/replacement/presentation/widgets/replaceme
 import 'package:nexshift_app/features/replacement/presentation/widgets/icon_tab_bar.dart';
 import 'package:nexshift_app/core/presentation/widgets/unified_request_tile/unified_request_tile_exports.dart';
 import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:nexshift_app/features/replacement/presentation/widgets/agent_filter_bar.dart';
 
 /// Widget pour afficher le contenu des échanges d'astreinte
 /// Utilisé comme onglet dans la page de remplacements
@@ -30,6 +31,7 @@ class _ExchangeContentWidgetState extends State<ExchangeContentWidget>
   late TabController _subTabController;
   String? _stationId;
   DateTime _selectedMonth = DateTime.now();
+  User? _selectedAgentExchange;
 
   // === CACHE DES DONNÉES ===
   bool _isLoading = true;
@@ -749,6 +751,18 @@ class _ExchangeContentWidgetState extends State<ExchangeContentWidget>
           request.initiatorStartTime.isBefore(endOfMonth);
     }).toList();
 
+    // Filtre agent
+    if (_selectedAgentExchange != null) {
+      final agentId = _selectedAgentExchange!.id;
+      historicRequests = historicRequests.where((data) {
+        final request = data['request'] as ShiftExchangeRequest;
+        final proposals = data['proposals'] as List<ShiftExchangeProposal>;
+        if (request.initiatorId == agentId) return true;
+        if (request.proposedByUserIds.contains(agentId)) return true;
+        return proposals.any((p) => p.proposerId == agentId);
+      }).toList();
+    }
+
     return Column(
       children: [
         // Navigateur mensuel
@@ -810,6 +824,12 @@ class _ExchangeContentWidgetState extends State<ExchangeContentWidget>
               ),
             ],
           ),
+        ),
+        // Filtre agent
+        AgentFilterBar(
+          selectedAgent: _selectedAgentExchange,
+          stationId: _stationId!,
+          onAgentSelected: (a) => setState(() => _selectedAgentExchange = a),
         ),
         // Liste des échanges historiques
         Expanded(

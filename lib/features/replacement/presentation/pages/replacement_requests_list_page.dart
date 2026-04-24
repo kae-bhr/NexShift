@@ -37,6 +37,7 @@ import 'package:nexshift_app/core/presentation/widgets/notified_agents_sheet.dar
 import 'package:nexshift_app/core/presentation/widgets/availability_picker_section.dart';
 import 'package:nexshift_app/core/utils/station_name_cache.dart';
 import 'package:nexshift_app/core/repositories/replacement_acceptance_repository.dart';
+import 'package:nexshift_app/features/replacement/presentation/widgets/agent_filter_bar.dart';
 
 // ManualReplacementProposal est maintenant importé depuis filtered_requests_view.dart
 
@@ -69,6 +70,15 @@ class _ReplacementRequestsListPageState
   TabController? _eventSubTabController;
   bool _isChief = false;
   final _agentQueryService = AgentQueryService();
+
+  // Filtres agent pour les historiques (indépendants par onglet)
+  User? _selectedAgentReplacement;
+  User? _selectedAgentQuery;
+  User? _selectedAgentEvent;
+
+  // Futures one-shot pour les historiques (évite le layout shift des StreamBuilder)
+  Future<List<AgentQuery>>? _queryHistoryFuture;
+  Future<List<TeamEvent>>? _eventHistoryFuture;
 
   @override
   void initState() {
@@ -199,6 +209,7 @@ class _ReplacementRequestsListPageState
     if (picked != null && mounted) {
       setState(() {
         _selectedDate = DateTime(picked.year, picked.month, 1);
+        _queryHistoryFuture = _fetchQueryHistory();
       });
     }
   }
@@ -216,6 +227,7 @@ class _ReplacementRequestsListPageState
     if (picked != null && mounted) {
       setState(() {
         _selectedEventDate = DateTime(picked.year, picked.month, 1);
+        _eventHistoryFuture = _fetchEventHistory();
       });
     }
   }
@@ -449,6 +461,12 @@ class _ReplacementRequestsListPageState
             ],
           ),
         ),
+        // Filtre agent
+        AgentFilterBar(
+          selectedAgent: _selectedAgentReplacement,
+          stationId: _currentStationId!,
+          onAgentSelected: (a) => setState(() => _selectedAgentReplacement = a),
+        ),
         // Liste de l'historique
         Expanded(
           child: FilteredRequestsView(
@@ -457,6 +475,7 @@ class _ReplacementRequestsListPageState
             currentStationId: _currentStationId,
             currentUser: _currentUser,
             selectedMonth: _selectedDate,
+            selectedAgentId: _selectedAgentReplacement?.id,
             buildCard: _buildRequestCard,
             buildManualCard: _buildManualProposalCard,
           ),
@@ -581,6 +600,7 @@ class _ReplacementRequestsListPageState
                     _selectedEventDate.year,
                     _selectedEventDate.month - 1,
                   );
+                  _eventHistoryFuture = _fetchEventHistory();
                 }),
                 tooltip: 'Mois précédent',
               ),
@@ -612,45 +632,55 @@ class _ReplacementRequestsListPageState
                     _selectedEventDate.year,
                     _selectedEventDate.month + 1,
                   );
+                  _eventHistoryFuture = _fetchEventHistory();
                 }),
                 tooltip: 'Mois suivant',
               ),
             ],
           ),
         ),
+        // Filtre agent
+        AgentFilterBar(
+          selectedAgent: _selectedAgentEvent,
+          stationId: _currentStationId!,
+          onAgentSelected: (a) => setState(() {
+            _selectedAgentEvent = a;
+            _eventHistoryFuture = _fetchEventHistory();
+          }),
+        ),
         // Liste filtrée par mois
         Expanded(
-          child: StreamBuilder<List<TeamEvent>>(
-            stream: TeamEventRepository().watchAll(stationId: _currentStationId!),
+          child: FutureBuilder<List<TeamEvent>>(
+            future: _eventHistoryFuture ??= _fetchEventHistory(),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
               }
-              final now = DateTime.now();
-              final all = snapshot.data ?? [];
-              final events = all
-                  .where((e) =>
-                      (e.status == TeamEventStatus.cancelled ||
-                          e.endTime.isBefore(now)) &&
-                      e.startTime.year == _selectedEventDate.year &&
-                      e.startTime.month == _selectedEventDate.month)
-                  .toList()
-                ..sort((a, b) => b.startTime.compareTo(a.startTime));
-
+              final events = snapshot.data ?? [];
               if (events.isEmpty) {
-                return const AppEmptyState(
-                  icon: Icons.event_rounded,
-                  headline: 'Aucun événement ce mois',
-                  subtitle: 'Les événements passés ou annulés apparaîtront ici.',
+                return RefreshIndicator(
+                  onRefresh: () async {
+                    setState(() { _eventHistoryFuture = _fetchEventHistory(); });
+                  },
+                  child: const AppEmptyState(
+                    icon: Icons.event_rounded,
+                    headline: 'Aucun événement ce mois',
+                    subtitle: 'Les événements passés ou annulés apparaîtront ici.',
+                  ),
                 );
               }
-
-              return ListView.builder(
-                padding: const EdgeInsets.all(12),
-                itemCount: events.length,
-                itemBuilder: (_, i) => TeamEventTileWrapper(
-                  event: events[i],
-                  currentUserId: _currentUserId,
+              return RefreshIndicator(
+                onRefresh: () async {
+                  setState(() { _eventHistoryFuture = _fetchEventHistory(); });
+                },
+                child: ListView.builder(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(12),
+                  itemCount: events.length,
+                  itemBuilder: (_, i) => TeamEventTileWrapper(
+                    event: events[i],
+                    currentUserId: _currentUserId,
+                  ),
                 ),
               );
             },
@@ -658,6 +688,25 @@ class _ReplacementRequestsListPageState
         ),
       ],
     );
+  }
+
+  Future<List<TeamEvent>> _fetchEventHistory() async {
+    final all = await TeamEventRepository().getAll(stationId: _currentStationId!);
+    final now = DateTime.now();
+    final filtered = all.where((e) {
+      if (e.status != TeamEventStatus.cancelled && !e.endTime.isBefore(now)) return false;
+      if (e.startTime.year != _selectedEventDate.year || e.startTime.month != _selectedEventDate.month) return false;
+      if (_selectedAgentEvent != null) {
+        final id = _selectedAgentEvent!.id;
+        return e.createdById == id ||
+            e.invitedUserIds.contains(id) ||
+            e.acceptedUserIds.contains(id) ||
+            e.targetAgentIds.contains(id);
+      }
+      return true;
+    }).toList();
+    filtered.sort((a, b) => b.startTime.compareTo(a.startTime));
+    return filtered;
   }
 
   // ============================================================
@@ -810,6 +859,7 @@ class _ReplacementRequestsListPageState
                       _selectedDate.year,
                       _selectedDate.month - 1,
                     );
+                    _queryHistoryFuture = _fetchQueryHistory();
                   });
                 },
                 tooltip: 'Mois précédent',
@@ -849,6 +899,7 @@ class _ReplacementRequestsListPageState
                       _selectedDate.year,
                       _selectedDate.month + 1,
                     );
+                    _queryHistoryFuture = _fetchQueryHistory();
                   });
                 },
                 tooltip: 'Mois suivant',
@@ -856,38 +907,47 @@ class _ReplacementRequestsListPageState
             ],
           ),
         ),
+        // Filtre agent
+        AgentFilterBar(
+          selectedAgent: _selectedAgentQuery,
+          stationId: _currentStationId!,
+          onAgentSelected: (a) => setState(() {
+            _selectedAgentQuery = a;
+            _queryHistoryFuture = _fetchQueryHistory();
+          }),
+        ),
         // Liste des recherches historiques pour le mois sélectionné
         Expanded(
-          child: StreamBuilder<List<AgentQuery>>(
-            stream: AgentQueryRepository().watchAll(
-              stationId: _currentStationId!,
-            ),
+          child: FutureBuilder<List<AgentQuery>>(
+            future: _queryHistoryFuture ??= _fetchQueryHistory(),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
               }
 
-              final allQueries = snapshot.data ?? [];
-              final queries = allQueries
-                  .where(
-                    (q) =>
-                        q.status != AgentQueryStatus.pending &&
-                        q.status != AgentQueryStatus.cancelled &&
-                        q.startTime.year == _selectedDate.year &&
-                        q.startTime.month == _selectedDate.month,
-                  )
-                  .toList();
+              final queries = snapshot.data ?? [];
 
               if (queries.isEmpty) {
-                return _buildAgentQueryEmptyState(AgentQuerySubTab.history);
+                return RefreshIndicator(
+                  onRefresh: () async {
+                    setState(() { _queryHistoryFuture = _fetchQueryHistory(); });
+                  },
+                  child: _buildAgentQueryEmptyState(AgentQuerySubTab.history),
+                );
               }
 
-              return ListView.builder(
-                padding: const EdgeInsets.all(12),
-                itemCount: queries.length,
-                itemBuilder: (context, index) => _buildAgentQueryCard(
-                  queries[index],
-                  AgentQuerySubTab.history,
+              return RefreshIndicator(
+                onRefresh: () async {
+                  setState(() { _queryHistoryFuture = _fetchQueryHistory(); });
+                },
+                child: ListView.builder(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(12),
+                  itemCount: queries.length,
+                  itemBuilder: (context, index) => _buildAgentQueryCard(
+                    queries[index],
+                    AgentQuerySubTab.history,
+                  ),
                 ),
               );
             },
@@ -895,6 +955,19 @@ class _ReplacementRequestsListPageState
         ),
       ],
     );
+  }
+
+  Future<List<AgentQuery>> _fetchQueryHistory() async {
+    final all = await AgentQueryRepository().getAll(stationId: _currentStationId!);
+    return all.where((q) {
+      if (q.status == AgentQueryStatus.pending || q.status == AgentQueryStatus.cancelled) return false;
+      if (q.startTime.year != _selectedDate.year || q.startTime.month != _selectedDate.month) return false;
+      if (_selectedAgentQuery != null) {
+        final id = _selectedAgentQuery!.id;
+        return q.createdById == id || q.matchedAgentId == id;
+      }
+      return true;
+    }).toList();
   }
 
   Widget _buildAgentQueryEmptyState(AgentQuerySubTab subTab) {

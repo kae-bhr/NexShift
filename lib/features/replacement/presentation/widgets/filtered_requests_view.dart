@@ -129,6 +129,7 @@ class FilteredRequestsView extends StatefulWidget {
   final String? currentStationId;
   final User? currentUser;
   final DateTime? selectedMonth; // Uniquement pour l'historique
+  final String? selectedAgentId; // Uniquement pour l'historique — null = pas de filtre
   final Widget Function(ReplacementRequest request, ReplacementSubTab subTab) buildCard;
   final Widget Function(ManualReplacementProposal proposal, ReplacementSubTab subTab)? buildManualCard;
 
@@ -141,6 +142,7 @@ class FilteredRequestsView extends StatefulWidget {
     required this.buildCard,
     this.buildManualCard,
     this.selectedMonth,
+    this.selectedAgentId,
   });
 
   @override
@@ -149,6 +151,86 @@ class FilteredRequestsView extends StatefulWidget {
 
 class _FilteredRequestsViewState extends State<FilteredRequestsView> {
   final _notificationService = ReplacementNotificationService();
+
+  // Utilisé uniquement pour ReplacementSubTab.history
+  Future<List<UnifiedReplacementItem>>? _historyFuture;
+
+  @override
+  void didUpdateWidget(FilteredRequestsView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.subTab == ReplacementSubTab.history &&
+        (oldWidget.selectedMonth != widget.selectedMonth ||
+            oldWidget.selectedAgentId != widget.selectedAgentId)) {
+      setState(() {
+        _historyFuture = _fetchHistoryItems();
+      });
+    }
+  }
+
+  /// Récupération one-shot de l'historique (remplace le StreamBuilder pour éviter le layout shift).
+  Future<List<UnifiedReplacementItem>> _fetchHistoryItems() async {
+    final automaticPath = _getAutomaticRequestsPath();
+    final manualPath = _getManualProposalsPath();
+
+    final autoSnap = await _notificationService.firestore
+        .collection(automaticPath)
+        .get();
+    final manualSnap = await _notificationService.firestore
+        .collection(manualPath)
+        .get();
+
+    final allItems = <UnifiedReplacementItem>[
+      ...autoSnap.docs.map(
+          (doc) => UnifiedReplacementItem.automatic(ReplacementRequest.fromJson(doc.data()))),
+      ...manualSnap.docs.map(
+          (doc) => UnifiedReplacementItem.manual(ManualReplacementProposal.fromJson(doc.data()))),
+    ];
+
+    // Visibilité
+    final visibleItems = <UnifiedReplacementItem>[];
+    for (final item in allItems) {
+      if (item.type == ReplacementItemType.automatic) {
+        if (item.automaticRequest!.status == ReplacementRequestStatus.accepted) {
+          visibleItems.add(item);
+        } else {
+          final canView = await _canViewAutomaticRequest(item.automaticRequest!);
+          if (canView) visibleItems.add(item);
+        }
+      } else {
+        final proposal = item.manualProposal!;
+        if (proposal.replacedId == widget.currentUserId ||
+            proposal.replacerId == widget.currentUserId ||
+            proposal.proposerId == widget.currentUserId) {
+          visibleItems.add(item);
+        }
+      }
+    }
+
+    // Filtre mois (réutilise _filterItems)
+    var filtered = _filterItems(visibleItems);
+
+    // Filtre agent
+    if (widget.selectedAgentId != null) {
+      filtered = filtered
+          .where((item) => _matchesAgent(item, widget.selectedAgentId!))
+          .toList();
+    }
+
+    filtered.sort((a, b) => a.startTime.compareTo(b.startTime));
+    return filtered;
+  }
+
+  bool _matchesAgent(UnifiedReplacementItem item, String agentId) {
+    if (item.type == ReplacementItemType.automatic) {
+      final r = item.automaticRequest!;
+      return r.requesterId == agentId || r.replacerId == agentId;
+    } else {
+      final p = item.manualProposal!;
+      return p.replacedId == agentId ||
+          p.replacerId == agentId ||
+          p.proposerId == agentId;
+    }
+  }
 
   String _getAutomaticRequestsPath() {
     return EnvironmentConfig.getCollectionPath(
@@ -364,29 +446,104 @@ class _FilteredRequestsViewState extends State<FilteredRequestsView> {
       return const Center(child: CircularProgressIndicator());
     }
 
-    debugPrint('[DEBUG FilteredRequests] CurrentUserId: ${widget.currentUserId}');
-    debugPrint('[DEBUG FilteredRequests] CurrentStationId: ${widget.currentStationId}');
+    // Historique : FutureBuilder pour éviter le layout shift causé par les re-émissions stream
+    if (widget.subTab == ReplacementSubTab.history) {
+      _historyFuture ??= _fetchHistoryItems();
+      return FutureBuilder<List<UnifiedReplacementItem>>(
+        future: _historyFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return RefreshIndicator(
+              onRefresh: () async {
+                setState(() { _historyFuture = _fetchHistoryItems(); });
+              },
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                children: [
+                  SizedBox(
+                    height: MediaQuery.of(context).size.height * 0.5,
+                    child: Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.error_outline, size: 64, color: Colors.red.shade300),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Erreur: ${snapshot.error}',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: Colors.red.shade700),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+          final items = snapshot.data ?? [];
+          if (items.isEmpty) {
+            return RefreshIndicator(
+              onRefresh: () async {
+                setState(() { _historyFuture = _fetchHistoryItems(); });
+              },
+              child: _buildEmptyState(),
+            );
+          }
+          return RefreshIndicator(
+            onRefresh: () async {
+              setState(() { _historyFuture = _fetchHistoryItems(); });
+            },
+            child: ListView.builder(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(16),
+              itemCount: items.length,
+              itemBuilder: (context, index) {
+                final item = items[index];
+                final key = item.type == ReplacementItemType.automatic
+                    ? ValueKey('auto_${item.automaticRequest!.id}')
+                    : ValueKey('manual_${item.manualProposal!.id}');
+                if (item.type == ReplacementItemType.automatic) {
+                  return KeyedSubtree(
+                    key: key,
+                    child: widget.buildCard(item.automaticRequest!, widget.subTab),
+                  );
+                } else {
+                  return KeyedSubtree(
+                    key: key,
+                    child: widget.buildManualCard != null
+                        ? widget.buildManualCard!(item.manualProposal!, widget.subTab)
+                        : _buildDefaultManualCard(item.manualProposal!),
+                  );
+                }
+              },
+            ),
+          );
+        },
+      );
+    }
 
+    // Autres sous-onglets (pending, myRequests, toValidate) : StreamBuilder inchangé
     return StreamBuilder<List<UnifiedReplacementItem>>(
       stream: _getCombinedStream().asyncMap((allItems) async {
         debugPrint('[DEBUG FilteredRequests] Total items: ${allItems.length}');
 
-        // Appliquer les règles de visibilité
         final visibleItems = <UnifiedReplacementItem>[];
         for (final item in allItems) {
           if (item.type == ReplacementItemType.automatic) {
-            // Les demandes acceptées sont visibles par tous
             if (item.automaticRequest!.status == ReplacementRequestStatus.accepted) {
               visibleItems.add(item);
               continue;
             }
-            // Pour les autres, vérifier la visibilité
             final canView = await _canViewAutomaticRequest(item.automaticRequest!);
-            if (canView) {
-              visibleItems.add(item);
-            }
+            if (canView) visibleItems.add(item);
           } else {
-            // Pour les manuelles, visible si on est concerné (remplacé ou remplaçant)
             final proposal = item.manualProposal!;
             if (proposal.replacedId == widget.currentUserId ||
                 proposal.replacerId == widget.currentUserId ||
@@ -398,14 +555,11 @@ class _FilteredRequestsViewState extends State<FilteredRequestsView> {
 
         debugPrint('[DEBUG FilteredRequests] Visible items: ${visibleItems.length}');
 
-        // Filtrer selon le sous-onglet
         final filteredItems = _filterItems(visibleItems);
 
         debugPrint('[DEBUG FilteredRequests] After filter (${widget.subTab}): ${filteredItems.length}');
 
-        // Trier par date
         filteredItems.sort((a, b) => a.startTime.compareTo(b.startTime));
-
         return filteredItems;
       }),
       builder: (context, snapshot) {
@@ -416,7 +570,7 @@ class _FilteredRequestsViewState extends State<FilteredRequestsView> {
         if (snapshot.hasError) {
           return RefreshIndicator(
             onRefresh: () async {
-              setState(() {}); // Force rebuild to restart stream
+              setState(() {});
             },
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
@@ -429,11 +583,7 @@ class _FilteredRequestsViewState extends State<FilteredRequestsView> {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(
-                            Icons.error_outline,
-                            size: 64,
-                            color: Colors.red.shade300,
-                          ),
+                          Icon(Icons.error_outline, size: 64, color: Colors.red.shade300),
                           const SizedBox(height: 16),
                           Text(
                             'Erreur: ${snapshot.error}',
@@ -454,17 +604,13 @@ class _FilteredRequestsViewState extends State<FilteredRequestsView> {
 
         if (items.isEmpty) {
           return RefreshIndicator(
-            onRefresh: () async {
-              setState(() {}); // Force rebuild to restart stream
-            },
+            onRefresh: () async { setState(() {}); },
             child: _buildEmptyState(),
           );
         }
 
         return RefreshIndicator(
-          onRefresh: () async {
-            setState(() {}); // Force rebuild to restart stream
-          },
+          onRefresh: () async { setState(() {}); },
           child: ListView.builder(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.all(16),
@@ -474,7 +620,6 @@ class _FilteredRequestsViewState extends State<FilteredRequestsView> {
               if (item.type == ReplacementItemType.automatic) {
                 return widget.buildCard(item.automaticRequest!, widget.subTab);
               } else {
-                // Utiliser le builder manuel si fourni, sinon créer une carte par défaut
                 if (widget.buildManualCard != null) {
                   return widget.buildManualCard!(item.manualProposal!, widget.subTab);
                 } else {
