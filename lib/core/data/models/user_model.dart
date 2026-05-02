@@ -27,6 +27,7 @@ class User {
   // Alerte personnalisée
   final bool personalAlertEnabled; // Rappel quotidien astreinte
   final int personalAlertHour; // Heure quotidienne (0-23), défaut: 18
+  final int personalAlertMinute; // Minute (0-59), défaut: 0
 
   // Notifications d'adhésion (admin uniquement)
   final bool membershipAlertEnabled; // Notifications pour les demandes d'adhésion
@@ -48,6 +49,7 @@ class User {
     this.suspensionStartDate,
     this.personalAlertEnabled = false,
     this.personalAlertHour = 18,
+    this.personalAlertMinute = 0,
     this.membershipAlertEnabled = false,
   });
 
@@ -71,6 +73,7 @@ class User {
     bool clearSuspensionStartDate = false,
     bool? personalAlertEnabled,
     int? personalAlertHour,
+    int? personalAlertMinute,
     bool? membershipAlertEnabled,
   }) {
     return User(
@@ -93,6 +96,7 @@ class User {
           : (suspensionStartDate ?? this.suspensionStartDate),
       personalAlertEnabled: personalAlertEnabled ?? this.personalAlertEnabled,
       personalAlertHour: personalAlertHour ?? this.personalAlertHour,
+      personalAlertMinute: personalAlertMinute ?? this.personalAlertMinute,
       membershipAlertEnabled: membershipAlertEnabled ?? this.membershipAlertEnabled,
     );
   }
@@ -117,6 +121,7 @@ class User {
       'suspensionStartDate': suspensionStartDate!.toIso8601String(),
     'personalAlertEnabled': personalAlertEnabled,
     'personalAlertHour': personalAlertHour,
+    'personalAlertMinute': personalAlertMinute,
     'membershipAlertEnabled': membershipAlertEnabled,
   };
 
@@ -138,6 +143,7 @@ class User {
       'suspensionStartDate': suspensionStartDate!.toIso8601String(),
     'personalAlertEnabled': personalAlertEnabled,
     'personalAlertHour': personalAlertHour,
+    'personalAlertMinute': personalAlertMinute,
     'membershipAlertEnabled': membershipAlertEnabled,
   };
 
@@ -164,7 +170,8 @@ class User {
         ? DateTime.tryParse(json['suspensionStartDate'] as String)
         : null,
     personalAlertEnabled: json['personalAlertEnabled'] as bool? ?? false,
-    personalAlertHour: json['personalAlertHour'] as int? ?? 18,
+    personalAlertHour: (json['personalAlertHour'] as num?)?.toInt() ?? 18,
+    personalAlertMinute: (json['personalAlertMinute'] as num?)?.toInt() ?? 0,
     membershipAlertEnabled: json['membershipAlertEnabled'] as bool? ?? false,
   );
 

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 import 'package:nexshift_app/core/data/models/team_event_model.dart';
 import 'package:nexshift_app/core/data/models/team_model.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
+import 'package:nexshift_app/core/presentation/widgets/date_time_button.dart';
 import 'package:nexshift_app/core/repositories/team_repository.dart';
 import 'package:nexshift_app/core/repositories/user_repository.dart';
 import 'package:nexshift_app/core/services/team_event_service.dart';
@@ -124,8 +124,9 @@ class _CreateTeamEventDialogState extends State<_CreateTeamEventDialog> {
       return;
     }
     if (_scope == TeamEventScope.team && _selectedTeamId == null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Sélectionnez une équipe.')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Sélectionnez une équipe.')));
       return;
     }
     if (_scope == TeamEventScope.agents && _selectedAgentIds.isEmpty) {
@@ -158,8 +159,9 @@ class _CreateTeamEventDialogState extends State<_CreateTeamEventDialog> {
         stationId: widget.stationId,
         scope: _scope,
         teamId: _scope == TeamEventScope.team ? _selectedTeamId : null,
-        targetAgentIds:
-            _scope == TeamEventScope.agents ? _selectedAgentIds : const [],
+        targetAgentIds: _scope == TeamEventScope.agents
+            ? _selectedAgentIds
+            : const [],
         status: TeamEventStatus.upcoming,
         createdAt: DateTime.now(),
       );
@@ -170,8 +172,9 @@ class _CreateTeamEventDialogState extends State<_CreateTeamEventDialog> {
     } catch (e) {
       if (mounted) {
         setState(() => _submitting = false);
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Erreur : $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erreur : $e')));
       }
     }
   }
@@ -197,8 +200,11 @@ class _CreateTeamEventDialogState extends State<_CreateTeamEventDialog> {
                     // ── En-tête ──────────────────────────────────────
                     Row(
                       children: [
-                        const Icon(Icons.event_rounded,
-                            color: KColors.appNameColor, size: 22),
+                        const Icon(
+                          Icons.event_rounded,
+                          color: KColors.appNameColor,
+                          size: 22,
+                        ),
                         const SizedBox(width: 8),
                         const Text(
                           'Créer un évènement',
@@ -233,11 +239,9 @@ class _CreateTeamEventDialogState extends State<_CreateTeamEventDialog> {
                           _endTime = dt.add(const Duration(hours: 2));
                         }
                       }),
-                      onEndTimeChanged: (dt) =>
-                          setState(() => _endTime = dt),
+                      onEndTimeChanged: (dt) => setState(() => _endTime = dt),
                       onScopeChanged: (s) => setState(() => _scope = s),
-                      onTeamChanged: (t) =>
-                          setState(() => _selectedTeamId = t),
+                      onTeamChanged: (t) => setState(() => _selectedTeamId = t),
                       onAgentsChanged: (ids) =>
                           setState(() => _selectedAgentIds = ids),
                     ),
@@ -260,13 +264,16 @@ class _CreateTeamEventDialogState extends State<_CreateTeamEventDialog> {
                           child: FilledButton(
                             onPressed: _submitting ? null : _submit,
                             style: FilledButton.styleFrom(
-                                backgroundColor: KColors.appNameColor),
+                              backgroundColor: KColors.appNameColor,
+                            ),
                             child: _submitting
                                 ? const SizedBox(
                                     width: 18,
                                     height: 18,
                                     child: CircularProgressIndicator(
-                                        strokeWidth: 2, color: Colors.white),
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
                                   )
                                 : const Text('Créer'),
                           ),
@@ -333,8 +340,10 @@ class EventFormBody extends StatelessWidget {
     this.showScope = true,
   });
 
-  Future<void> _pickDateTime(BuildContext context,
-      {required bool isStart}) async {
+  Future<void> _pickDateTime(
+    BuildContext context, {
+    required bool isStart,
+  }) async {
     final now = DateTime.now();
     final initial = isStart
         ? (startTime ?? now)
@@ -353,8 +362,13 @@ class EventFormBody extends StatelessWidget {
       initialTime: TimeOfDay.fromDateTime(initial),
     );
     if (time == null) return;
-    final dt =
-        DateTime(date.year, date.month, date.day, time.hour, time.minute);
+    final dt = DateTime.utc(
+      date.year,
+      date.month,
+      date.day,
+      time.hour,
+      time.minute,
+    );
     if (isStart) {
       onStartTimeChanged(dt);
     } else {
@@ -379,8 +393,7 @@ class EventFormBody extends StatelessWidget {
             border: OutlineInputBorder(),
             isDense: true,
           ),
-          validator: (v) =>
-              v == null || v.trim().isEmpty ? 'Requis' : null,
+          validator: (v) => v == null || v.trim().isEmpty ? 'Requis' : null,
         ),
         const SizedBox(height: 14),
 
@@ -399,7 +412,7 @@ class EventFormBody extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: _DateTimeButton(
+              child: DateTimeButton(
                 label: 'Début',
                 value: startTime,
                 onTap: () => _pickDateTime(context, isStart: true),
@@ -407,7 +420,7 @@ class EventFormBody extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             Expanded(
-              child: _DateTimeButton(
+              child: DateTimeButton(
                 label: 'Fin',
                 value: endTime,
                 onTap: () => _pickDateTime(context, isStart: false),
@@ -490,51 +503,6 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
-class _DateTimeButton extends StatelessWidget {
-  final String label;
-  final DateTime? value;
-  final VoidCallback onTap;
-
-  const _DateTimeButton({
-    required this.label,
-    required this.value,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final fmt = DateFormat('dd/MM HH:mm');
-    final hasValue = value != null;
-
-    return OutlinedButton.icon(
-      onPressed: onTap,
-      icon: Icon(
-        Icons.schedule_rounded,
-        size: 16,
-        color: hasValue ? KColors.appNameColor : null,
-      ),
-      label: Text(
-        hasValue ? fmt.format(value!) : label,
-        style: TextStyle(
-          color: hasValue
-              ? KColors.appNameColor
-              : (isDark ? Colors.white54 : Colors.grey.shade600),
-          fontSize: 13,
-        ),
-      ),
-      style: OutlinedButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-        side: BorderSide(
-          color: hasValue
-              ? KColors.appNameColor.withValues(alpha: 0.5)
-              : (isDark ? Colors.white24 : Colors.grey.shade400),
-        ),
-      ),
-    );
-  }
-}
-
 /// Sélecteur d'icône pour les événements — exporté pour réutilisation.
 class EventIconPicker extends StatelessWidget {
   final int? selected;
@@ -593,15 +561,15 @@ class EventIconPicker extends StatelessWidget {
                     color: isSelected
                         ? KColors.appNameColor
                         : (isDark
-                            ? Colors.white.withValues(alpha: 0.1)
-                            : Colors.grey.shade300),
+                              ? Colors.white.withValues(alpha: 0.1)
+                              : Colors.grey.shade300),
                     width: isSelected ? 2 : 1,
                   ),
                   color: isSelected
                       ? KColors.appNameColor.withValues(alpha: 0.12)
                       : (isDark
-                          ? Colors.white.withValues(alpha: 0.04)
-                          : Colors.grey.shade50),
+                            ? Colors.white.withValues(alpha: 0.04)
+                            : Colors.grey.shade50),
                 ),
                 child: Icon(
                   opt.icon,
@@ -647,34 +615,37 @@ class _ScopeSelector extends StatelessWidget {
             onTap: () => onChanged(s),
             child: Container(
               margin: EdgeInsets.only(
-                  right: s == TeamEventScope.agents ? 0 : 6),
-              padding:
-                  const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+                right: s == TeamEventScope.agents ? 0 : 6,
+              ),
+              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
               decoration: BoxDecoration(
                 color: isSelected
-                    ? KColors.appNameColor
-                        .withValues(alpha: isDark ? 0.25 : 0.12)
+                    ? KColors.appNameColor.withValues(
+                        alpha: isDark ? 0.25 : 0.12,
+                      )
                     : (isDark
-                        ? Colors.white.withValues(alpha: 0.04)
-                        : Colors.grey.shade100),
+                          ? Colors.white.withValues(alpha: 0.04)
+                          : Colors.grey.shade100),
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
                   color: isSelected
                       ? KColors.appNameColor.withValues(alpha: 0.6)
                       : (isDark
-                          ? Colors.white.withValues(alpha: 0.08)
-                          : Colors.grey.shade300),
+                            ? Colors.white.withValues(alpha: 0.08)
+                            : Colors.grey.shade300),
                   width: isSelected ? 1.5 : 1,
                 ),
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(icon,
-                      size: 20,
-                      color: isSelected
-                          ? KColors.appNameColor
-                          : (isDark ? Colors.white54 : Colors.grey.shade600)),
+                  Icon(
+                    icon,
+                    size: 20,
+                    color: isSelected
+                        ? KColors.appNameColor
+                        : (isDark ? Colors.white54 : Colors.grey.shade600),
+                  ),
                   const SizedBox(height: 4),
                   Text(
                     label,
@@ -739,8 +710,10 @@ class _ScopeDetail extends StatelessWidget {
                 Container(
                   width: 12,
                   height: 12,
-                  decoration:
-                      BoxDecoration(color: t.color, shape: BoxShape.circle),
+                  decoration: BoxDecoration(
+                    color: t.color,
+                    shape: BoxShape.circle,
+                  ),
                 ),
                 const SizedBox(width: 8),
                 Text(t.name),

@@ -158,7 +158,7 @@ class PlanningGenerationService {
     } else {
       // Suppression ciblée : uniquement les plannings listés dans l'impact
       for (final p in impact.planningsToDelete) {
-        await _planningRepository.delete(p.id);
+        await _planningRepository.delete(p.id, stationId: stationName);
       }
     }
 

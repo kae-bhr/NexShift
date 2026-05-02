@@ -17,14 +17,17 @@ class _ActiveShift {
 /// heure d'envoi imprécise et d'horaires erronés (shift complet vs horaires
 /// réels de l'agent).
 ///
-/// Le rappel est schedulé via [zonedSchedule] à l'heure exacte configurée
-/// par l'utilisateur et utilise les horaires [PlanningAgent.start/end].
+/// Au démarrage/resume, charge les astreintes des 7 prochains jours et
+/// programme autant de notifications one-shot que de jours avec une astreinte
+/// active. Aucune répétition native OS — chaque notification est ciblée.
 class LocalReminderService {
   static final LocalReminderService _instance = LocalReminderService._internal();
   factory LocalReminderService() => _instance;
   LocalReminderService._internal();
 
-  static const int _kNotificationId = 42;
+  // IDs 42 à 48 (un par jour sur 7 jours)
+  static const int _kBaseNotificationId = 42;
+  static const int _kWindowDays = 7;
   static const String _kChannelId = 'nexshift_daily_reminder';
   static const String _kChannelName = 'Rappel quotidien';
 
@@ -45,22 +48,25 @@ class LocalReminderService {
     ),
   );
 
-  /// Annule le rappel quotidien schedulé.
+  /// Annule les 7 slots de rappel quotidien.
   Future<void> cancelReminder() async {
-    await _plugin.cancel(_kNotificationId);
-    debugPrint('🔔 [LocalReminder] Rappel quotidien annulé');
+    for (int i = 0; i < _kWindowDays; i++) {
+      await _plugin.cancel(_kBaseNotificationId + i);
+    }
+    debugPrint('🔔 [LocalReminder] Rappels quotidiens annulés ($_kWindowDays slots)');
   }
 
-  /// Annule puis replanifie le rappel quotidien selon les préférences de [user].
+  /// Annule puis replanifie les rappels quotidiens selon les préférences de [user].
   Future<void> reschedule(User user) async {
     await cancelReminder();
     await scheduleReminder(user);
   }
 
-  /// Planifie le rappel quotidien si [user.personalAlertEnabled] est vrai
-  /// et que l'utilisateur a des astreintes dans les prochaines 24h.
+  /// Charge les astreintes des 7 prochains jours et programme une notification
+  /// one-shot pour chaque jour où [user] a une astreinte active.
   ///
-  /// Si aucune astreinte n'est trouvée, aucune notification n'est schedulée.
+  /// Si aucune astreinte n'est trouvée sur la fenêtre, aucune notification
+  /// n'est schedulée.
   Future<void> scheduleReminder(User user) async {
     if (!user.personalAlertEnabled) {
       debugPrint('🔔 [LocalReminder] Rappel désactivé pour ${user.id}');
@@ -74,67 +80,116 @@ class LocalReminderService {
     }
 
     try {
-      final now = DateTime.now();
-      final windowEnd = now.add(const Duration(hours: 24));
+      // Choisir le mode selon la permission disponible
+      final androidPlugin = _plugin
+          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+      final canExact = await androidPlugin?.canScheduleExactNotifications() ?? true;
+      final scheduleMode = canExact
+          ? AndroidScheduleMode.exactAllowWhileIdle
+          : AndroidScheduleMode.inexact;
+      debugPrint('🔔 [LocalReminder] Mode scheduling : ${canExact ? "exact" : "inexact (permission manquante)"}');
 
+      final now = DateTime.now();
+      final windowEnd = now.add(Duration(days: _kWindowDays));
+
+      // Un seul appel Firestore pour toute la fenêtre de 7 jours
       final plannings = await PlanningRepository().getByStationInRange(
         user.station,
         now,
         windowEnd,
       );
 
-      final activeShifts = _computeActiveShiftsForUser(plannings, user.id);
+      final paris = tz.getLocation('Europe/Paris');
+      int scheduled = 0;
 
-      if (activeShifts.isEmpty) {
-        debugPrint('🔔 [LocalReminder] Aucune astreinte dans les 24h — pas de rappel');
-        return;
+      for (int dayOffset = 0; dayOffset < _kWindowDays; dayOffset++) {
+        final dayStart = DateTime(now.year, now.month, now.day)
+            .add(Duration(days: dayOffset));
+        final dayEnd = dayStart.add(const Duration(days: 1));
+
+        // Plannings qui chevauchent ce jour
+        final dayPlannings = plannings
+            .where((p) => p.startTime.isBefore(dayEnd) && p.endTime.isAfter(dayStart))
+            .toList();
+
+        final activeShifts = _computeActiveShiftsForUser(dayPlannings, user.id);
+        if (activeShifts.isEmpty) continue;
+
+        final scheduledDate = _instanceOfTimeOnDay(user.personalAlertHour, user.personalAlertMinute, dayStart, paris);
+
+        // Ignorer si l'heure est déjà passée
+        if (scheduledDate.isBefore(tz.TZDateTime.now(paris))) {
+          debugPrint(
+            '🔔 [LocalReminder] Slot J+$dayOffset ignoré (heure passée) : '
+            '${scheduledDate.hour.toString().padLeft(2,'0')}:${scheduledDate.minute.toString().padLeft(2,'0')} '
+            'le ${scheduledDate.day}/${scheduledDate.month}',
+          );
+          continue;
+        }
+
+        final replacingCount = activeShifts.where((s) => s.isReplacement).length;
+        final baseCount = activeShifts.length - replacingCount;
+        final body = _buildBody(baseCount, replacingCount);
+
+        try {
+          await _plugin.zonedSchedule(
+            _kBaseNotificationId + dayOffset,
+            '⏰ Astreintes à venir',
+            body,
+            scheduledDate,
+            _kNotificationDetails,
+            androidScheduleMode: scheduleMode,
+            uiLocalNotificationDateInterpretation:
+                UILocalNotificationDateInterpretation.absoluteTime,
+          );
+        } catch (slotError) {
+          if (slotError.toString().contains('exact_alarms_not_permitted')) {
+            // Retry en inexact si la permission exacte a été révoquée entre-temps
+            await _plugin.zonedSchedule(
+              _kBaseNotificationId + dayOffset,
+              '⏰ Astreintes à venir',
+              body,
+              scheduledDate,
+              _kNotificationDetails,
+              androidScheduleMode: AndroidScheduleMode.inexact,
+              uiLocalNotificationDateInterpretation:
+                  UILocalNotificationDateInterpretation.absoluteTime,
+            );
+            debugPrint('🔔 [LocalReminder] Slot ${_kBaseNotificationId + dayOffset} replanifié en mode inexact');
+          } else {
+            rethrow;
+          }
+        }
+        debugPrint(
+          '🔔 [LocalReminder] Slot ${_kBaseNotificationId + dayOffset} programmé : '
+          '${scheduledDate.year}-${scheduledDate.month.toString().padLeft(2,'0')}-${scheduledDate.day.toString().padLeft(2,'0')} '
+          '${scheduledDate.hour.toString().padLeft(2,'0')}:${scheduledDate.minute.toString().padLeft(2,'0')} Europe/Paris — $body',
+        );
+        scheduled++;
       }
-
-      final replacingCount = activeShifts.where((s) => s.isReplacement).length;
-      final baseCount = activeShifts.length - replacingCount;
-
-      final String body;
-      if (baseCount > 0 && replacingCount > 0) {
-        body = '$baseCount astreinte(s) + $replacingCount remplacement(s) dans les prochaines 24h';
-      } else if (replacingCount > 0) {
-        body = '$replacingCount remplacement(s) dans les prochaines 24h';
-      } else {
-        body = '$baseCount astreinte(s) dans les prochaines 24h';
-      }
-
-      final scheduledDate = _nextInstanceOfHour(user.personalAlertHour);
-
-      await _plugin.zonedSchedule(
-        _kNotificationId,
-        '⏰ Astreintes à venir',
-        body,
-        scheduledDate,
-        _kNotificationDetails,
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
-        matchDateTimeComponents: DateTimeComponents.time,
-      );
 
       debugPrint(
-        '🔔 [LocalReminder] Rappel schedulé pour ${user.id} à '
-        '${user.personalAlertHour}h — $body',
+        '🔔 [LocalReminder] $scheduled rappel(s) one-shot programmé(s) '
+        'sur $_kWindowDays jours pour ${user.id}',
       );
     } catch (e) {
       debugPrint('🔔 [LocalReminder] Erreur lors du scheduling : $e');
     }
   }
 
-  /// Retourne le prochain [TZDateTime] correspondant à [hour]:00 Europe/Paris.
-  /// Si cette heure est déjà passée aujourd'hui, retourne demain à la même heure.
-  tz.TZDateTime _nextInstanceOfHour(int hour) {
-    final paris = tz.getLocation('Europe/Paris');
-    final now = tz.TZDateTime.now(paris);
-    var scheduled = tz.TZDateTime(paris, now.year, now.month, now.day, hour);
-    if (scheduled.isBefore(now)) {
-      scheduled = scheduled.add(const Duration(days: 1));
+  /// Retourne le [TZDateTime] correspondant à [hour]:[minute] Europe/Paris pour le [day] donné.
+  tz.TZDateTime _instanceOfTimeOnDay(int hour, int minute, DateTime day, tz.Location location) {
+    return tz.TZDateTime(location, day.year, day.month, day.day, hour, minute);
+  }
+
+  String _buildBody(int baseCount, int replacingCount) {
+    if (baseCount > 0 && replacingCount > 0) {
+      return '$baseCount astreinte(s) + $replacingCount remplacement(s) dans les prochaines 24h';
+    } else if (replacingCount > 0) {
+      return '$replacingCount remplacement(s) dans les prochaines 24h';
+    } else {
+      return '$baseCount astreinte(s) dans les prochaines 24h';
     }
-    return scheduled;
   }
 
   /// Port Dart de la logique de filtrage de `alerts.js` (lignes 88-117).

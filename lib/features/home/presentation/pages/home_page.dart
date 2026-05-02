@@ -42,6 +42,7 @@ import 'package:nexshift_app/core/data/models/team_event_model.dart';
 import 'package:nexshift_app/core/repositories/team_event_repository.dart';
 import 'package:nexshift_app/features/team_events/presentation/pages/team_event_page.dart';
 import 'package:nexshift_app/features/team_events/presentation/widgets/event_planning_card.dart';
+import 'package:nexshift_app/features/planning/presentation/widgets/create_planning_dialog.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -1613,6 +1614,71 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  /// Demande confirmation puis supprime un planning manuellement.
+  Future<void> _confirmDeletePlanning(Planning planning) async {
+    final hasReplacements =
+        planning.agents.any((a) => a.replacedAgentId != null);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Icon(Icons.warning_rounded, color: Colors.red.shade400),
+            const SizedBox(width: 8),
+            const Text('Supprimer le planning'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Êtes-vous sûr de vouloir supprimer ce planning ?'),
+            if (hasReplacements) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? Colors.orange.withValues(alpha: 0.15)
+                      : Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.shade300),
+                ),
+                child: Text(
+                  '⚠ Ce planning contient des remplacements actifs. '
+                  'Leur suppression entraînera une perte de données irréversible.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: isDark
+                        ? Colors.orange.shade200
+                        : Colors.orange.shade900,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          OutlinedButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            style:
+                FilledButton.styleFrom(backgroundColor: Colors.red.shade600),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await PlanningRepository().delete(planning.id, stationId: _user.station);
+    _loadData();
+  }
+
   /// Affiche le dialogue d'ajout d'un agent à l'effectif d'un planning
   Future<void> _showAddAgentDialog(Planning planning) async {
     // Tous les agents de la station sont éligibles (on vérifie le chevauchement après)
@@ -2936,6 +3002,33 @@ class _HomePageState extends State<HomePage> {
                                                       _showAddAgentDialog(
                                                         planning,
                                                       ),
+                                                  onEditPlanning: (_user.admin ||
+                                                          _user.status ==
+                                                              KConstants
+                                                                  .statusLeader)
+                                                      ? () async {
+                                                          final updated =
+                                                              await showEditPlanningDialog(
+                                                            context: context,
+                                                            planning: planning,
+                                                            stationId:
+                                                                _user.station,
+                                                          );
+                                                          if (updated == true) {
+                                                            _loadData();
+                                                          }
+                                                        }
+                                                      : null,
+                                                  onDeletePlanning: (_user.admin ||
+                                                          _user.status ==
+                                                              KConstants
+                                                                  .statusLeader)
+                                                      ? () async {
+                                                          await _confirmDeletePlanning(
+                                                            planning,
+                                                          );
+                                                        }
+                                                      : null,
                                                 )
                                               // Fallback si pas de niveaux configurés : afficher les remplacements classiques
                                               else if (!isAvailability &&
@@ -3393,6 +3486,26 @@ class _HomePageState extends State<HomePage> {
                                   );
                                 },
                                 onAddAgent: () => _showAddAgentDialog(planning),
+                                onEditPlanning: (_user.admin ||
+                                        _user.status ==
+                                            KConstants.statusLeader)
+                                    ? () async {
+                                        final updated =
+                                            await showEditPlanningDialog(
+                                          context: context,
+                                          planning: planning,
+                                          stationId: _user.station,
+                                        );
+                                        if (updated == true) _loadData();
+                                      }
+                                    : null,
+                                onDeletePlanning: (_user.admin ||
+                                        _user.status ==
+                                            KConstants.statusLeader)
+                                    ? () async {
+                                        await _confirmDeletePlanning(planning);
+                                      }
+                                    : null,
                               )
                             // Fallback si pas de niveaux configurés : afficher les remplacements classiques
                             else if (!isAvailability && _onCallLevels.isEmpty)

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:nexshift_app/core/data/datasources/notifiers.dart';
 import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
@@ -25,11 +26,31 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
   bool _soundEnabled = true;
   bool _vibrationEnabled = true;
   bool _isLoading = true;
+  bool _canScheduleExact = true;
 
   @override
   void initState() {
     super.initState();
     _loadPreferences();
+    _checkExactAlarmPermission();
+  }
+
+  Future<void> _checkExactAlarmPermission() async {
+    final androidPlugin = FlutterLocalNotificationsPlugin()
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    if (androidPlugin == null) return;
+    final can = await androidPlugin.canScheduleExactNotifications();
+    debugPrint('🔔 [NotifSettings] canScheduleExactNotifications = $can → bandeau ${(can == false) ? "VISIBLE" : "masqué"}');
+    if (mounted) setState(() => _canScheduleExact = can ?? true);
+  }
+
+  Future<void> _requestExactAlarmPermission() async {
+    final androidPlugin = FlutterLocalNotificationsPlugin()
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    if (androidPlugin == null) return;
+    await androidPlugin.requestExactAlarmsPermission();
+    // Revérifier après retour de l'écran système
+    await _checkExactAlarmPermission();
   }
 
   Future<void> _loadPreferences() async {
@@ -268,6 +289,35 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
             user.copyWith(personalAlertEnabled: value),
           ),
         ),
+        if (user.personalAlertEnabled && !_canScheduleExact)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: _requestExactAlarmPermission,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.shade300),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Permission requise — Appuyez pour autoriser les alarmes exactes',
+                        style: TextStyle(fontSize: 13, color: Colors.orange.shade800),
+                      ),
+                    ),
+                    const Icon(Icons.arrow_forward_ios, size: 12, color: Colors.orange),
+                  ],
+                ),
+              ),
+            ),
+          ),
         if (user.personalAlertEnabled)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -283,7 +333,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
                       context: context,
                       initialTime: TimeOfDay(
                         hour: user.personalAlertHour,
-                        minute: 0,
+                        minute: user.personalAlertMinute,
                       ),
                       builder: (context, child) {
                         return MediaQuery(
@@ -296,7 +346,10 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
                     );
                     if (picked != null) {
                       _updateUserAlertSetting(
-                        user.copyWith(personalAlertHour: picked.hour),
+                        user.copyWith(
+                          personalAlertHour: picked.hour,
+                          personalAlertMinute: picked.minute,
+                        ),
                       );
                     }
                   },
@@ -306,7 +359,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
                       vertical: 4,
                     ),
                     child: Text(
-                      '${user.personalAlertHour.toString().padLeft(2, '0')}:00',
+                      '${user.personalAlertHour.toString().padLeft(2, '0')}:${user.personalAlertMinute.toString().padLeft(2, '0')}',
                       style: TextStyle(
                         fontWeight: FontWeight.w600,
                         color: KColors.appNameColor,

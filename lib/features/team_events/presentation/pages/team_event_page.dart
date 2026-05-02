@@ -99,8 +99,9 @@ class _TeamEventPageState extends State<TeamEventPage> {
 
   String _displayName(String userId) {
     final u = _userById(userId);
-    if (u == null) return userId;
-    return '${u.firstName} ${u.lastName}';
+    final fullName = '${u?.firstName ?? ''} ${u?.lastName ?? ''}'.trim();
+    if (fullName.isEmpty) return 'Agent $userId';
+    return fullName;
   }
 
   Future<void> _respond(bool accepted) async {
@@ -486,6 +487,7 @@ class _TeamEventPageState extends State<TeamEventPage> {
   Widget _buildAgentTile(String agentId, _AgentStatus status, bool isDark) {
     final name = _displayName(agentId);
     final isSelf = _currentUser?.id == agentId;
+    final isUnknown = name == 'Agent $agentId';
 
     Color statusColor;
     IconData statusIcon;
@@ -527,8 +529,8 @@ class _TeamEventPageState extends State<TeamEventPage> {
               name,
               style: TextStyle(
                 fontSize: 14,
-                fontWeight:
-                    isSelf ? FontWeight.w600 : FontWeight.w500,
+                fontWeight: isSelf ? FontWeight.w600 : FontWeight.w500,
+                fontStyle: isUnknown ? FontStyle.italic : FontStyle.normal,
                 color: isDark ? Colors.white : Colors.grey.shade800,
               ),
             ),

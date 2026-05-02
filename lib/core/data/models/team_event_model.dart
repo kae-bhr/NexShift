@@ -105,8 +105,12 @@ class TeamEvent {
       iconCodePoint: json['iconCodePoint'] as int?,
       description: json['description'] as String?,
       location: json['location'] as String?,
-      startTime: (json['startTime'] as Timestamp).toDate(),
-      endTime: (json['endTime'] as Timestamp).toDate(),
+      startTime: DateTime.fromMillisecondsSinceEpoch(
+          (json['startTime'] as Timestamp).millisecondsSinceEpoch,
+          isUtc: true),
+      endTime: DateTime.fromMillisecondsSinceEpoch(
+          (json['endTime'] as Timestamp).millisecondsSinceEpoch,
+          isUtc: true),
       stationId: json['stationId'] as String,
       scope: TeamEventScope.values.firstWhere(
         (e) => e.toString().split('.').last == json['scope'],

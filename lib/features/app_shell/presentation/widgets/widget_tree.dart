@@ -15,6 +15,7 @@ import 'package:nexshift_app/features/teams/presentation/pages/team_dashboard_pa
 import 'package:nexshift_app/features/availability/presentation/pages/add_availability_page.dart';
 import 'package:nexshift_app/features/replacement/presentation/pages/replacement_requests_list_page.dart';
 import 'package:nexshift_app/features/team_events/presentation/widgets/create_team_event_dialog.dart';
+import 'package:nexshift_app/features/planning/presentation/widgets/create_planning_dialog.dart';
 import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
 import 'package:nexshift_app/core/services/badge_count_service.dart';
@@ -490,92 +491,109 @@ class _WidgetTreeState extends State<WidgetTree> with WidgetsBindingObserver {
                                               .hasTeamEventPending,
                                           builder: (context, hasTeamEventPending, _) {
                                             return ValueListenableBuilder<bool>(
-                                              valueListenable: BadgeCountService()
-                                                  .hasReplacementValidation,
-                                              builder: (context, hasReplacementValidation, _) {
-                                                return ValueListenableBuilder<bool>(
-                                                  valueListenable:
-                                                      BadgeCountService()
-                                                          .hasExchangeValidation,
-                                                  builder: (context, hasExchangeValidation, _) {
-                                                    // Pastille 1 : appNameColor si n'importe quelle demande pending ou sélection à faire
-                                                    final hasPending =
-                                                        hasReplacementPending ||
-                                                        hasExchangePending ||
-                                                        hasAgentQueryPending ||
-                                                        hasExchangeNeedingSelection ||
-                                                        hasTeamEventPending;
-                                                    // Pastille 2 : blue si validation en attente
-                                                    final hasValidation =
-                                                        hasReplacementValidation ||
-                                                        hasExchangeValidation;
-
-                                                    return ListTile(
-                                                      minTileHeight: 0.0,
-                                                      leading: Icon(
-                                                        Icons.swap_horiz,
-                                                        color: Theme.of(
-                                                          context,
-                                                        ).colorScheme.primary,
-                                                      ),
-                                                      title: Text(
-                                                        "Demandes",
-                                                        style: TextStyle(
-                                                          color: Theme.of(
+                                              valueListenable:
+                                                  BadgeCountService()
+                                                      .hasReplacementValidation,
+                                              builder:
+                                                  (
+                                                    context,
+                                                    hasReplacementValidation,
+                                                    _,
+                                                  ) {
+                                                    return ValueListenableBuilder<
+                                                      bool
+                                                    >(
+                                                      valueListenable:
+                                                          BadgeCountService()
+                                                              .hasExchangeValidation,
+                                                      builder:
+                                                          (
                                                             context,
-                                                          ).colorScheme.tertiary,
-                                                          fontSize: KTextStyle
-                                                              .descriptionTextStyle
-                                                              .fontSize,
-                                                          fontFamily: KTextStyle
-                                                              .descriptionTextStyle
-                                                              .fontFamily,
-                                                          fontWeight: KTextStyle
-                                                              .descriptionTextStyle
-                                                              .fontWeight,
-                                                        ),
-                                                      ),
-                                                      trailing:
-                                                          (!hasPending &&
-                                                              !hasValidation)
-                                                          ? const SizedBox.shrink()
-                                                          : Row(
-                                                              mainAxisSize:
-                                                                  MainAxisSize.min,
-                                                              children: [
-                                                                if (hasPending)
-                                                                  Container(
-                                                                    width: 12,
-                                                                    height: 12,
-                                                                    decoration: BoxDecoration(
-                                                                      color: KColors
-                                                                          .appNameColor,
-                                                                      shape: BoxShape
-                                                                          .circle,
+                                                            hasExchangeValidation,
+                                                            _,
+                                                          ) {
+                                                            // Pastille 1 : appNameColor si n'importe quelle demande pending ou sélection à faire
+                                                            final hasPending =
+                                                                hasReplacementPending ||
+                                                                hasExchangePending ||
+                                                                hasAgentQueryPending ||
+                                                                hasExchangeNeedingSelection ||
+                                                                hasTeamEventPending;
+                                                            // Pastille 2 : blue si validation en attente
+                                                            final hasValidation =
+                                                                hasReplacementValidation ||
+                                                                hasExchangeValidation;
+
+                                                            return ListTile(
+                                                              minTileHeight:
+                                                                  0.0,
+                                                              leading: Icon(
+                                                                Icons
+                                                                    .swap_horiz,
+                                                                color: Theme.of(
+                                                                  context,
+                                                                ).colorScheme.primary,
+                                                              ),
+                                                              title: Text(
+                                                                "Demandes",
+                                                                style: TextStyle(
+                                                                  color: Theme.of(
+                                                                    context,
+                                                                  ).colorScheme.tertiary,
+                                                                  fontSize: KTextStyle
+                                                                      .descriptionTextStyle
+                                                                      .fontSize,
+                                                                  fontFamily: KTextStyle
+                                                                      .descriptionTextStyle
+                                                                      .fontFamily,
+                                                                  fontWeight: KTextStyle
+                                                                      .descriptionTextStyle
+                                                                      .fontWeight,
+                                                                ),
+                                                              ),
+                                                              trailing:
+                                                                  (!hasPending &&
+                                                                      !hasValidation)
+                                                                  ? const SizedBox.shrink()
+                                                                  : Row(
+                                                                      mainAxisSize:
+                                                                          MainAxisSize
+                                                                              .min,
+                                                                      children: [
+                                                                        if (hasPending)
+                                                                          Container(
+                                                                            width:
+                                                                                12,
+                                                                            height:
+                                                                                12,
+                                                                            decoration: BoxDecoration(
+                                                                              color: KColors.appNameColor,
+                                                                              shape: BoxShape.circle,
+                                                                            ),
+                                                                          ),
+                                                                        if (hasPending &&
+                                                                            hasValidation)
+                                                                          const SizedBox(
+                                                                            width:
+                                                                                6,
+                                                                          ),
+                                                                        if (hasValidation)
+                                                                          Container(
+                                                                            width:
+                                                                                12,
+                                                                            height:
+                                                                                12,
+                                                                            decoration: const BoxDecoration(
+                                                                              color: Colors.blue,
+                                                                              shape: BoxShape.circle,
+                                                                            ),
+                                                                          ),
+                                                                      ],
                                                                     ),
-                                                                  ),
-                                                                if (hasPending &&
-                                                                    hasValidation)
-                                                                  const SizedBox(
-                                                                    width: 6,
-                                                                  ),
-                                                                if (hasValidation)
-                                                                  Container(
-                                                                    width: 12,
-                                                                    height: 12,
-                                                                    decoration: const BoxDecoration(
-                                                                      color: Colors
-                                                                          .blue,
-                                                                      shape: BoxShape
-                                                                          .circle,
-                                                                    ),
-                                                                  ),
-                                                              ],
-                                                            ),
+                                                            );
+                                                          },
                                                     );
                                                   },
-                                                );
-                                              },
                                             );
                                           },
                                         );
@@ -784,6 +802,37 @@ class _FabMenuContent extends StatelessWidget {
               await showCreateTeamEventDialog(
                 context: context,
                 stationId: stationId,
+              );
+            },
+          ),
+          ValueListenableBuilder(
+            valueListenable: userNotifier,
+            builder: (context, user, _) {
+              final canManage =
+                  user != null &&
+                  (user.admin || user.status == KConstants.statusLeader);
+              if (!canManage) return const SizedBox.shrink();
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Divider(
+                    height: 1,
+                    thickness: 1,
+                    color: isDark ? Colors.white12 : Colors.grey.shade200,
+                  ),
+                  _FabMenuItem(
+                    icon: Icons.shield_moon_rounded,
+                    label: 'Ajouter un planning',
+                    onTap: () async {
+                      onClose();
+                      if (stationId.isEmpty) return;
+                      await showCreatePlanningDialog(
+                        context: context,
+                        stationId: stationId,
+                      );
+                    },
+                  ),
+                ],
               );
             },
           ),

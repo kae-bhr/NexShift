@@ -236,15 +236,11 @@ class PlanningRepository {
   }
 
   /// Supprime un planning
-  Future<void> delete(String id) async {
+  Future<void> delete(String id, {String? stationId}) async {
     try {
-      // Mode test
-      if (_directFirestore != null) {
-        await _directFirestore.collection(_collectionName).doc(id).delete();
-        return;
-      }
-      // Mode production
-      await _firestoreService.delete(_collectionName, id);
+      final collectionPath = _getCollectionPath(stationId);
+      final firestore = _directFirestore ?? FirebaseFirestore.instance;
+      await firestore.collection(collectionPath).doc(id).delete();
     } catch (e) {
       debugPrint('Firestore error during delete: $e');
       rethrow;

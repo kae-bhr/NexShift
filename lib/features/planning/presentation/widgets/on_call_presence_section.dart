@@ -60,6 +60,10 @@ class OnCallPresenceSection extends StatefulWidget {
   /// Permissions
   final bool canManage;
 
+  /// Callbacks d'édition/suppression du planning (ADMIN/LEADER uniquement)
+  final VoidCallback? onEditPlanning;
+  final VoidCallback? onDeletePlanning;
+
   const OnCallPresenceSection({
     super.key,
     required this.planning,
@@ -75,6 +79,8 @@ class OnCallPresenceSection extends StatefulWidget {
     this.onRemoveAvailability,
     this.onAddAvailability,
     this.canManage = false,
+    this.onEditPlanning,
+    this.onDeletePlanning,
   });
 
   @override
@@ -558,15 +564,47 @@ class _OnCallPresenceSectionState extends State<OnCallPresenceSection> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Align(
-          alignment: Alignment.centerRight,
-          child: _ViewToggleButton(
-            currentMode: presenceViewModeNotifier.value,
-            onModeChanged: (mode) {
-              presenceViewModeNotifier.value = mode;
-              PreferencesService().savePresenceViewMode(mode);
-            },
-          ),
+        Row(
+          children: [
+            if (widget.onEditPlanning != null)
+              Tooltip(
+                message: 'Modifier le planning',
+                child: GestureDetector(
+                  onTap: widget.onEditPlanning,
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 10, top: 2, bottom: 2),
+                    child: Icon(
+                      Icons.edit_outlined,
+                      size: 18,
+                      color: isDark ? Colors.grey.shade500 : Colors.grey.shade400,
+                    ),
+                  ),
+                ),
+              ),
+            if (widget.onDeletePlanning != null)
+              Tooltip(
+                message: 'Supprimer le planning',
+                child: GestureDetector(
+                  onTap: widget.onDeletePlanning,
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 4, top: 2, bottom: 2),
+                    child: Icon(
+                      Icons.delete_outline_rounded,
+                      size: 18,
+                      color: isDark ? Colors.grey.shade500 : Colors.grey.shade400,
+                    ),
+                  ),
+                ),
+              ),
+            const Spacer(),
+            _ViewToggleButton(
+              currentMode: presenceViewModeNotifier.value,
+              onModeChanged: (mode) {
+                presenceViewModeNotifier.value = mode;
+                PreferencesService().savePresenceViewMode(mode);
+              },
+            ),
+          ],
         ),
         const SizedBox(height: 4),
         if (presenceViewModeNotifier.value == PresenceViewMode.chronological)

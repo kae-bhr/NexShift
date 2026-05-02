@@ -22,6 +22,8 @@ import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
 import 'package:nexshift_app/features/planning/presentation/widgets/vehicle_detail_dialog.dart';
 import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
 import 'package:nexshift_app/core/utils/station_name_cache.dart';
+import 'package:nexshift_app/core/repositories/planning_repository.dart';
+import 'package:nexshift_app/features/planning/presentation/widgets/create_planning_dialog.dart';
 
 class PlanningTeamDetailsPage extends StatefulWidget {
   final DateTime at;
@@ -576,6 +578,87 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
     _loadTeamDetails();
   }
 
+  bool get _canManagePlanning =>
+      _currentUser != null &&
+      (_currentUser!.admin || _currentUser!.status == KConstants.statusLeader);
+
+  Future<void> _editPlanning() async {
+    if (_currentPlanning == null || _currentUser == null) return;
+    final updated = await showEditPlanningDialog(
+      context: context,
+      planning: _currentPlanning!,
+      stationId: _currentUser!.station,
+    );
+    if (updated == true) _loadTeamDetails();
+  }
+
+  Future<void> _deletePlanning() async {
+    if (_currentPlanning == null) return;
+    final hasReplacements =
+        _currentPlanning!.agents.any((a) => a.replacedAgentId != null);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Icon(Icons.warning_rounded, color: Colors.red.shade400),
+            const SizedBox(width: 8),
+            const Text('Supprimer le planning'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Êtes-vous sûr de vouloir supprimer ce planning ?'),
+            if (hasReplacements) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? Colors.orange.withValues(alpha: 0.15)
+                      : Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.shade300),
+                ),
+                child: Text(
+                  '⚠ Ce planning contient des remplacements actifs. '
+                  'Leur suppression entraînera une perte de données irréversible.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: isDark
+                        ? Colors.orange.shade200
+                        : Colors.orange.shade900,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          OutlinedButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade600),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await PlanningRepository().delete(
+      _currentPlanning!.id,
+      stationId: _currentUser?.station,
+    );
+    if (mounted) Navigator.pop(context);
+  }
+
   @override
   Widget build(BuildContext context) {
     final stationLabel =
@@ -656,6 +739,48 @@ class _PlanningTeamDetailsPageState extends State<PlanningTeamDetailsPage> {
                     title: 'Agents en astreinte',
                     count: _agents.length,
                     emptyMessage: 'Aucun agent en astreinte pour cet horaire.',
+                    actions: _canManagePlanning && _currentPlanning != null
+                        ? Builder(
+                            builder: (context) {
+                              final isDark = Theme.of(context).brightness ==
+                                  Brightness.dark;
+                              final iconColor = isDark
+                                  ? Colors.grey.shade500
+                                  : Colors.grey.shade400;
+                              return Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Tooltip(
+                                    message: 'Modifier le planning',
+                                    child: GestureDetector(
+                                      onTap: _editPlanning,
+                                      child: Padding(
+                                        padding: const EdgeInsets.only(
+                                            right: 10, top: 2, bottom: 2),
+                                        child: Icon(Icons.edit_outlined,
+                                            size: 15, color: iconColor),
+                                      ),
+                                    ),
+                                  ),
+                                  Tooltip(
+                                    message: 'Supprimer le planning',
+                                    child: GestureDetector(
+                                      onTap: _deletePlanning,
+                                      child: Padding(
+                                        padding: const EdgeInsets.only(
+                                            top: 2, bottom: 2),
+                                        child: Icon(
+                                            Icons.delete_outline_rounded,
+                                            size: 15,
+                                            color: iconColor),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
+                          )
+                        : null,
                     child: _agents.isEmpty
                         ? null
                         : Column(
@@ -1312,6 +1437,7 @@ class _OperationalSection extends StatelessWidget {
   final int? count;
   final String emptyMessage;
   final Widget? child;
+  final Widget? actions;
 
   const _OperationalSection({
     required this.icon,
@@ -1319,6 +1445,7 @@ class _OperationalSection extends StatelessWidget {
     required this.count,
     required this.emptyMessage,
     this.child,
+    this.actions,
   });
 
   @override
@@ -1368,6 +1495,10 @@ class _OperationalSection extends StatelessWidget {
                     ),
                   ),
                 ),
+              ],
+              if (actions != null) ...[
+                const Spacer(),
+                actions!,
               ],
             ],
           ),

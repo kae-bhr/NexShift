@@ -455,7 +455,8 @@ class CloudFunctionsService {
         skills: (userMap['skills'] as List<dynamic>?)?.cast<String>() ?? [],
         keySkills: (userMap['keySkills'] as List<dynamic>?)?.cast<String>() ?? [],
         personalAlertEnabled: userMap['personalAlertEnabled'] as bool? ?? false,
-        personalAlertHour: userMap['personalAlertHour'] as int? ?? 18,
+        personalAlertHour: (userMap['personalAlertHour'] as num?)?.toInt() ?? 18,
+        personalAlertMinute: (userMap['personalAlertMinute'] as num?)?.toInt() ?? 0,
         positionIds: (userMap['positionIds'] as List<dynamic>?)?.cast<String>() ??
             (userMap['positionId'] != null ? [userMap['positionId'] as String] : []),
       );
@@ -504,7 +505,8 @@ class CloudFunctionsService {
           skills: (userMap['skills'] as List<dynamic>?)?.cast<String>() ?? [],
           keySkills: (userMap['keySkills'] as List<dynamic>?)?.cast<String>() ?? [],
           personalAlertEnabled: userMap['personalAlertEnabled'] as bool? ?? false,
-          personalAlertHour: userMap['personalAlertHour'] as int? ?? 18,
+          personalAlertHour: (userMap['personalAlertHour'] as num?)?.toInt() ?? 18,
+          personalAlertMinute: (userMap['personalAlertMinute'] as num?)?.toInt() ?? 0,
           positionIds: (userMap['positionIds'] as List<dynamic>?)?.cast<String>() ??
               (userMap['positionId'] != null ? [userMap['positionId'] as String] : []),
           agentAvailabilityStatus: userMap['agentAvailabilityStatus'] as String? ?? AgentAvailabilityStatus.active,
