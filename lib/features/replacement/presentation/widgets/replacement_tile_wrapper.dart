@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:nexshift_app/core/presentation/widgets/unified_request_tile/unified_request_tile_exports.dart';
 import 'package:nexshift_app/core/services/replacement_notification_service.dart';
 import 'package:nexshift_app/core/data/models/user_model.dart';
+import 'package:nexshift_app/core/data/models/station_model.dart';
 import 'package:nexshift_app/core/repositories/user_repository.dart';
+import 'package:nexshift_app/core/repositories/station_repository.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:nexshift_app/core/config/environment_config.dart';
 import 'package:flutter/foundation.dart';
@@ -83,6 +85,7 @@ class ReplacementTileWrapper extends StatefulWidget {
 
 class _ReplacementTileWrapperState extends State<ReplacementTileWrapper> {
   final _userRepository = UserRepository();
+  final _stationRepository = StationRepository();
   String _requesterName = 'Chargement...';
   String _stationName = '';
   User? _replacer;
@@ -94,6 +97,10 @@ class _ReplacementTileWrapperState extends State<ReplacementTileWrapper> {
   DateTime? _validatedAt;
   String? _validatorName;
   String? _validatedById;
+
+  // Delta de compétences pour le mode toValidate
+  List<String>? _skillDeltaMissing;
+  List<String>? _skillDeltaExtra;
 
   @override
   void initState() {
@@ -197,6 +204,31 @@ class _ReplacementTileWrapperState extends State<ReplacementTileWrapper> {
         }
       }
 
+      // En mode toValidate, calculer le delta de compétences entre demandeur et accepteur
+      List<String>? skillDeltaMissing;
+      List<String>? skillDeltaExtra;
+      Station? station;
+      if (widget.viewMode == TileViewMode.toValidate &&
+          requester != null &&
+          replacer != null) {
+        station = await _stationRepository.getById(widget.request.station);
+        final skillWeights = station?.skillWeights ?? {};
+
+        final requesterSkillsFiltered = requester.skills
+            .where((s) => (skillWeights[s] ?? 1.0) > 0)
+            .toSet();
+        final replacerSkillsFiltered = replacer.skills
+            .where((s) => (skillWeights[s] ?? 1.0) > 0)
+            .toSet();
+
+        skillDeltaMissing = requesterSkillsFiltered
+            .difference(replacerSkillsFiltered)
+            .toList();
+        skillDeltaExtra = replacerSkillsFiltered
+            .difference(requesterSkillsFiltered)
+            .toList();
+      }
+
       if (mounted) {
         setState(() {
           _requesterName = requesterName;
@@ -207,6 +239,8 @@ class _ReplacementTileWrapperState extends State<ReplacementTileWrapper> {
           _validatedAt = validatedAt;
           _validatorName = validatorName;
           _validatedById = validatedById;
+          _skillDeltaMissing = skillDeltaMissing;
+          _skillDeltaExtra = skillDeltaExtra;
           _isLoading = false;
         });
       }
@@ -257,17 +291,26 @@ class _ReplacementTileWrapperState extends State<ReplacementTileWrapper> {
       );
     }
 
+    // L'accepteur en attente de validation ne doit être affiché en colonne droite
+    // que dans les modes "À valider" et "Historique". Dans "En attente" et "Mes demandes",
+    // afficher uniquement le demandeur pour ne pas prêter à confusion les autres agents.
+    final isPendingAcceptanceVisible =
+        widget.viewMode == TileViewMode.toValidate ||
+        widget.viewMode == TileViewMode.history;
+    final isPendingAcceptanceCase = _pendingAcceptanceStartTime != null;
+
     // Convertir la demande en données unifiées (avec nom de station résolu)
     var tileData = widget.request.toUnifiedTileData(
       requesterName: _requesterName,
-      replacer: _replacer,
+      replacer: isPendingAcceptanceCase && !isPendingAcceptanceVisible ? null : _replacer,
     ).withStationName(_stationName);
 
     // Si les horaires viennent d'une acceptance en attente (pas encore sur la demande),
-    // remplacer les horaires de la colonne droite.
+    // remplacer les horaires de la colonne droite — uniquement dans les vues appropriées.
     if (_replacer != null &&
         _pendingAcceptanceStartTime != null &&
-        _pendingAcceptanceEndTime != null) {
+        _pendingAcceptanceEndTime != null &&
+        isPendingAcceptanceVisible) {
       tileData = tileData.copyWith(
         rightColumn: AgentColumnData(
           agentId: _replacer!.id,
@@ -334,6 +377,16 @@ class _ReplacementTileWrapperState extends State<ReplacementTileWrapper> {
           ),
         ],
       );
+    }
+
+    // En mode toValidate, injecter le delta de compétences dans extraData
+    if (widget.viewMode == TileViewMode.toValidate &&
+        _skillDeltaMissing != null &&
+        _skillDeltaExtra != null) {
+      final updatedExtraData = Map<String, dynamic>.from(tileData.extraData)
+        ..['skillDeltaMissing'] = _skillDeltaMissing
+        ..['skillDeltaExtra'] = _skillDeltaExtra;
+      tileData = tileData.copyWith(extraData: updatedExtraData);
     }
 
     // onTap uniquement pour le mode "Mes demandes" (ouvre le BottomSheet)

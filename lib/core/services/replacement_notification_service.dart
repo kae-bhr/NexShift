@@ -1053,12 +1053,21 @@ class ReplacementNotificationService {
   }
 
   /// Vérifie si un agent est qualifié pour un remplacement
-  /// Retourne true si l'agent possède toutes les compétences du demandeur ou plus
-  bool _isAgentQualified(User requester, User acceptor) {
-    final requesterSkills = Set<String>.from(requester.skills);
-    final acceptorSkills = Set<String>.from(acceptor.skills);
+  /// Retourne true si l'accepteur possède toutes les compétences non-nulles du demandeur.
+  /// Les compétences dont le poids est 0 dans la configuration de la station sont ignorées
+  /// car leur présence ou absence n'a pas d'impact opérationnel.
+  bool _isAgentQualified(User requester, User acceptor, Station station) {
+    final skillWeights = station.skillWeights;
 
-    // L'accepteur est qualifié s'il possède toutes les compétences du demandeur
+    // Filtrer les compétences dont le poids est explicitement nul
+    final requesterSkills = Set<String>.from(
+      requester.skills.where((s) => (skillWeights[s] ?? 1.0) > 0),
+    );
+    final acceptorSkills = Set<String>.from(
+      acceptor.skills.where((s) => (skillWeights[s] ?? 1.0) > 0),
+    );
+
+    // L'accepteur est qualifié s'il possède toutes les compétences significatives du demandeur
     return requesterSkills.difference(acceptorSkills).isEmpty;
   }
 
@@ -1134,7 +1143,7 @@ class ReplacementNotificationService {
       }
 
       // Vérifier si l'agent est qualifié
-      final isQualified = _isAgentQualified(requester, acceptor);
+      final isQualified = _isAgentQualified(requester, acceptor, station);
 
       debugPrint('  Agent qualified: $isQualified');
       debugPrint('  Station allowUnderQualifiedAutoAcceptance: ${station.allowUnderQualifiedAutoAcceptance}');

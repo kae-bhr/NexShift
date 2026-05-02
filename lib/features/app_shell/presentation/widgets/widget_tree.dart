@@ -227,6 +227,7 @@ class _WidgetTreeState extends State<WidgetTree> with WidgetsBindingObserver {
           toolbarHeight: 40,
           leading: DrawerButton(color: Theme.of(context).colorScheme.primary),
           actions: [
+            const _RequestsAppBarButton(),
             // Bouton paramètres
             IconButton(
               onPressed: () {
@@ -637,6 +638,151 @@ class _WidgetTreeState extends State<WidgetTree> with WidgetsBindingObserver {
         ),
         bottomNavigationBar: const NavbarWidget(),
       ),
+    );
+  }
+}
+
+// ============================================================================
+// APPBAR REQUESTS BUTTON
+// ============================================================================
+
+class _RequestsAppBarButton extends StatefulWidget {
+  const _RequestsAppBarButton();
+
+  @override
+  State<_RequestsAppBarButton> createState() => _RequestsAppBarButtonState();
+}
+
+class _RequestsAppBarButtonState extends State<_RequestsAppBarButton>
+    with SingleTickerProviderStateMixin {
+  bool _hasPending = false;
+  bool _hasValidation = false;
+  AnimationController? _pulseController;
+  Animation<double>? _pulseAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    final controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1800),
+    );
+    _pulseController = controller;
+    _pulseAnimation = Tween<double>(begin: 0.35, end: 1.0).animate(
+      CurvedAnimation(parent: controller, curve: Curves.easeInOut),
+    );
+
+    final svc = BadgeCountService();
+    svc.hasReplacementPending.addListener(_onBadgeChanged);
+    svc.hasExchangePending.addListener(_onBadgeChanged);
+    svc.hasAgentQueryPending.addListener(_onBadgeChanged);
+    svc.hasExchangeNeedingSelection.addListener(_onBadgeChanged);
+    svc.hasTeamEventPending.addListener(_onBadgeChanged);
+    svc.hasReplacementValidation.addListener(_onBadgeChanged);
+    svc.hasExchangeValidation.addListener(_onBadgeChanged);
+    _syncBadgeState();
+    _updatePulse();
+  }
+
+  void _syncBadgeState() {
+    final svc = BadgeCountService();
+    _hasPending = svc.hasReplacementPending.value ||
+        svc.hasExchangePending.value ||
+        svc.hasAgentQueryPending.value ||
+        svc.hasExchangeNeedingSelection.value ||
+        svc.hasTeamEventPending.value;
+    _hasValidation =
+        svc.hasReplacementValidation.value || svc.hasExchangeValidation.value;
+  }
+
+  void _onBadgeChanged() {
+    if (!mounted) return;
+    setState(_syncBadgeState);
+    _updatePulse();
+  }
+
+  void _updatePulse() {
+    final ctrl = _pulseController;
+    if (ctrl == null) return;
+    if (_hasPending || _hasValidation) {
+      if (!ctrl.isAnimating) ctrl.repeat(reverse: true);
+    } else {
+      ctrl.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _pulseController?.dispose();
+    final svc = BadgeCountService();
+    svc.hasReplacementPending.removeListener(_onBadgeChanged);
+    svc.hasExchangePending.removeListener(_onBadgeChanged);
+    svc.hasAgentQueryPending.removeListener(_onBadgeChanged);
+    svc.hasExchangeNeedingSelection.removeListener(_onBadgeChanged);
+    svc.hasTeamEventPending.removeListener(_onBadgeChanged);
+    svc.hasReplacementValidation.removeListener(_onBadgeChanged);
+    svc.hasExchangeValidation.removeListener(_onBadgeChanged);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final anim = _pulseAnimation;
+    return Stack(
+      clipBehavior: Clip.none,
+      alignment: Alignment.center,
+      children: [
+        IconButton(
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const ReplacementRequestsListPage(),
+            ),
+          ),
+          icon: Icon(
+            Icons.swap_horiz,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+        ),
+        if ((_hasPending || _hasValidation) && anim != null)
+          Positioned(
+            bottom: 4,
+            left: 0,
+            right: 0,
+            child: FadeTransition(
+              opacity: anim,
+              child: _buildBadgeRow(),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildBadgeRow() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (_hasPending)
+          Container(
+            width: 8,
+            height: 8,
+            decoration: const BoxDecoration(
+              color: KColors.appNameColor,
+              shape: BoxShape.circle,
+            ),
+          ),
+        if (_hasPending && _hasValidation) const SizedBox(width: 3),
+        if (_hasValidation)
+          Container(
+            width: 8,
+            height: 8,
+            decoration: const BoxDecoration(
+              color: Colors.blue,
+              shape: BoxShape.circle,
+            ),
+          ),
+      ],
     );
   }
 }

@@ -324,6 +324,12 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
                       onHistoryTap: widget.onHistoryTap,
                     ),
                   ],
+
+                  // Delta de compétences — uniquement en mode toValidate
+                  if (widget.viewMode == TileViewMode.toValidate) ...[
+                    const SizedBox(height: 8),
+                    _buildSkillDelta(),
+                  ],
                 ],
               ),
             ),
@@ -557,8 +563,99 @@ class _UnifiedRequestTileState extends State<UnifiedRequestTile> {
         .toList();
   }
 
+  /// Construit la section delta de compétences pour le mode toValidate
+  Widget _buildSkillDelta() {
+    final missing = widget.data.extraData['skillDeltaMissing'] as List<dynamic>?;
+    final extra = widget.data.extraData['skillDeltaExtra'] as List<dynamic>?;
+
+    // Données pas encore chargées
+    if (missing == null || extra == null) return const SizedBox.shrink();
+
+    final missingSkills = missing.cast<String>();
+    final extraSkills = extra.cast<String>();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Divider(height: 16, thickness: 1, color: Colors.grey.shade200),
+        if (missingSkills.isEmpty && extraSkills.isEmpty)
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 10),
+            decoration: BoxDecoration(
+              color: Colors.green.shade50,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.check_circle_outline, size: 14, color: Colors.green.shade700),
+                const SizedBox(width: 6),
+                Text(
+                  'Compétences identiques',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.green.shade700,
+                  ),
+                ),
+              ],
+            ),
+          )
+        else ...[
+          Text(
+            'Impact sur les compétences',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey.shade600,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 6,
+            runSpacing: 4,
+            children: [
+              ...missingSkills.map((skill) => _buildSkillBadge(skill, isLoss: true)),
+              ...extraSkills.map((skill) => _buildSkillBadge(skill, isLoss: false)),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildSkillBadge(String skill, {required bool isLoss}) {
+    final bg = isLoss ? Colors.red.shade50 : Colors.green.shade50;
+    final fg = isLoss ? Colors.red.shade700 : Colors.green.shade700;
+    final border = isLoss ? Colors.red.shade200 : Colors.green.shade200;
+    final prefix = isLoss ? '− ' : '+ ';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: border, width: 0.5),
+      ),
+      child: Text(
+        '$prefix$skill',
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w500,
+          color: fg,
+        ),
+      ),
+    );
+  }
+
   /// Vérifie si des indicateurs spéciaux doivent être affichés
   bool _hasSpecialIndicators(bool isUserNotified) {
+    // Les badges Vague/Non-notifié sont redondants en présence des boutons d'action
+    // dans le footer. On ne les affiche que pour le mode history (lecture seule).
+    if (widget.viewMode != TileViewMode.history) {
+      return false;
+    }
+
     // Les remplacements manuels et échanges n'utilisent pas le système de vagues
     final usesWaveSystem =
         widget.data.requestType == UnifiedRequestType.automaticReplacement ||
