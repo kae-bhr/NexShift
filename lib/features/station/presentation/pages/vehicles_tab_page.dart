@@ -107,7 +107,9 @@ class _VehiclesTabPageState extends State<VehiclesTabPage> {
     // Collecter tous les types de véhicules présents dans le centre
     final presentTypes = widget.allTrucks.map((t) => t.type).toSet();
 
-    return ListView(
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.paddingOf(context).bottom),
+      child: ListView(
       padding: const EdgeInsets.all(16),
       children: [
         // Header with statistics
@@ -179,6 +181,7 @@ class _VehiclesTabPageState extends State<VehiclesTabPage> {
           ),
         ),
       ],
+      ),
     );
   }
 

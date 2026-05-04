@@ -150,10 +150,12 @@ class _EditShiftRulePageState extends State<EditShiftRulePage> {
         title: _isEditing ? 'Modifier la règle' : 'Nouvelle règle',
         bottomColor: KColors.appNameColor,
       ),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
+      body: Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.paddingOf(context).bottom),
+        child: Form(
+          key: _formKey,
+          child: ListView(
+            padding: const EdgeInsets.all(16),
           children: [
             // Nom
             TextFormField(
@@ -498,6 +500,7 @@ class _EditShiftRulePageState extends State<EditShiftRulePage> {
               ],
             ),
           ],
+          ),
         ),
       ),
     );

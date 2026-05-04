@@ -1218,6 +1218,10 @@ class _HomePageState extends State<HomePage> {
         if (index != -1) {
           _allPlannings[index] = updatedPlanning;
         }
+        final mIndex = _allMonthPlannings.indexWhere((p) => p.id == planning.id);
+        if (mIndex != -1) {
+          _allMonthPlannings[mIndex] = updatedPlanning;
+        }
       });
     } catch (e) {
       if (mounted) {
@@ -2305,15 +2309,25 @@ class _HomePageState extends State<HomePage> {
 
     // Afficher les propositions manuelles
     for (final proposal in planningManualProposals) {
-      // Pour les propositions manuelles, on utilise replacedId comme demandeur
-      // et replacerId comme cible
+      // Les noms ne sont pas stockés en clair dans Firestore — résolution via _allUsers
+      final replacedUser = _allUsers.firstWhere(
+        (u) => u.id == proposal.replacedId,
+        orElse: () => noneUser,
+      );
+      final replacerUser = proposal.replacerId.isNotEmpty
+          ? _allUsers.firstWhere(
+              (u) => u.id == proposal.replacerId,
+              orElse: () => noneUser,
+            )
+          : null;
+
       final canDelete = _canDeleteRequest(proposal.replacedId, planning.team);
 
       final item = _buildRequestItem(
         icon: Icons.person,
         iconColor: Colors.purple,
-        requesterName: proposal.replacedName,
-        targetName: proposal.replacerName,
+        requesterName: replacedUser.displayName,
+        targetName: replacerUser != null && replacerUser.id.isNotEmpty ? replacerUser.displayName : null,
         startTime: proposal.startTime,
         endTime: proposal.endTime,
       );
@@ -2438,8 +2452,8 @@ class _HomePageState extends State<HomePage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (targetName != null)
-                    RichText(
-                      text: TextSpan(
+                    Text.rich(
+                      TextSpan(
                         style: const TextStyle(
                           fontSize: 13,
                           color: Colors.black87,
@@ -3098,8 +3112,9 @@ class _HomePageState extends State<HomePage> {
                                                                 stationId: _user
                                                                     .station,
                                                               );
-                                                              if (!mounted)
+                                                              if (!mounted) {
                                                                 return;
+                                                              }
                                                               setState(() {
                                                                 final idx = _allSubshifts
                                                                     .indexWhere(

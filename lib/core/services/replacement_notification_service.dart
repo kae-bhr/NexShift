@@ -1145,11 +1145,26 @@ class ReplacementNotificationService {
       // Vérifier si l'agent est qualifié
       final isQualified = _isAgentQualified(requester, acceptor, station);
 
+      // Récupérer l'équipe du planning pour déterminer si l'accepteur est dans la même équipe
+      final planningsPath = EnvironmentConfig.getCollectionPath('plannings', request.station);
+      final planningDoc = await firestore
+          .collection(planningsPath)
+          .doc(request.planningId)
+          .get();
+      final planningTeam = planningDoc.exists
+          ? (planningDoc.data()?['team'] as String? ?? '')
+          : '';
+
+      // Un membre de la même équipe que l'astreinte est accepté automatiquement,
+      // même sous-qualifié : le remplacement est interne à l'équipe.
+      final isSameTeam = planningTeam.isNotEmpty && acceptor.team == planningTeam;
+
       debugPrint('  Agent qualified: $isQualified');
+      debugPrint('  Same team as planning: $isSameTeam (acceptor: ${acceptor.team}, planning: $planningTeam)');
       debugPrint('  Station allowUnderQualifiedAutoAcceptance: ${station.allowUnderQualifiedAutoAcceptance}');
 
       // LOGIQUE DE DÉCISION : Acceptation automatique VS validation conditionnelle
-      if (isQualified || station.allowUnderQualifiedAutoAcceptance) {
+      if (isQualified || isSameTeam || station.allowUnderQualifiedAutoAcceptance) {
         // CAS 1: Acceptation automatique
         debugPrint('  → Acceptation automatique');
 
@@ -1207,18 +1222,8 @@ class ReplacementNotificationService {
         // CAS 2: Validation conditionnelle requise
         debugPrint('  → Validation conditionnelle requise (agent sous-qualifié)');
 
-        // Récupérer l'équipe de l'astreinte concernée
-        final planningsPath = EnvironmentConfig.getCollectionPath('plannings', request.station);
-        final planningDoc = await firestore
-            .collection(planningsPath)
-            .doc(request.planningId)
-            .get();
-
-        String chiefTeamId = '';
-        if (planningDoc.exists) {
-          final planningData = planningDoc.data();
-          chiefTeamId = planningData?['team'] as String? ?? '';
-        }
+        // L'équipe du planning est déjà récupérée ci-dessus (planningTeam)
+        final chiefTeamId = planningTeam;
 
         // Créer une ReplacementAcceptance en attente de validation
         final acceptance = ReplacementAcceptance(

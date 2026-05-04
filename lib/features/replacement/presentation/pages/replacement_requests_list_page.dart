@@ -257,14 +257,17 @@ class _ReplacementRequestsListPageState
           child: _buildMainTabBar(),
         ),
       ),
-      body: TabBarView(
-        controller: _mainTabController,
-        children: [
-          _buildReplacementsContent(),
-          _buildExchangesContent(),
-          _buildAgentQueriesContent(),
-          _buildTeamEventsContent(),
-        ],
+      body: Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.paddingOf(context).bottom),
+        child: TabBarView(
+          controller: _mainTabController,
+          children: [
+            _buildReplacementsContent(),
+            _buildExchangesContent(),
+            _buildAgentQueriesContent(),
+            _buildTeamEventsContent(),
+          ],
+        ),
       ),
     );
   }
@@ -287,9 +290,15 @@ class _ReplacementRequestsListPageState
       builder: (context, _) {
         final hasBadge1 = badgeService.hasReplacementPending.value ||
             badgeService.hasReplacementValidation.value;
-        final hasBadge2 = badgeService.hasExchangePending.value ||
-            badgeService.hasExchangeNeedingSelection.value ||
-            badgeService.hasExchangeValidation.value;
+        final exchangeValidation = badgeService.hasExchangeValidation.value;
+        // hasExchangePending neutralisé si une validation est déjà en attente
+        final effectiveExchangePending =
+            (badgeService.hasExchangePending.value && !exchangeValidation) ||
+            badgeService.hasExchangeNeedingSelection.value;
+        final hasBadge2 = effectiveExchangePending || exchangeValidation;
+        final badge2Color = (!effectiveExchangePending && exchangeValidation)
+            ? Colors.blue
+            : tabColor;
         final hasBadge3 = badgeService.hasAgentQueryPending.value;
         final hasBadge4 = badgeService.hasTeamEventPending.value;
 
@@ -303,6 +312,7 @@ class _ReplacementRequestsListPageState
             _TabConfig(label: 'Événements', icon: Icons.event_rounded),
           ],
           badges: [hasBadge1, hasBadge2, hasBadge3, hasBadge4],
+          badgeColors: [null, badge2Color, null, null],
         );
       },
     );
@@ -4535,12 +4545,14 @@ class _ExpandingTabBar extends StatefulWidget {
   final TabController controller;
   final List<_TabConfig> tabs;
   final List<bool> badges;
+  final List<Color?> badgeColors;
   final Color color;
 
   const _ExpandingTabBar({
     required this.controller,
     required this.tabs,
     required this.badges,
+    required this.badgeColors,
     required this.color,
   });
 
@@ -4644,7 +4656,7 @@ class _ExpandingTabBarState extends State<_ExpandingTabBar> {
                                   width: 7,
                                   height: 7,
                                   decoration: BoxDecoration(
-                                    color: widget.color,
+                                    color: widget.badgeColors[i] ?? widget.color,
                                     shape: BoxShape.circle,
                                   ),
                                 ),

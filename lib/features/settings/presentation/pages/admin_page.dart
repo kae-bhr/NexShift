@@ -132,36 +132,39 @@ class _AdminPageState extends State<AdminPage> {
         title: "Administration",
         bottomColor: KColors.appNameColor,
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _currentStation == null
-          ? const Center(child: Text('Erreur de chargement de la caserne'))
-          : ListView(
-              padding: const EdgeInsets.all(16.0),
-              children: [
-                _buildSectionHeader(context, 'Configuration de la caserne'),
-                _buildStationConfigSection(context),
-                const SizedBox(height: 24),
-                _buildSectionHeader(context, 'Demandes d\'adhésion'),
-                _buildMembershipRequestsSection(context),
-                const SizedBox(height: 24),
-                _buildSectionHeader(context, 'Niveaux d\'astreinte'),
-                _buildOnCallLevelsSection(context),
-                const SizedBox(height: 24),
-                _buildSectionHeader(context, 'Mode de remplacement'),
-                _buildReplacementModeSection(context),
-                const SizedBox(height: 24),
-                _buildSectionHeader(context, 'Pondération des compétences'),
-                _buildSkillWeightsSection(context),
-                const SizedBox(height: 24),
-                _buildSectionHeader(context, 'Gestion des postes'),
-                _buildPositionsSection(context),
-                const SizedBox(height: 24),
-                _buildSectionHeader(context, 'Tableau de bord'),
-                _buildDashboardPermissionsSection(context),
-                const SizedBox(height: 24),
-              ],
-            ),
+      body: Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.paddingOf(context).bottom),
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : _currentStation == null
+            ? const Center(child: Text('Erreur de chargement de la caserne'))
+            : ListView(
+                padding: const EdgeInsets.all(16.0),
+                children: [
+                  _buildSectionHeader(context, 'Configuration de la caserne'),
+                  _buildStationConfigSection(context),
+                  const SizedBox(height: 24),
+                  _buildSectionHeader(context, 'Demandes d\'adhésion'),
+                  _buildMembershipRequestsSection(context),
+                  const SizedBox(height: 24),
+                  _buildSectionHeader(context, 'Niveaux d\'astreinte'),
+                  _buildOnCallLevelsSection(context),
+                  const SizedBox(height: 24),
+                  _buildSectionHeader(context, 'Mode de remplacement'),
+                  _buildReplacementModeSection(context),
+                  const SizedBox(height: 24),
+                  _buildSectionHeader(context, 'Pondération des compétences'),
+                  _buildSkillWeightsSection(context),
+                  const SizedBox(height: 24),
+                  _buildSectionHeader(context, 'Gestion des postes'),
+                  _buildPositionsSection(context),
+                  const SizedBox(height: 24),
+                  _buildSectionHeader(context, 'Tableau de bord'),
+                  _buildDashboardPermissionsSection(context),
+                  const SizedBox(height: 24),
+                ],
+              ),
+      ),
     );
   }
 

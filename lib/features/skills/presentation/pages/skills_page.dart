@@ -222,16 +222,19 @@ class _SkillsPageState extends State<SkillsPage> {
               ),
           ],
         ),
-        body: _isLoading
-            ? const SkillsPageSkeleton()
-            : _errorMessage != null
-            ? custom.ErrorWidget(message: _errorMessage, onRetry: _loadUser)
-            : _displayedUser == null
-            ? custom.EmptyStateWidget(
-                message: KErrorMessages.userNotFound,
-                icon: Icons.person_off,
-              )
-            : _buildSkillsList(_displayedUser!),
+        body: Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.paddingOf(context).bottom),
+          child: _isLoading
+              ? const SkillsPageSkeleton()
+              : _errorMessage != null
+              ? custom.ErrorWidget(message: _errorMessage, onRetry: _loadUser)
+              : _displayedUser == null
+              ? custom.EmptyStateWidget(
+                  message: KErrorMessages.userNotFound,
+                  icon: Icons.person_off,
+                )
+              : _buildSkillsList(_displayedUser!),
+        ),
       ),
     );
   }

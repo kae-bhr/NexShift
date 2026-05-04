@@ -37,6 +37,14 @@ import flutter_local_notifications
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
+  // Délègue le contrôle d'orientation à SystemChrome.setPreferredOrientations() côté Flutter
+  override func application(
+    _ application: UIApplication,
+    supportedInterfaceOrientationsFor window: UIWindow?
+  ) -> UIInterfaceOrientationMask {
+    return .all
+  }
+
   // Efface aussi le badge automatiquement quand l'app passe au premier plan
   override func applicationDidBecomeActive(_ application: UIApplication) {
     if #available(iOS 16.0, *) {

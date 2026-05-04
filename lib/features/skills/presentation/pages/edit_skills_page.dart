@@ -816,7 +816,9 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
               ),
           ],
         ),
-        body: ListView(
+        body: Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.paddingOf(context).bottom),
+          child: ListView(
           padding: const EdgeInsets.all(KSpacing.m),
           children: [
             _buildInfoBanner(),
@@ -825,6 +827,7 @@ class _EditSkillsPageState extends State<EditSkillsPage> {
               return _buildCategorySection(category);
             }),
           ],
+          ),
         ),
       ),
     );

@@ -514,9 +514,11 @@ class _WidgetTreeState extends State<WidgetTree> with WidgetsBindingObserver {
                                                             _,
                                                           ) {
                                                             // Pastille 1 : appNameColor si n'importe quelle demande pending ou sélection à faire
+                                                            // hasExchangePending est neutralisé si une validation d'échange est déjà en attente
+                                                            final effectiveExchangePending = hasExchangePending && !hasExchangeValidation;
                                                             final hasPending =
                                                                 hasReplacementPending ||
-                                                                hasExchangePending ||
+                                                                effectiveExchangePending ||
                                                                 hasAgentQueryPending ||
                                                                 hasExchangeNeedingSelection ||
                                                                 hasTeamEventPending;
@@ -686,8 +688,10 @@ class _RequestsAppBarButtonState extends State<_RequestsAppBarButton>
 
   void _syncBadgeState() {
     final svc = BadgeCountService();
+    final effectiveExchangePending =
+        svc.hasExchangePending.value && !svc.hasExchangeValidation.value;
     _hasPending = svc.hasReplacementPending.value ||
-        svc.hasExchangePending.value ||
+        effectiveExchangePending ||
         svc.hasAgentQueryPending.value ||
         svc.hasExchangeNeedingSelection.value ||
         svc.hasTeamEventPending.value;

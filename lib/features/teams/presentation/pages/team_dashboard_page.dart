@@ -226,21 +226,22 @@ class _TeamDashboardPageState extends State<TeamDashboardPage> {
         agentsToShow = users;
       }
 
-      // Initialiser la map des stats (TOUS les agents à afficher)
-      final Map<String, _AgentStats> statsMap = {
-        for (final u in agentsToShow) u.id: _AgentStats(agent: u),
+      // Initialiser la map avec TOUS les agents de la station pour un calcul fidèle
+      // (les remplacements inter-équipes sont ainsi correctement comptabilisés)
+      final Map<String, _AgentStats> allStatsMap = {
+        for (final u in users) u.id: _AgentStats(agent: u),
       };
 
-      // Calculer les stats sur TOUS les plannings (pas seulement l'équipe filtrée)
+      // Calculer les stats sur TOUS les plannings et TOUS les agents
       for (final planning in plannings) {
-        _processPlanningForStats(planning, statsMap);
+        _processPlanningForStats(planning, allStatsMap);
       }
 
-      // Charger les disponibilités
+      // Charger les disponibilités pour tous les agents
       final availRepo = AvailabilityRepository(stationId: stationId);
       final availabilities = await availRepo.getInRange(_startDate, _endDate);
       for (final avail in availabilities) {
-        final stats = statsMap[avail.agentId];
+        final stats = allStatsMap[avail.agentId];
         if (stats == null) continue;
         final start = avail.start.isAfter(_startDate)
             ? avail.start
@@ -251,7 +252,11 @@ class _TeamDashboardPageState extends State<TeamDashboardPage> {
         }
       }
 
-      final sorted = statsMap.values.toList();
+      // Filtrer pour l'affichage uniquement (après le calcul complet)
+      final visibleIds = agentsToShow.map((u) => u.id).toSet();
+      final sorted = allStatsMap.values
+          .where((s) => visibleIds.contains(s.agent.id))
+          .toList();
       _applySort(sorted);
 
       setState(() {
@@ -443,15 +448,16 @@ class _TeamDashboardPageState extends State<TeamDashboardPage> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final scheme = Theme.of(context).colorScheme;
 
+    final sidePadding = MediaQuery.paddingOf(context);
     return Scaffold(
-      appBar: _buildAppBar(isDark, scheme),
+      appBar: _buildAppBar(isDark, scheme, sidePadding),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
           ? _buildError()
           : _stats.isEmpty
           ? _buildEmpty()
-          : _buildTable(isDark, scheme),
+          : _buildTable(isDark, scheme, sidePadding),
     );
   }
 
@@ -459,13 +465,15 @@ class _TeamDashboardPageState extends State<TeamDashboardPage> {
   // AppBar
   // ---------------------------------------------------------------------------
 
-  AppBar _buildAppBar(bool isDark, ColorScheme scheme) {
+  AppBar _buildAppBar(bool isDark, ColorScheme scheme, EdgeInsets sidePadding) {
     return AppBar(
       backgroundColor: Colors.transparent,
       elevation: 0,
       iconTheme: IconThemeData(color: scheme.primary),
       titleSpacing: 0,
-      title: Row(
+      title: Padding(
+        padding: EdgeInsets.only(right: sidePadding.right),
+        child: Row(
         children: [
           // ── Titre ─────────────────────────────────────────────
           Expanded(
@@ -551,6 +559,7 @@ class _TeamDashboardPageState extends State<TeamDashboardPage> {
           const SizedBox(width: 8),
         ],
       ),
+      ),
     );
   }
 
@@ -558,23 +567,29 @@ class _TeamDashboardPageState extends State<TeamDashboardPage> {
   // Table (header fixe + body scrollable)
   // ---------------------------------------------------------------------------
 
-  Widget _buildTable(bool isDark, ColorScheme scheme) {
-    return Column(
-      children: [
-        _buildTableHeader(isDark, scheme),
-        const Divider(height: 1),
-        Expanded(
-          child: ListView.builder(
-            itemCount: _stats.length + 1, // +1 pour footer
-            itemBuilder: (ctx, i) {
-              if (i < _stats.length) {
-                return _buildAgentRow(_stats[i], isDark, scheme);
-              }
-              return _buildFooter(isDark);
-            },
+  Widget _buildTable(bool isDark, ColorScheme scheme, EdgeInsets sidePadding) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: sidePadding.left,
+        right: sidePadding.right,
+      ),
+      child: Column(
+        children: [
+          _buildTableHeader(isDark, scheme),
+          const Divider(height: 1),
+          Expanded(
+            child: ListView.builder(
+              itemCount: _stats.length + 1, // +1 pour footer
+              itemBuilder: (ctx, i) {
+                if (i < _stats.length) {
+                  return _buildAgentRow(_stats[i], isDark, scheme);
+                }
+                return _buildFooter(isDark);
+              },
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 

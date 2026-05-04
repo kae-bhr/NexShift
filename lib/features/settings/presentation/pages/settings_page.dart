@@ -42,7 +42,9 @@ class _SettingsPageState extends State<SettingsPage> {
         title: "Paramètres",
         bottomColor: KColors.appNameColor,
       ),
-      body: ListView(
+      body: Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.paddingOf(context).bottom),
+        child: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
           // Section Profil
@@ -74,6 +76,7 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           const SizedBox(height: 8),
         ],
+        ),
       ),
     );
   }

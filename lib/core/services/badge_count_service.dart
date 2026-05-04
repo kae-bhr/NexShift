@@ -615,9 +615,9 @@ class BadgeCountService {
   void _subscribeToValidations() {
     if (_currentUser == null) return;
 
-    // Seulement pour les chefs et leaders
-    if (_currentUser!.status != 'chief' && _currentUser!.status != 'leader') {
-      debugPrint('🔔 [BadgeCountService] User is not chief/leader, skipping validations subscription');
+    // Seulement pour les chefs, leaders et admins
+    if (_currentUser!.status != 'chief' && _currentUser!.status != 'leader' && !_currentUser!.admin) {
+      debugPrint('🔔 [BadgeCountService] User is not chief/leader/admin, skipping validations subscription');
       return;
     }
 
@@ -647,7 +647,7 @@ class BadgeCountService {
 
   void _subscribeToExchangeValidations() {
     if (_currentUser == null) return;
-    if (_currentUser!.status != 'chief' && _currentUser!.status != 'leader') return;
+    if (_currentUser!.status != 'chief' && _currentUser!.status != 'leader' && !_currentUser!.admin) return;
 
     final proposalsPath = _getExchangeProposalsPath();
 

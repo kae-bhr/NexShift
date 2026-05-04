@@ -53,6 +53,7 @@ class _PlanningPageState extends State<PlanningPage> {
 
   // Vue mensuelle
   List<Planning> _monthPlannings = [];
+  List<TeamEvent> _monthEvents = [];
   bool _isMonthLoading = false;
 
   // Variables pour l'infobulle de long press
@@ -106,13 +107,13 @@ class _PlanningPageState extends State<PlanningPage> {
   }
 
   void _onCurrentMonthChanged() {
-    setState(() => _monthPlannings = []);
+    setState(() { _monthPlannings = []; _monthEvents = []; });
     _reloadPlanningsForMonth(currentMonthNotifier.value);
   }
 
   void _onCustomRangeChanged() {
     final range = customDateRangeNotifier.value;
-    setState(() => _monthPlannings = []);
+    setState(() { _monthPlannings = []; _monthEvents = []; });
     if (range != null) {
       _reloadPlanningsForMonth(range.start, end: range.end);
     } else if (viewModeNotifier.value == ViewMode.month) {
@@ -126,7 +127,7 @@ class _PlanningPageState extends State<PlanningPage> {
 
   void _onStationViewChanged() {
     // when the toggle changes, reload plannings to reflect personal/centre view
-    setState(() => _monthPlannings = []);
+    setState(() { _monthPlannings = []; _monthEvents = []; });
     selectedTeamNotifier.value = null;
     _loadUserAndPlanning();
   }
@@ -801,28 +802,29 @@ class _PlanningPageState extends State<PlanningPage> {
       return;
     }
     final repo = LocalRepository();
-    final isStationView = stationViewNotifier.value;
     final monthStart = end != null ? month : DateTime(month.year, month.month, 1);
     final monthEnd = end ?? DateTime(month.year, month.month + 1, 0, 23, 59, 59);
 
-    List<Planning> plannings;
-    if (isStationView) {
-      plannings = await repo.getPlanningsByStationInRange(
-        user.station,
-        monthStart,
-        monthEnd,
-      );
-    } else {
-      plannings = await repo.getPlanningsForUserInRange(
-        user,
-        true,
-        monthStart,
-        monthEnd,
-      );
-    }
+    // Toujours charger tous les plannings de la station : le filtre personnel
+    // (remplaçants inclus) est appliqué à l'affichage dans _buildMonthView.
+    final plannings = await repo.getPlanningsByStationInRange(
+      user.station,
+      monthStart,
+      monthEnd,
+    );
+    List<TeamEvent> monthEvents = [];
+    try {
+      final allEvents = await TeamEventRepository().getAll(stationId: user.station);
+      monthEvents = allEvents.where((e) {
+        if (e.status != TeamEventStatus.upcoming) return false;
+        return e.endTime.isAfter(monthStart) && e.startTime.isBefore(monthEnd);
+      }).toList();
+    } catch (_) {}
+
     if (!mounted) return;
     setState(() {
       _monthPlannings = plannings;
+      _monthEvents = monthEvents;
       _isMonthLoading = false;
     });
   }
@@ -1536,20 +1538,64 @@ class _PlanningPageState extends State<PlanningPage> {
     } else if (!stationView && _currentUser != null) {
       plannings = plannings.where((p) {
         final isAgent = p.agentsId.contains(_currentUser!.id);
+        final isReplacer = p.agents.any(
+          (a) => a.agentId == _currentUser!.id && a.replacedAgentId != null,
+        );
         return isAgent ||
+            isReplacer ||
             _subshifts.any(
               (s) => s.planningId == p.id && s.replacerId == _currentUser!.id,
             );
       }).toList();
     }
 
+    // En vue personnelle, calculer l'intervalle effectif de l'utilisateur par planning.
+    // Pour un remplaçant, utiliser les horaires de l'entrée PlanningAgent, pas du planning entier.
+    Map<String, ({DateTime start, DateTime end})>? personalIntervals;
+    if (!stationView && _currentUser != null) {
+      personalIntervals = {};
+      for (final p in plannings) {
+        // Chercher une entrée de remplacement explicite
+        final replacerEntry = p.agents.where(
+          (a) => a.agentId == _currentUser!.id && a.replacedAgentId != null,
+        ).toList();
+        if (replacerEntry.isNotEmpty) {
+          // Prendre l'union des horaires de toutes les entrées de remplacement
+          DateTime s = replacerEntry.first.start;
+          DateTime e = replacerEntry.first.end;
+          for (final a in replacerEntry) {
+            if (a.start.isBefore(s)) s = a.start;
+            if (a.end.isAfter(e)) e = a.end;
+          }
+          personalIntervals[p.id] = (start: s, end: e);
+        }
+        // Sinon : agent de base, on garde les horaires du planning (pas d'entrée dans la map)
+      }
+    }
+
+    // Filtrer les events selon la vue
+    List<TeamEvent> events = _monthEvents.where((e) => e.status == TeamEventStatus.upcoming).toList();
+    if (stationView) {
+      events = events.where((e) => e.scope == TeamEventScope.station).toList();
+    } else if (_currentUser != null) {
+      events = events.where((e) =>
+        e.acceptedUserIds.contains(_currentUser!.id) ||
+        e.invitedUserIds.contains(_currentUser!.id) ||
+        e.createdById == _currentUser!.id,
+      ).toList();
+    }
+
     return Expanded(
-      child: _buildMonthGrid(month, plannings, isDark),
+      child: _buildMonthGrid(month, plannings, events, personalIntervals, isDark),
     );
   }
 
   Widget _buildMonthGrid(
-      DateTime month, List<Planning> plannings, bool isDark) {
+      DateTime month,
+      List<Planning> plannings,
+      List<TeamEvent> events,
+      Map<String, ({DateTime start, DateTime end})>? personalIntervals,
+      bool isDark) {
     final firstDay = DateTime(month.year, month.month, 1);
     final startOffset = firstDay.weekday - 1; // lundi = 0
     final daysInMonth = DateTime(month.year, month.month + 1, 0).day;
@@ -1593,26 +1639,47 @@ class _PlanningPageState extends State<PlanningPage> {
                 final day = DateTime(month.year, month.month, dayNumber);
                 final dayStart = DateTime(day.year, day.month, day.day);
                 final dayEnd = DateTime(day.year, day.month, day.day + 1);
-                final dayPlannings = plannings
-                    .where((p) =>
-                        p.endTime.isAfter(dayStart) &&
-                        p.startTime.isBefore(dayEnd))
-                    .toList()
-                  ..sort((a, b) => a.startTime.compareTo(b.startTime));
+
+                // En vue personnelle, filtrer et positionner selon l'intervalle
+                // effectif de l'utilisateur (horaires du remplacement, pas du planning).
+                final dayPlannings = plannings.where((p) {
+                  final interval = personalIntervals?[p.id];
+                  final pStart = interval?.start ?? p.startTime;
+                  final pEnd = interval?.end ?? p.endTime;
+                  return pEnd.isAfter(dayStart) && pStart.isBefore(dayEnd);
+                }).toList()
+                  ..sort((a, b) {
+                    final aStart = personalIntervals?[a.id]?.start ?? a.startTime;
+                    final bStart = personalIntervals?[b.id]?.start ?? b.startTime;
+                    return aStart.compareTo(bStart);
+                  });
+
+                final dayEvents = events
+                    .where((e) =>
+                        e.endTime.isAfter(dayStart) &&
+                        e.startTime.isBefore(dayEnd))
+                    .toList();
                 final visiblePlannings = dayPlannings.take(3).toList();
                 final spanFlags = <String, ({bool left, bool right})>{
-                  for (final p in visiblePlannings)
-                    p.id: (
-                      left: p.startTime.isBefore(dayStart),
-                      right: p.endTime.isAfter(dayEnd),
-                    ),
+                  for (final p in visiblePlannings) ...{
+                    p.id: (() {
+                      final interval = personalIntervals?[p.id];
+                      final pStart = interval?.start ?? p.startTime;
+                      final pEnd = interval?.end ?? p.endTime;
+                      return (
+                        left: pStart.isBefore(dayStart),
+                        right: pEnd.isAfter(dayEnd),
+                      );
+                    })(),
+                  },
                 };
                 final isToday = day.year == now.year &&
                     day.month == now.month &&
                     day.day == now.day;
                 return Expanded(
                   child: _buildMonthDayCell(
-                      day, dayPlannings, isToday, isDark, spanFlags),
+                      day, dayPlannings, dayEvents, personalIntervals,
+                      isToday, isDark, spanFlags),
                 );
               }),
             ),
@@ -1624,6 +1691,8 @@ class _PlanningPageState extends State<PlanningPage> {
   Widget _buildMonthDayCell(
     DateTime day,
     List<Planning> dayPlannings,
+    List<TeamEvent> dayEvents,
+    Map<String, ({DateTime start, DateTime end})>? personalIntervals,
     bool isToday,
     bool isDark,
     Map<String, ({bool left, bool right})> spanFlags,
@@ -1633,35 +1702,61 @@ class _PlanningPageState extends State<PlanningPage> {
     final dayStart = DateTime(day.year, day.month, day.day);
     const double daySeconds = 86400.0;
 
-    final entries = dayPlannings.map((p) {
+    final entries = <({Color color, bool comesFromLeft, bool goesToRight, double? startFrac, double? endFrac})>[];
+
+    for (final p in dayPlannings) {
       final color = _teamColorById[p.team] ?? Colors.grey.shade400;
       final flags = spanFlags[p.id];
       final comesFromLeft = flags?.left ?? false;
       final goesToRight = flags?.right ?? false;
 
-      // Fractional position [0..1] within the day for start/end dots
-      // If the event started before this day, no start dot (bar from left edge)
-      // If the event ends after this day, no end dot (bar to right edge)
+      // Utiliser l'intervalle effectif de l'utilisateur si disponible
+      final interval = personalIntervals?[p.id];
+      final pStart = interval?.start ?? p.startTime;
+      final pEnd = interval?.end ?? p.endTime;
+
       double? startFrac;
       double? endFrac;
-
       if (!comesFromLeft) {
-        final secs = p.startTime.toLocal().difference(dayStart).inSeconds;
+        final secs = pStart.toLocal().difference(dayStart).inSeconds;
         startFrac = (secs / daySeconds).clamp(0.0, 1.0);
       }
       if (!goesToRight) {
-        final secs = p.endTime.toLocal().difference(dayStart).inSeconds;
+        final secs = pEnd.toLocal().difference(dayStart).inSeconds;
         endFrac = (secs / daySeconds).clamp(0.0, 1.0);
       }
-
-      return (
+      entries.add((
         color: color,
         comesFromLeft: comesFromLeft,
         goesToRight: goesToRight,
         startFrac: startFrac,
         endFrac: endFrac,
-      );
-    }).toList();
+      ));
+    }
+
+    for (final e in dayEvents) {
+      final comesFromLeft = e.startTime.isBefore(dayStart);
+      final goesToRight = e.endTime.isAfter(DateTime(day.year, day.month, day.day + 1));
+      double? startFrac;
+      double? endFrac;
+      if (!comesFromLeft) {
+        final secs = e.startTime.toLocal().difference(dayStart).inSeconds;
+        startFrac = (secs / daySeconds).clamp(0.0, 1.0);
+      }
+      if (!goesToRight) {
+        final secs = e.endTime.toLocal().difference(dayStart).inSeconds;
+        endFrac = (secs / daySeconds).clamp(0.0, 1.0);
+      }
+      entries.add((
+        color: KColors.appNameColor,
+        comesFromLeft: comesFromLeft,
+        goesToRight: goesToRight,
+        startFrac: startFrac,
+        endFrac: endFrac,
+      ));
+    }
+
+    final hasContent = dayPlannings.isNotEmpty || dayEvents.isNotEmpty;
 
     // CustomPaint wraps the full Expanded cell (no margin) so that connector
     // bars can paint edge-to-edge. The painter draws the cell background itself.
@@ -1679,13 +1774,13 @@ class _PlanningPageState extends State<PlanningPage> {
             isDark: isDark,
             textColor: isToday
                 ? KColors.appNameColor
-                : (dayPlannings.isEmpty
-                    ? (isDark ? Colors.grey.shade600 : Colors.grey.shade400)
-                    : (isDark ? Colors.white : Colors.black87)),
+                : (hasContent
+                    ? (isDark ? Colors.white : Colors.black87)
+                    : (isDark ? Colors.grey.shade600 : Colors.grey.shade400)),
             todayColor: KColors.appNameColor,
             bgColor: isToday
                 ? KColors.appNameColor.withValues(alpha: 0.1)
-                : (dayPlannings.isNotEmpty
+                : (hasContent
                     ? (isDark
                         ? Colors.white.withValues(alpha: 0.04)
                         : Colors.grey.shade50)
