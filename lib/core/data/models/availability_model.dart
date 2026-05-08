@@ -41,8 +41,8 @@ class Availability {
   Map<String, dynamic> toJson() => {
         'id': id,
         'agentId': agentId,
-        'start': start.toIso8601String(),
-        'end': end.toIso8601String(),
+        'start': start.toUtc().toIso8601String(),
+        'end': end.toUtc().toIso8601String(),
         'planningId': planningId,
         if (levelId != null) 'levelId': levelId,
       };
@@ -50,8 +50,8 @@ class Availability {
   factory Availability.fromJson(Map<String, dynamic> json) => Availability(
         id: json['id'],
         agentId: json['agentId'],
-        start: DateTime.parse(json['start']),
-        end: DateTime.parse(json['end']),
+        start: DateTime.parse(json['start'] as String),
+        end: DateTime.parse(json['end'] as String),
         planningId: json['planningId'],
         levelId: json['levelId'] as String?,
       );

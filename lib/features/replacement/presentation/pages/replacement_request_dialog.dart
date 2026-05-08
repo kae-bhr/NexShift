@@ -442,6 +442,14 @@ class _ReplacementRequestDialogState extends State<ReplacementRequestDialog> {
         'declinedAt': Timestamp.now(),
       });
 
+      // Mettre à jour declinedByUserIds pour que le filtre de la liste retire la demande
+      await FirebaseFirestore.instance
+          .collection(_getReplacementRequestsPath())
+          .doc(widget.requestId)
+          .update({
+        'declinedByUserIds': FieldValue.arrayUnion([widget.currentUserId]),
+      });
+
       debugPrint(
         '✅ Decline recorded for request ${_request!.id} by user ${widget.currentUserId} (docId: ${docRef.id})',
       );
