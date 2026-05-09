@@ -1,8 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/data/models/shift_exchange_request_model.dart';
-import 'package:nexshift_app/core/data/models/shift_exchange_proposal_model.dart';
-import 'package:nexshift_app/core/data/models/station_model.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/data/models/shift_exchange_request_model.dart';
+import 'package:releve/core/data/models/shift_exchange_proposal_model.dart';
+import 'package:releve/core/data/models/station_model.dart';
 
 /// Service de gestion des échanges de garde
 ///

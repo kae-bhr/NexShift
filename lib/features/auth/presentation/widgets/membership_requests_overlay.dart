@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/data/models/membership_request_model.dart';
-import 'package:nexshift_app/core/services/cloud_functions_service.dart';
+import 'package:releve/core/data/models/membership_request_model.dart';
+import 'package:releve/core/services/cloud_functions_service.dart';
 
 /// Overlay flottant affichant les demandes d'adhésion en attente
 /// Visible uniquement pour les administrateurs et chefs d'équipe

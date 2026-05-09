@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:releve/core/utils/constants.dart';
 
 /// Dialog permettant à un utilisateur habilité de débloquer les compétences-clés
 /// d'une demande de remplacement en vague 5.

@@ -1,10 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/presentation/widgets/app_empty_state.dart';
-import 'package:nexshift_app/core/services/replacement_notification_service.dart';
-import 'package:nexshift_app/features/replacement/presentation/widgets/replacement_sub_tabs.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/config/environment_config.dart';
+import 'package:releve/core/presentation/widgets/app_empty_state.dart';
+import 'package:releve/core/services/replacement_notification_service.dart';
+import 'package:releve/features/replacement/presentation/widgets/replacement_sub_tabs.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/config/environment_config.dart';
 
 /// Type de demande de remplacement
 enum ReplacementItemType {

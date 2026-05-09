@@ -1,9 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
-import 'package:nexshift_app/core/config/environment_config.dart';
-import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/repositories/user_repository.dart';
+import 'package:releve/core/config/environment_config.dart';
+import 'package:releve/core/data/datasources/user_storage_helper.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/repositories/user_repository.dart';
 
 /// Service gérant les changements d'appartenance à l'effectif (équipe).
 ///

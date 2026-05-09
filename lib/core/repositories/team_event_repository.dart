@@ -1,8 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:nexshift_app/core/data/models/team_event_model.dart';
-import 'package:nexshift_app/core/services/firestore_service.dart';
-import 'package:nexshift_app/core/config/environment_config.dart';
+import 'package:releve/core/data/models/team_event_model.dart';
+import 'package:releve/core/services/firestore_service.dart';
+import 'package:releve/core/config/environment_config.dart';
 
 /// Repository pour les événements d'équipe/caserne.
 /// Chemin Firestore : /sdis/{sdisId}/stations/{stationId}/teamEvents/{eventId}

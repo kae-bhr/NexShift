@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/data/datasources/notifiers.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/presentation/widgets/value_listenable_builder_widget.dart';
+import 'package:releve/core/data/datasources/notifiers.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/presentation/widgets/value_listenable_builder_widget.dart';
 
 class NavbarWidget extends StatelessWidget {
   const NavbarWidget({super.key});

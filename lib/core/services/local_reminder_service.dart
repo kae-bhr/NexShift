@@ -1,9 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
-import 'package:nexshift_app/core/data/models/planning_model.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/repositories/planning_repository.dart';
+import 'package:releve/core/data/datasources/sdis_context.dart';
+import 'package:releve/core/data/models/planning_model.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/repositories/planning_repository.dart';
 import 'package:timezone/timezone.dart' as tz;
 
 /// Résultat de filtrage d'une astreinte active pour un agent.

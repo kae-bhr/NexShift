@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/features/planning/presentation/pages/planning_rules_list_page.dart';
+import 'package:releve/features/planning/presentation/pages/planning_rules_list_page.dart';
 
 /// Planning/Astreintes tab page
 class PlanningTabPage extends StatelessWidget {

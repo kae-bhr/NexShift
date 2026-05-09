@@ -1,7 +1,7 @@
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/data/models/trucks_model.dart';
-import 'package:nexshift_app/core/services/skill_criticality_service.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/data/models/trucks_model.dart';
+import 'package:releve/core/services/skill_criticality_service.dart';
+import 'package:releve/core/utils/constants.dart';
 
 /// Sous-catégories pour les agents non-notifiés (vague 0)
 enum NonNotifiedCategory {

@@ -1,4 +1,4 @@
-import 'package:nexshift_app/core/data/models/crew_mode_model.dart';
+import 'package:releve/core/data/models/crew_mode_model.dart';
 
 /// Represents the complete rule set for a vehicle type
 /// Defines all available crew modes and their configurations

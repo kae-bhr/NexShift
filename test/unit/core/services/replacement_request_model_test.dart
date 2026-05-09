@@ -4,8 +4,8 @@ library;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nexshift_app/core/services/replacement_notification_service.dart';
-import 'package:nexshift_app/core/data/models/station_model.dart';
+import 'package:releve/core/services/replacement_notification_service.dart';
+import 'package:releve/core/data/models/station_model.dart';
 
 void main() {
   group('ReplacementRequest - Nouveaux champs Phase 1', () {

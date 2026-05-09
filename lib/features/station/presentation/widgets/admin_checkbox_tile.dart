@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/repositories/user_repository.dart';
+import 'package:releve/core/data/datasources/user_storage_helper.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/repositories/user_repository.dart';
 
 class AdminCheckboxTile extends StatefulWidget {
   final User user;

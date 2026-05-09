@@ -3,8 +3,8 @@
 library;
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nexshift_app/core/services/wave_calculation_service.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
+import 'package:releve/core/services/wave_calculation_service.dart';
+import 'package:releve/core/data/models/user_model.dart';
 
 void main() {
   group('WaveCalculationService', () {

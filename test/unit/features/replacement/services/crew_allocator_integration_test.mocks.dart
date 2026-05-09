@@ -6,9 +6,9 @@
 import 'dart:async' as _i3;
 
 import 'package:mockito/mockito.dart' as _i1;
-import 'package:nexshift_app/core/data/models/vehicle_rule_set_model.dart'
+import 'package:releve/core/data/models/vehicle_rule_set_model.dart'
     as _i4;
-import 'package:nexshift_app/core/repositories/vehicle_rules_repository.dart'
+import 'package:releve/core/repositories/vehicle_rules_repository.dart'
     as _i2;
 
 // ignore_for_file: type=lint

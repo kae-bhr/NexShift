@@ -1,21 +1,21 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
-import 'package:nexshift_app/core/data/models/auth_model.dart';
-import 'package:nexshift_app/core/data/models/station_model.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/data/models/user_stations_model.dart';
-import 'package:nexshift_app/core/presentation/widgets/hero_widget.dart';
-import 'package:nexshift_app/core/repositories/auth_repository.dart';
-import 'package:nexshift_app/core/repositories/local_repositories.dart';
-import 'package:nexshift_app/core/repositories/station_repository.dart';
-import 'package:nexshift_app/core/repositories/user_repository.dart';
-import 'package:nexshift_app/core/repositories/user_stations_repository.dart';
-import 'package:nexshift_app/core/services/firebase_auth_service.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
-import 'package:nexshift_app/features/auth/presentation/widgets/enter_app_widget.dart';
-import 'package:nexshift_app/features/auth/presentation/widgets/password_strength_field_widget.dart';
-import 'package:nexshift_app/features/auth/presentation/widgets/snake_bar_widget.dart';
-import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
+import 'package:releve/core/data/datasources/sdis_context.dart';
+import 'package:releve/core/data/models/auth_model.dart';
+import 'package:releve/core/data/models/station_model.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/data/models/user_stations_model.dart';
+import 'package:releve/core/presentation/widgets/hero_widget.dart';
+import 'package:releve/core/repositories/auth_repository.dart';
+import 'package:releve/core/repositories/local_repositories.dart';
+import 'package:releve/core/repositories/station_repository.dart';
+import 'package:releve/core/repositories/user_repository.dart';
+import 'package:releve/core/repositories/user_stations_repository.dart';
+import 'package:releve/core/services/firebase_auth_service.dart';
+import 'package:releve/core/utils/constants.dart';
+import 'package:releve/features/auth/presentation/widgets/enter_app_widget.dart';
+import 'package:releve/features/auth/presentation/widgets/password_strength_field_widget.dart';
+import 'package:releve/features/auth/presentation/widgets/snake_bar_widget.dart';
+import 'package:releve/core/presentation/widgets/custom_app_bar.dart';
 
 /// Page de confirmation pour la création d'un compte via licence
 class LicenceConfirmationPage extends StatefulWidget {
@@ -261,7 +261,7 @@ class _LicenceConfirmationPageState extends State<LicenceConfirmationPage> {
       // Afficher un message de succès puis naviguer
       SnakebarWidget.showSnackBar(
         context,
-        'Compte créé avec succès ! Bienvenue sur NexShift.',
+        'Compte créé avec succès ! Bienvenue sur Relève.',
         colorScheme.primary,
       );
 

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:releve/core/utils/constants.dart';
 
 /// Page affichée quand l'application est en mode maintenance
 class MaintenancePage extends StatelessWidget {

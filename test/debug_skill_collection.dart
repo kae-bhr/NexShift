@@ -1,6 +1,6 @@
-import 'package:nexshift_app/core/data/models/trucks_model.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
-import 'package:nexshift_app/core/utils/default_vehicle_rules.dart';
+import 'package:releve/core/data/models/trucks_model.dart';
+import 'package:releve/core/utils/constants.dart';
+import 'package:releve/core/utils/default_vehicle_rules.dart';
 
 /// Script de debug pour vérifier la collection des compétences
 void main() async {

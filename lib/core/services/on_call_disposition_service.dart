@@ -1,6 +1,6 @@
-import 'package:nexshift_app/core/data/models/on_call_level_model.dart';
-import 'package:nexshift_app/core/data/models/planning_model.dart';
-import 'package:nexshift_app/core/data/models/station_model.dart';
+import 'package:releve/core/data/models/on_call_level_model.dart';
+import 'package:releve/core/data/models/planning_model.dart';
+import 'package:releve/core/data/models/station_model.dart';
 
 /// Type de présence d'un agent dans la garde
 enum PresenceType { regular, exchange, replacement }

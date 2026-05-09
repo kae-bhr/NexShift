@@ -1,10 +1,10 @@
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/services/cloud_functions_service.dart';
-import 'package:nexshift_app/core/services/firebase_auth_service.dart';
-import 'package:nexshift_app/core/services/push_notification_service.dart';
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
-import 'package:nexshift_app/features/auth/presentation/pages/station_search_page.dart';
+import 'package:releve/core/services/cloud_functions_service.dart';
+import 'package:releve/core/services/firebase_auth_service.dart';
+import 'package:releve/core/services/push_notification_service.dart';
+import 'package:releve/core/data/datasources/sdis_context.dart';
+import 'package:releve/features/auth/presentation/pages/station_search_page.dart';
 
 /// Page de création de compte utilisateur
 /// Permet aux pompiers de créer un compte avec leur email professionnel
@@ -162,7 +162,7 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Text(
-                'Bienvenue sur NexShift',
+                'Bienvenue sur Relève',
                 style: TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.bold,

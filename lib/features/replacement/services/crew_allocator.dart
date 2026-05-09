@@ -1,9 +1,9 @@
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/data/models/trucks_model.dart';
-import 'package:nexshift_app/core/data/models/crew_position_model.dart';
-import 'package:nexshift_app/core/data/models/crew_mode_model.dart';
-import 'package:nexshift_app/core/repositories/vehicle_rules_repository.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/data/models/trucks_model.dart';
+import 'package:releve/core/data/models/crew_position_model.dart';
+import 'package:releve/core/data/models/crew_mode_model.dart';
+import 'package:releve/core/repositories/vehicle_rules_repository.dart';
+import 'package:releve/core/utils/constants.dart';
 
 /// Statut du véhicule selon le niveau d'équipage
 /// green = mode complet, orange = mode restreint, red = incomplet, grey = non géré

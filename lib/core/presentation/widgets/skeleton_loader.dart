@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/utils/design_system.dart';
+import 'package:releve/core/utils/design_system.dart';
 
 /// Skeleton loader avec effet shimmer
 class SkeletonLoader extends StatefulWidget {

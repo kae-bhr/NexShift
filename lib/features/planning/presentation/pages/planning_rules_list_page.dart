@@ -1,21 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:nexshift_app/core/data/models/shift_rule_model.dart';
-import 'package:nexshift_app/core/data/models/station_model.dart';
-import 'package:nexshift_app/core/repositories/shift_rule_repository.dart';
-import 'package:nexshift_app/core/repositories/shift_exception_repository.dart';
-import 'package:nexshift_app/core/services/planning_generation_service.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
-import 'package:nexshift_app/features/planning/presentation/pages/edit_shift_rule_page.dart';
-import 'package:nexshift_app/core/data/models/generation_options_model.dart';
-import 'package:nexshift_app/core/data/models/shift_exception_model.dart';
-import 'package:nexshift_app/core/data/models/team_model.dart';
-import 'package:nexshift_app/core/repositories/team_repository.dart';
-import 'package:nexshift_app/features/planning/presentation/pages/generation_impact_page.dart';
-import 'package:nexshift_app/features/planning/presentation/pages/shift_exceptions_page.dart';
-import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/config/environment_config.dart';
+import 'package:releve/core/data/models/shift_rule_model.dart';
+import 'package:releve/core/data/models/station_model.dart';
+import 'package:releve/core/repositories/shift_rule_repository.dart';
+import 'package:releve/core/repositories/shift_exception_repository.dart';
+import 'package:releve/core/services/planning_generation_service.dart';
+import 'package:releve/core/utils/constants.dart';
+import 'package:releve/features/planning/presentation/pages/edit_shift_rule_page.dart';
+import 'package:releve/core/data/models/generation_options_model.dart';
+import 'package:releve/core/data/models/shift_exception_model.dart';
+import 'package:releve/core/data/models/team_model.dart';
+import 'package:releve/core/repositories/team_repository.dart';
+import 'package:releve/features/planning/presentation/pages/generation_impact_page.dart';
+import 'package:releve/features/planning/presentation/pages/shift_exceptions_page.dart';
+import 'package:releve/core/data/datasources/user_storage_helper.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/config/environment_config.dart';
 
 class PlanningRulesListPage extends StatefulWidget {
   const PlanningRulesListPage({super.key});

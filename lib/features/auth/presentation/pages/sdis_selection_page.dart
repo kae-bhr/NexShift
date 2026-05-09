@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/data/models/sdis_model.dart';
-import 'package:nexshift_app/core/repositories/sdis_repository.dart';
-import 'package:nexshift_app/core/services/preferences_service.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
-import 'package:nexshift_app/features/auth/presentation/pages/login_page.dart';
-import 'package:nexshift_app/core/presentation/widgets/hero_widget.dart';
+import 'package:releve/core/data/models/sdis_model.dart';
+import 'package:releve/core/repositories/sdis_repository.dart';
+import 'package:releve/core/services/preferences_service.dart';
+import 'package:releve/core/utils/constants.dart';
+import 'package:releve/features/auth/presentation/pages/login_page.dart';
+import 'package:releve/core/presentation/widgets/hero_widget.dart';
 
 /// Page de sélection du SDIS
 /// Première page de l'application, permet de choisir le SDIS avant le login

@@ -4,7 +4,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
+import 'package:releve/core/data/datasources/sdis_context.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'debug_logger.dart';
 

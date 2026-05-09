@@ -1,6 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:flutter/foundation.dart';
-import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
+import 'package:releve/core/data/datasources/user_storage_helper.dart';
 
 /// Contexte global pour le SDIS actuellement sélectionné
 /// Permet à tous les repositories d'accéder au sdisId sans le passer en paramètre

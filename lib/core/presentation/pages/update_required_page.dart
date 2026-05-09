@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:releve/core/utils/constants.dart';
 
 /// Page affichée quand le build courant est trop ancien et doit être mis à jour.
 class UpdateRequiredPage extends StatelessWidget {

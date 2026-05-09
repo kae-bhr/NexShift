@@ -2,7 +2,7 @@
 ///
 /// Usage:
 /// ```dart
-/// import 'package:nexshift_app/core/presentation/widgets/unified_request_tile/unified_request_tile_exports.dart';
+/// import 'package:releve/core/presentation/widgets/unified_request_tile/unified_request_tile_exports.dart';
 /// ```
 library;
 

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/utils/design_system.dart';
+import 'package:releve/core/utils/design_system.dart';
 
 /// Widget d'erreur réutilisable avec message user-friendly et bouton retry
 class ErrorWidget extends StatelessWidget {

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/data/models/planning_model.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/data/models/subshift_model.dart';
-import 'package:nexshift_app/features/replacement/presentation/pages/replacement_page.dart';
-import 'package:nexshift_app/features/shift_exchange/presentation/pages/shift_exchange_page.dart';
+import 'package:releve/core/data/models/planning_model.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/data/models/subshift_model.dart';
+import 'package:releve/features/replacement/presentation/pages/replacement_page.dart';
+import 'package:releve/features/shift_exchange/presentation/pages/shift_exchange_page.dart';
 
 /// Widget réutilisable pour afficher le menu d'absence avec les trois options :
 /// - Recherche automatique

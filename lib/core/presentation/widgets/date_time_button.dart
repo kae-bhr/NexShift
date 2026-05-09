@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:releve/core/utils/constants.dart';
 
 /// Bouton affichant une date/heure sélectionnée ou un label placeholder.
 /// Déclenche [onTap] pour ouvrir le sélecteur de date/heure.

@@ -1,4 +1,4 @@
-import 'package:nexshift_app/core/data/datasources/notifiers.dart';
+import 'package:releve/core/data/datasources/notifiers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Service de gestion des préférences locales de l'application

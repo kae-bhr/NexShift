@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/data/models/sdis_model.dart';
-import 'package:nexshift_app/core/repositories/sdis_repository.dart';
-import 'package:nexshift_app/core/presentation/widgets/hero_widget.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
-import 'package:nexshift_app/features/auth/presentation/pages/create_account_page.dart';
+import 'package:releve/core/data/models/sdis_model.dart';
+import 'package:releve/core/repositories/sdis_repository.dart';
+import 'package:releve/core/presentation/widgets/hero_widget.dart';
+import 'package:releve/core/utils/constants.dart';
+import 'package:releve/features/auth/presentation/pages/create_account_page.dart';
 
 /// Page de sélection du SDIS pour la création de compte
 /// Permet de choisir le SDIS avant de créer un compte

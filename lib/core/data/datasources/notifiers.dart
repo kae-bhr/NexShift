@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/services/subscription_service.dart';
-import 'package:nexshift_app/features/planning/presentation/widgets/view_mode.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/services/subscription_service.dart';
+import 'package:releve/features/planning/presentation/widgets/view_mode.dart';
 
 // Custom ValueNotifier avec logs pour debugging
 class LoggingBoolNotifier extends ValueNotifier<bool> {

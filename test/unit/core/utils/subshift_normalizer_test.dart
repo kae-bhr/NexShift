@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nexshift_app/core/data/models/subshift_model.dart';
-import 'package:nexshift_app/core/utils/subshift_normalizer.dart';
+import 'package:releve/core/data/models/subshift_model.dart';
+import 'package:releve/core/utils/subshift_normalizer.dart';
 
 void main() {
   group('resolveReplacementCascades', () {

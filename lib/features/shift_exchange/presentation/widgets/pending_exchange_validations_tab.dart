@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/data/datasources/notifiers.dart';
-import 'package:nexshift_app/core/data/models/shift_exchange_proposal_model.dart';
-import 'package:nexshift_app/core/data/models/shift_exchange_request_model.dart';
-import 'package:nexshift_app/core/data/models/planning_model.dart';
-import 'package:nexshift_app/core/services/shift_exchange_service.dart';
-import 'package:nexshift_app/core/repositories/shift_exchange_repository.dart';
-import 'package:nexshift_app/core/repositories/planning_repository.dart';
+import 'package:releve/core/data/datasources/notifiers.dart';
+import 'package:releve/core/data/models/shift_exchange_proposal_model.dart';
+import 'package:releve/core/data/models/shift_exchange_request_model.dart';
+import 'package:releve/core/data/models/planning_model.dart';
+import 'package:releve/core/services/shift_exchange_service.dart';
+import 'package:releve/core/repositories/shift_exchange_repository.dart';
+import 'package:releve/core/repositories/planning_repository.dart';
 
 /// Onglet affichant les propositions d'échange en attente de validation
 /// Visible uniquement pour les chefs d'équipe et leaders

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:releve/core/presentation/widgets/custom_app_bar.dart';
+import 'package:releve/core/utils/constants.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Page de configuration de la synchronisation

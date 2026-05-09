@@ -1,5 +1,5 @@
-import 'package:nexshift_app/core/data/models/planning_model.dart';
-import 'package:nexshift_app/core/data/models/subshift_model.dart';
+import 'package:releve/core/data/models/planning_model.dart';
+import 'package:releve/core/data/models/subshift_model.dart';
 
 /// Mode de génération des plannings
 enum GenerationMode {

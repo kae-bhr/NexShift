@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/config/environment.dart';
+import 'package:releve/config/environment.dart';
 
 /// Bannière affichée en haut de l'app pour les environnements dev/staging
 class EnvironmentBanner extends StatelessWidget {

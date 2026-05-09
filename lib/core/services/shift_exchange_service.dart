@@ -1,19 +1,19 @@
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:nexshift_app/core/data/models/shift_exchange_request_model.dart';
-import 'package:nexshift_app/core/config/environment_config.dart';
-import 'package:nexshift_app/core/data/models/shift_exchange_proposal_model.dart';
-import 'package:nexshift_app/core/data/models/subshift_model.dart';
-import 'package:nexshift_app/core/repositories/shift_exchange_repository.dart';
-import 'package:nexshift_app/core/repositories/subshift_repositories.dart';
-import 'package:nexshift_app/core/repositories/user_repository.dart';
-import 'package:nexshift_app/core/repositories/planning_repository.dart';
-import 'package:nexshift_app/core/services/replacement_notification_service.dart';
-import 'package:nexshift_app/core/services/shift_exchange_notification_service.dart';
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart'
+import 'package:releve/core/data/models/shift_exchange_request_model.dart';
+import 'package:releve/core/config/environment_config.dart';
+import 'package:releve/core/data/models/shift_exchange_proposal_model.dart';
+import 'package:releve/core/data/models/subshift_model.dart';
+import 'package:releve/core/repositories/shift_exchange_repository.dart';
+import 'package:releve/core/repositories/subshift_repositories.dart';
+import 'package:releve/core/repositories/user_repository.dart';
+import 'package:releve/core/repositories/planning_repository.dart';
+import 'package:releve/core/services/replacement_notification_service.dart';
+import 'package:releve/core/services/shift_exchange_notification_service.dart';
+import 'package:releve/core/data/datasources/sdis_context.dart'
     show SDISContext;
-import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:releve/core/utils/constants.dart';
 
 /// Service pour gérer les échanges d'astreinte
 class ShiftExchangeService {

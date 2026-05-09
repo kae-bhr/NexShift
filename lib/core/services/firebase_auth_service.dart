@@ -1,12 +1,12 @@
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:flutter/foundation.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/data/models/user_stations_model.dart';
-import 'package:nexshift_app/core/data/models/user_claims_model.dart';
-import 'package:nexshift_app/core/repositories/user_repository.dart';
-import 'package:nexshift_app/core/repositories/user_stations_repository.dart';
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
-import 'package:nexshift_app/core/services/cloud_functions_service.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/data/models/user_stations_model.dart';
+import 'package:releve/core/data/models/user_claims_model.dart';
+import 'package:releve/core/repositories/user_repository.dart';
+import 'package:releve/core/repositories/user_stations_repository.dart';
+import 'package:releve/core/data/datasources/sdis_context.dart';
+import 'package:releve/core/services/cloud_functions_service.dart';
 
 /// Exception lancée quand l'utilisateur existe dans Firebase Auth
 /// mais n'a pas de profil dans Firestore

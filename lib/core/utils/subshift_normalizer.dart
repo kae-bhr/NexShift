@@ -1,4 +1,4 @@
-import 'package:nexshift_app/core/data/models/subshift_model.dart';
+import 'package:releve/core/data/models/subshift_model.dart';
 
 /// Extension utilitaire pour firstWhereOrNull
 extension IterableFirstWhereOrNull<E> on Iterable<E> {

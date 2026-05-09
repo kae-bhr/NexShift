@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
-import 'package:nexshift_app/core/data/datasources/notifiers.dart';
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
-import 'package:nexshift_app/core/repositories/local_repositories.dart';
-import 'package:nexshift_app/core/repositories/user_stations_repository.dart';
-import 'package:nexshift_app/core/services/push_notification_service.dart';
-import 'package:nexshift_app/core/utils/station_name_cache.dart';
-import 'package:nexshift_app/features/auth/presentation/widgets/station_selection_dialog.dart';
-import 'package:nexshift_app/features/auth/presentation/widgets/snake_bar_widget.dart';
+import 'package:releve/core/data/datasources/user_storage_helper.dart';
+import 'package:releve/core/data/datasources/notifiers.dart';
+import 'package:releve/core/data/datasources/sdis_context.dart';
+import 'package:releve/core/repositories/local_repositories.dart';
+import 'package:releve/core/repositories/user_stations_repository.dart';
+import 'package:releve/core/services/push_notification_service.dart';
+import 'package:releve/core/utils/station_name_cache.dart';
+import 'package:releve/features/auth/presentation/widgets/station_selection_dialog.dart';
+import 'package:releve/features/auth/presentation/widgets/snake_bar_widget.dart';
 
 /// Bouton pour changer de station
 /// Affiché uniquement si l'utilisateur appartient à plusieurs stations

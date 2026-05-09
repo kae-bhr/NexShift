@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:nexshift_app/core/data/models/shift_exchange_proposal_model.dart';
-import 'package:nexshift_app/core/data/models/shift_exchange_request_model.dart';
-import 'package:nexshift_app/core/data/models/planning_model.dart';
-import 'package:nexshift_app/core/repositories/planning_repository.dart';
-import 'package:nexshift_app/core/services/shift_exchange_service.dart';
+import 'package:releve/core/data/models/shift_exchange_proposal_model.dart';
+import 'package:releve/core/data/models/shift_exchange_request_model.dart';
+import 'package:releve/core/data/models/planning_model.dart';
+import 'package:releve/core/repositories/planning_repository.dart';
+import 'package:releve/core/services/shift_exchange_service.dart';
 
 /// Calcule la durée en minutes
 int _durationMinutes(DateTime start, DateTime end) =>

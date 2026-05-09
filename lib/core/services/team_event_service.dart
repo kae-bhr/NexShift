@@ -1,11 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
-import 'package:nexshift_app/core/config/environment_config.dart';
-import 'package:nexshift_app/core/data/models/team_event_model.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/repositories/planning_repository.dart';
-import 'package:nexshift_app/core/repositories/team_event_repository.dart';
-import 'package:nexshift_app/core/repositories/user_repository.dart';
+import 'package:releve/core/config/environment_config.dart';
+import 'package:releve/core/data/models/team_event_model.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/repositories/planning_repository.dart';
+import 'package:releve/core/repositories/team_event_repository.dart';
+import 'package:releve/core/repositories/user_repository.dart';
 
 /// Service gérant le cycle de vie des événements d'équipe/caserne ([TeamEvent]).
 ///

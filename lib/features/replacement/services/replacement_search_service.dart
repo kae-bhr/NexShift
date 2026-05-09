@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/data/models/planning_model.dart';
-import 'package:nexshift_app/core/data/models/subshift_model.dart';
-import 'package:nexshift_app/core/services/replacement_notification_service.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/data/models/planning_model.dart';
+import 'package:releve/core/data/models/subshift_model.dart';
+import 'package:releve/core/services/replacement_notification_service.dart';
 
 /// Service pour la logique commune de recherche de remplaçants
 class ReplacementSearchService {

@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/presentation/widgets/unified_request_tile/unified_request_tile_exports.dart';
-import 'package:nexshift_app/core/services/replacement_notification_service.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/data/models/station_model.dart';
-import 'package:nexshift_app/core/repositories/user_repository.dart';
-import 'package:nexshift_app/core/repositories/station_repository.dart';
+import 'package:releve/core/presentation/widgets/unified_request_tile/unified_request_tile_exports.dart';
+import 'package:releve/core/services/replacement_notification_service.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/data/models/station_model.dart';
+import 'package:releve/core/repositories/user_repository.dart';
+import 'package:releve/core/repositories/station_repository.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:nexshift_app/core/config/environment_config.dart';
+import 'package:releve/core/config/environment_config.dart';
 import 'package:flutter/foundation.dart';
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
-import 'package:nexshift_app/core/utils/station_name_cache.dart';
-import 'package:nexshift_app/features/replacement/presentation/widgets/filtered_requests_view.dart';
+import 'package:releve/core/data/datasources/sdis_context.dart';
+import 'package:releve/core/utils/station_name_cache.dart';
+import 'package:releve/features/replacement/presentation/widgets/filtered_requests_view.dart';
 
 /// Widget wrapper pour afficher une demande de remplacement automatique
 /// avec le nouveau design unifié

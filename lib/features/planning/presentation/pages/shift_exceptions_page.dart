@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/data/models/shift_exception_model.dart';
-import 'package:nexshift_app/core/data/models/station_model.dart';
-import 'package:nexshift_app/core/data/models/team_model.dart';
-import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
-import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
-import 'package:nexshift_app/core/repositories/shift_exception_repository.dart';
-import 'package:nexshift_app/core/repositories/team_repository.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:releve/core/data/models/shift_exception_model.dart';
+import 'package:releve/core/data/models/station_model.dart';
+import 'package:releve/core/data/models/team_model.dart';
+import 'package:releve/core/data/datasources/user_storage_helper.dart';
+import 'package:releve/core/presentation/widgets/custom_app_bar.dart';
+import 'package:releve/core/repositories/shift_exception_repository.dart';
+import 'package:releve/core/repositories/team_repository.dart';
+import 'package:releve/core/utils/constants.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:nexshift_app/core/config/environment_config.dart';
+import 'package:releve/core/config/environment_config.dart';
 
 class ShiftExceptionsPage extends StatefulWidget {
   const ShiftExceptionsPage({super.key});

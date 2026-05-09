@@ -1,8 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:nexshift_app/core/data/models/subshift_model.dart';
-import 'package:nexshift_app/core/utils/subshift_normalizer.dart';
-import 'package:nexshift_app/core/config/environment_config.dart';
+import 'package:releve/core/data/models/subshift_model.dart';
+import 'package:releve/core/utils/subshift_normalizer.dart';
+import 'package:releve/core/config/environment_config.dart';
 
 class SubshiftRepository {
   final FirebaseFirestore? _directFirestore;

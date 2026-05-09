@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/presentation/widgets/hero_widget.dart';
-import 'package:nexshift_app/core/repositories/local_repositories.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
-import 'package:nexshift_app/features/auth/presentation/widgets/enter_app_widget.dart';
-import 'package:nexshift_app/features/auth/presentation/widgets/password_strength_field_widget.dart';
-import 'package:nexshift_app/features/auth/presentation/widgets/snake_bar_widget.dart';
-import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/presentation/widgets/hero_widget.dart';
+import 'package:releve/core/repositories/local_repositories.dart';
+import 'package:releve/core/utils/constants.dart';
+import 'package:releve/features/auth/presentation/widgets/enter_app_widget.dart';
+import 'package:releve/features/auth/presentation/widgets/password_strength_field_widget.dart';
+import 'package:releve/features/auth/presentation/widgets/snake_bar_widget.dart';
+import 'package:releve/core/presentation/widgets/custom_app_bar.dart';
 
 class ConfirmationPage extends StatefulWidget {
   const ConfirmationPage({super.key, required this.id});

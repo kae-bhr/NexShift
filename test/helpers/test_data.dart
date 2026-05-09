@@ -2,7 +2,7 @@
 library;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:nexshift_app/core/services/replacement_notification_service.dart';
+import 'package:releve/core/services/replacement_notification_service.dart';
 
 /// Crée une demande de remplacement de test
 Map<String, dynamic> createTestReplacementRequest({

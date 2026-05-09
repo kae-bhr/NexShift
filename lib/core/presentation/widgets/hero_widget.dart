@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
-import 'package:nexshift_app/core/data/datasources/notifiers.dart';
+import 'package:releve/core/data/datasources/notifiers.dart';
 
 class HeroWidget extends StatelessWidget {
   const HeroWidget({super.key});

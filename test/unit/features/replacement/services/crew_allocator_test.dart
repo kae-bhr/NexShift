@@ -3,10 +3,10 @@
 library;
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nexshift_app/features/replacement/services/crew_allocator.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/data/models/trucks_model.dart';
-import 'package:nexshift_app/core/data/models/crew_position_model.dart';
+import 'package:releve/features/replacement/services/crew_allocator.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/data/models/trucks_model.dart';
+import 'package:releve/core/data/models/crew_position_model.dart';
 
 void main() {
   group('CrewAllocator', () {

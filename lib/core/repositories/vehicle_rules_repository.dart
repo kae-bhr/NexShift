@@ -1,10 +1,10 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:nexshift_app/core/data/models/vehicle_rule_set_model.dart';
-import 'package:nexshift_app/core/utils/default_vehicle_rules.dart';
-import 'package:nexshift_app/core/services/firestore_service.dart';
-import 'package:nexshift_app/core/config/environment_config.dart';
+import 'package:releve/core/data/models/vehicle_rule_set_model.dart';
+import 'package:releve/core/utils/default_vehicle_rules.dart';
+import 'package:releve/core/services/firestore_service.dart';
+import 'package:releve/core/config/environment_config.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Repository for managing vehicle crew rules

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// Design System centralisé pour l'application NexShift
+/// Design System centralisé pour l'application Relève
 /// Définit tous les tokens de design : spacing, typography, colors, animations, etc.
 
 /// Espacements standardisés (en pixels)

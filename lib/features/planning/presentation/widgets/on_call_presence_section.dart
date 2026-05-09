@@ -1,18 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:nexshift_app/core/data/models/availability_model.dart';
-import 'package:nexshift_app/core/data/models/on_call_level_model.dart';
-import 'package:nexshift_app/core/data/models/planning_agent_model.dart';
-import 'package:nexshift_app/core/data/models/planning_model.dart';
-import 'package:nexshift_app/core/data/models/station_model.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/presentation/widgets/diagonal_stripe_painter.dart';
-import 'package:nexshift_app/core/services/on_call_disposition_service.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
-import 'package:nexshift_app/features/planning/presentation/widgets/add_agent_menu_overlay.dart';
-import 'package:nexshift_app/core/data/datasources/notifiers.dart';
-import 'package:nexshift_app/core/presentation/widgets/contextual_menu_button.dart';
-import 'package:nexshift_app/core/services/preferences_service.dart';
+import 'package:releve/core/data/models/availability_model.dart';
+import 'package:releve/core/data/models/on_call_level_model.dart';
+import 'package:releve/core/data/models/planning_agent_model.dart';
+import 'package:releve/core/data/models/planning_model.dart';
+import 'package:releve/core/data/models/station_model.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/presentation/widgets/diagonal_stripe_painter.dart';
+import 'package:releve/core/services/on_call_disposition_service.dart';
+import 'package:releve/core/utils/constants.dart';
+import 'package:releve/features/planning/presentation/widgets/add_agent_menu_overlay.dart';
+import 'package:releve/core/data/datasources/notifiers.dart';
+import 'package:releve/core/presentation/widgets/contextual_menu_button.dart';
+import 'package:releve/core/services/preferences_service.dart';
 
 class _PersonalSlot {
   final AgentPresenceSlot slot;

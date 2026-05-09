@@ -2,7 +2,7 @@ import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:nexshift_app/core/data/datasources/notifiers.dart';
+import 'package:releve/core/data/datasources/notifiers.dart';
 
 /// Service qui vérifie si le build courant est suffisamment récent.
 ///

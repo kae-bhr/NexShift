@@ -1,17 +1,17 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/data/datasources/notifiers.dart';
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
-import 'package:nexshift_app/core/data/models/station_model.dart';
-import 'package:nexshift_app/core/data/models/position_model.dart';
-import 'package:nexshift_app/core/data/models/membership_request_model.dart';
-import 'package:nexshift_app/core/data/models/on_call_level_model.dart';
-import 'package:nexshift_app/core/repositories/position_repository.dart';
-import 'package:nexshift_app/core/repositories/station_repository.dart';
-import 'package:nexshift_app/core/repositories/on_call_level_repository.dart';
-import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
-import 'package:nexshift_app/core/utils/station_name_cache.dart';
-import 'package:nexshift_app/core/services/cloud_functions_service.dart';
+import 'package:releve/core/data/datasources/notifiers.dart';
+import 'package:releve/core/data/datasources/sdis_context.dart';
+import 'package:releve/core/data/models/station_model.dart';
+import 'package:releve/core/data/models/position_model.dart';
+import 'package:releve/core/data/models/membership_request_model.dart';
+import 'package:releve/core/data/models/on_call_level_model.dart';
+import 'package:releve/core/repositories/position_repository.dart';
+import 'package:releve/core/repositories/station_repository.dart';
+import 'package:releve/core/repositories/on_call_level_repository.dart';
+import 'package:releve/core/presentation/widgets/custom_app_bar.dart';
+import 'package:releve/core/utils/constants.dart';
+import 'package:releve/core/utils/station_name_cache.dart';
+import 'package:releve/core/services/cloud_functions_service.dart';
 
 class AdminPage extends StatefulWidget {
   const AdminPage({super.key});

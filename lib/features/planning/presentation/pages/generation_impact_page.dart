@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:nexshift_app/core/data/models/generation_options_model.dart';
-import 'package:nexshift_app/core/data/models/planning_model.dart';
-import 'package:nexshift_app/core/data/models/subshift_model.dart';
-import 'package:nexshift_app/core/data/models/team_model.dart';
-import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
-import 'package:nexshift_app/core/repositories/team_repository.dart';
-import 'package:nexshift_app/core/repositories/user_repository.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:releve/core/data/models/generation_options_model.dart';
+import 'package:releve/core/data/models/planning_model.dart';
+import 'package:releve/core/data/models/subshift_model.dart';
+import 'package:releve/core/data/models/team_model.dart';
+import 'package:releve/core/presentation/widgets/custom_app_bar.dart';
+import 'package:releve/core/repositories/team_repository.dart';
+import 'package:releve/core/repositories/user_repository.dart';
+import 'package:releve/core/utils/constants.dart';
 
 /// Écran d'aperçu des impacts d'une génération de plannings.
 /// Affiche tous les changements qui seront effectués avant confirmation.

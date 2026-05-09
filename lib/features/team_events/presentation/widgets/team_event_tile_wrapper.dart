@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
-import 'package:nexshift_app/core/data/models/team_event_model.dart';
-import 'package:nexshift_app/core/presentation/widgets/tile_confirm_dialog.dart';
-import 'package:nexshift_app/core/presentation/widgets/unified_request_tile/unified_request_tile.dart';
-import 'package:nexshift_app/core/presentation/widgets/unified_request_tile/unified_tile_data.dart';
-import 'package:nexshift_app/core/presentation/widgets/unified_request_tile/unified_tile_enums.dart';
-import 'package:nexshift_app/core/services/team_event_service.dart';
-import 'package:nexshift_app/core/utils/station_name_cache.dart';
-import 'package:nexshift_app/features/team_events/presentation/pages/team_event_page.dart';
+import 'package:releve/core/data/datasources/sdis_context.dart';
+import 'package:releve/core/data/models/team_event_model.dart';
+import 'package:releve/core/presentation/widgets/tile_confirm_dialog.dart';
+import 'package:releve/core/presentation/widgets/unified_request_tile/unified_request_tile.dart';
+import 'package:releve/core/presentation/widgets/unified_request_tile/unified_tile_data.dart';
+import 'package:releve/core/presentation/widgets/unified_request_tile/unified_tile_enums.dart';
+import 'package:releve/core/services/team_event_service.dart';
+import 'package:releve/core/utils/station_name_cache.dart';
+import 'package:releve/features/team_events/presentation/pages/team_event_page.dart';
 
 /// Tuile affichant un événement d'équipe via UnifiedRequestTile.
 class TeamEventTileWrapper extends StatefulWidget {

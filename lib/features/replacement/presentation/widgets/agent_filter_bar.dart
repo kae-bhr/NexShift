@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/repositories/user_repository.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/repositories/user_repository.dart';
+import 'package:releve/core/utils/constants.dart';
 
 /// Barre de filtre par agent, à placer sous le navigateur mensuel dans les historiques.
 class AgentFilterBar extends StatelessWidget {

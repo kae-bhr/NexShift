@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
-import 'package:nexshift_app/core/data/models/agent_query_model.dart';
-import 'package:nexshift_app/core/presentation/widgets/unified_request_tile/adapters/agent_query_adapter.dart';
-import 'package:nexshift_app/core/presentation/widgets/unified_request_tile/components/history_dialog.dart';
-import 'package:nexshift_app/core/presentation/widgets/unified_request_tile/unified_request_tile.dart';
-import 'package:nexshift_app/core/presentation/widgets/unified_request_tile/unified_tile_enums.dart';
-import 'package:nexshift_app/core/repositories/planning_repository.dart';
-import 'package:nexshift_app/core/utils/station_name_cache.dart';
-import 'package:nexshift_app/features/replacement/presentation/widgets/replacement_sub_tabs.dart';
+import 'package:releve/core/data/datasources/sdis_context.dart';
+import 'package:releve/core/data/models/agent_query_model.dart';
+import 'package:releve/core/presentation/widgets/unified_request_tile/adapters/agent_query_adapter.dart';
+import 'package:releve/core/presentation/widgets/unified_request_tile/components/history_dialog.dart';
+import 'package:releve/core/presentation/widgets/unified_request_tile/unified_request_tile.dart';
+import 'package:releve/core/presentation/widgets/unified_request_tile/unified_tile_enums.dart';
+import 'package:releve/core/repositories/planning_repository.dart';
+import 'package:releve/core/utils/station_name_cache.dart';
+import 'package:releve/features/replacement/presentation/widgets/replacement_sub_tabs.dart';
 
 /// Tuile AgentQuery unifiée — délègue à UnifiedRequestTile via AgentQueryAdapter.
 class AgentQueryTileWrapper extends StatefulWidget {

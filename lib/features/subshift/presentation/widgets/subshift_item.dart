@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/data/models/planning_model.dart';
-import 'package:nexshift_app/core/data/models/subshift_model.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/data/models/planning_model.dart';
+import 'package:releve/core/data/models/subshift_model.dart';
 
 /// Widget représentant un élément visuel d'un remplacement (SubShift)
 /// Purement UI : ne gère aucune donnée métier ni persistence.

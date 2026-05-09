@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/data/models/planning_model.dart';
-import 'package:nexshift_app/core/repositories/planning_repository.dart';
-import 'package:nexshift_app/core/services/shift_exchange_service.dart';
+import 'package:releve/core/data/models/planning_model.dart';
+import 'package:releve/core/repositories/planning_repository.dart';
+import 'package:releve/core/services/shift_exchange_service.dart';
 
 /// Dialog pour créer une demande d'échange d'astreinte
 Future<bool?> showCreateExchangeDialog({

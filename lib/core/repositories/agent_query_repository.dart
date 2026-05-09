@@ -1,8 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:nexshift_app/core/data/models/agent_query_model.dart';
-import 'package:nexshift_app/core/services/firestore_service.dart';
-import 'package:nexshift_app/core/config/environment_config.dart';
+import 'package:releve/core/data/models/agent_query_model.dart';
+import 'package:releve/core/services/firestore_service.dart';
+import 'package:releve/core/config/environment_config.dart';
 
 /// Repository pour les demandes de recherche automatique d'agent.
 /// Chemin Firestore : /sdis/{sdisId}/stations/{stationId}/replacements/queries/{queryId}

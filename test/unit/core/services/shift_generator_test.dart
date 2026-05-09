@@ -4,10 +4,10 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nexshift_app/core/services/shift_generator.dart';
-import 'package:nexshift_app/core/data/models/shift_rule_model.dart';
-import 'package:nexshift_app/core/data/models/shift_exception_model.dart';
-import 'package:nexshift_app/core/data/models/generated_shift_model.dart';
+import 'package:releve/core/services/shift_generator.dart';
+import 'package:releve/core/data/models/shift_rule_model.dart';
+import 'package:releve/core/data/models/shift_exception_model.dart';
+import 'package:releve/core/data/models/generated_shift_model.dart';
 
 void main() {
   group('ShiftGenerator', () {

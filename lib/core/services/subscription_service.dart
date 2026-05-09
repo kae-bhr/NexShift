@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
-import 'package:nexshift_app/core/data/datasources/notifiers.dart';
-import 'package:nexshift_app/core/data/models/station_model.dart';
+import 'package:releve/core/data/datasources/notifiers.dart';
+import 'package:releve/core/data/models/station_model.dart';
 
 /// État de l'abonnement d'une caserne
 enum SubscriptionStatus {

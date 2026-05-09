@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:nexshift_app/core/data/datasources/notifiers.dart';
-import 'package:nexshift_app/core/data/models/team_model.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
-import 'package:nexshift_app/features/planning/presentation/widgets/view_mode.dart';
+import 'package:releve/core/data/datasources/notifiers.dart';
+import 'package:releve/core/data/models/team_model.dart';
+import 'package:releve/core/utils/constants.dart';
+import 'package:releve/features/planning/presentation/widgets/view_mode.dart';
 
 // Largeur commune des deux colonnes latérales (filtre équipe + toggle Sem./Mois)
 const double _kToggleW = 46.0;

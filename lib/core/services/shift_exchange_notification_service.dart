@@ -1,8 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
-import 'package:nexshift_app/core/config/environment_config.dart';
-import 'package:nexshift_app/core/data/models/shift_exchange_request_model.dart';
-import 'package:nexshift_app/core/data/models/shift_exchange_proposal_model.dart';
+import 'package:releve/core/config/environment_config.dart';
+import 'package:releve/core/data/models/shift_exchange_request_model.dart';
+import 'package:releve/core/data/models/shift_exchange_proposal_model.dart';
 
 /// Service de notifications pour les échanges d'astreintes
 /// Gère toutes les notifications liées au workflow des échanges

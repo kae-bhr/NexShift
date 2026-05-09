@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/data/models/shift_rule_model.dart';
-import 'package:nexshift_app/core/data/models/team_model.dart';
-import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
-import 'package:nexshift_app/core/repositories/shift_rule_repository.dart';
-import 'package:nexshift_app/core/repositories/team_repository.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
-import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
+import 'package:releve/core/data/models/shift_rule_model.dart';
+import 'package:releve/core/data/models/team_model.dart';
+import 'package:releve/core/presentation/widgets/custom_app_bar.dart';
+import 'package:releve/core/repositories/shift_rule_repository.dart';
+import 'package:releve/core/repositories/team_repository.dart';
+import 'package:releve/core/utils/constants.dart';
+import 'package:releve/core/data/datasources/user_storage_helper.dart';
 import 'package:uuid/uuid.dart';
 
 class EditShiftRulePage extends StatefulWidget {

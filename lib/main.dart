@@ -4,35 +4,35 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:firebase_core/firebase_core.dart';
 
-import 'package:nexshift_app/config/theme.dart';
-import 'package:nexshift_app/config/environment.dart';
-import 'package:nexshift_app/config/environment_banner.dart';
-import 'package:nexshift_app/core/data/datasources/notifiers.dart';
-import 'package:nexshift_app/core/presentation/widgets/value_listenable_builder_widget.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
-import 'package:nexshift_app/core/services/firebase_auth_service.dart';
-import 'package:nexshift_app/core/services/push_notification_service.dart';
-import 'package:nexshift_app/core/services/debug_logger.dart';
-import 'package:nexshift_app/core/services/connectivity_service.dart';
-import 'package:nexshift_app/core/services/log_service.dart';
-import 'package:nexshift_app/core/presentation/pages/offline_page.dart';
-import 'package:nexshift_app/core/presentation/pages/maintenance_page.dart';
-import 'package:nexshift_app/core/presentation/pages/subscription_expired_page.dart';
-import 'package:nexshift_app/core/presentation/pages/update_required_page.dart';
-import 'package:nexshift_app/core/services/version_check_service.dart';
-import 'package:nexshift_app/core/services/maintenance_service.dart';
-import 'package:nexshift_app/core/services/subscription_service.dart';
-import 'package:nexshift_app/features/app_shell/presentation/widgets/widget_tree.dart';
-import 'package:nexshift_app/features/auth/presentation/pages/welcome_page.dart';
-import 'package:nexshift_app/features/auth/presentation/pages/profile_completion_page.dart';
-import 'package:nexshift_app/features/auth/presentation/widgets/enter_app_widget.dart';
-import 'package:nexshift_app/features/replacement/presentation/pages/replacement_request_dialog.dart';
-import 'package:nexshift_app/features/replacement/presentation/pages/replacement_requests_list_page.dart';
-import 'package:nexshift_app/core/services/preferences_service.dart';
-import 'package:nexshift_app/core/services/local_reminder_service.dart';
+import 'package:releve/config/theme.dart';
+import 'package:releve/config/environment.dart';
+import 'package:releve/config/environment_banner.dart';
+import 'package:releve/core/data/datasources/notifiers.dart';
+import 'package:releve/core/presentation/widgets/value_listenable_builder_widget.dart';
+import 'package:releve/core/utils/constants.dart';
+import 'package:releve/core/services/firebase_auth_service.dart';
+import 'package:releve/core/services/push_notification_service.dart';
+import 'package:releve/core/services/debug_logger.dart';
+import 'package:releve/core/services/connectivity_service.dart';
+import 'package:releve/core/services/log_service.dart';
+import 'package:releve/core/presentation/pages/offline_page.dart';
+import 'package:releve/core/presentation/pages/maintenance_page.dart';
+import 'package:releve/core/presentation/pages/subscription_expired_page.dart';
+import 'package:releve/core/presentation/pages/update_required_page.dart';
+import 'package:releve/core/services/version_check_service.dart';
+import 'package:releve/core/services/maintenance_service.dart';
+import 'package:releve/core/services/subscription_service.dart';
+import 'package:releve/features/app_shell/presentation/widgets/widget_tree.dart';
+import 'package:releve/features/auth/presentation/pages/welcome_page.dart';
+import 'package:releve/features/auth/presentation/pages/profile_completion_page.dart';
+import 'package:releve/features/auth/presentation/widgets/enter_app_widget.dart';
+import 'package:releve/features/replacement/presentation/pages/replacement_request_dialog.dart';
+import 'package:releve/features/replacement/presentation/pages/replacement_requests_list_page.dart';
+import 'package:releve/core/services/preferences_service.dart';
+import 'package:releve/core/services/local_reminder_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:nexshift_app/core/navigation/navigator_key.dart';
-import 'package:nexshift_app/firebase_options.dart';
+import 'package:releve/core/navigation/navigator_key.dart';
+import 'package:releve/firebase_options.dart';
 import 'package:timezone/data/latest_10y.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 
@@ -132,7 +132,7 @@ void main() async {
   tz.initializeTimeZones();
   tz.setLocalLocation(tz.getLocation('Europe/Paris'));
 
-  runApp(const NexShift());
+  runApp(const ReleveApp());
 }
 
 /// Handle notification tap and navigate to appropriate page
@@ -211,14 +211,14 @@ void _handleNotificationTap(Map<String, dynamic> data) async {
   }
 }
 
-class NexShift extends StatefulWidget {
-  const NexShift({super.key});
+class ReleveApp extends StatefulWidget {
+  const ReleveApp({super.key});
 
   @override
-  State<NexShift> createState() => _NexShiftState();
+  State<ReleveApp> createState() => _ReleveAppState();
 }
 
-class _NexShiftState extends State<NexShift> with WidgetsBindingObserver {
+class _ReleveAppState extends State<ReleveApp> with WidgetsBindingObserver {
   final _authService = FirebaseAuthService();
   final _connectivityService = ConnectivityService();
   final _maintenanceService = MaintenanceService();

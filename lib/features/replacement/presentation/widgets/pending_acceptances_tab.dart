@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/config/environment_config.dart';
-import 'package:nexshift_app/core/data/datasources/notifiers.dart';
-import 'package:nexshift_app/core/data/models/replacement_acceptance_model.dart';
-import 'package:nexshift_app/core/data/models/station_model.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/repositories/replacement_acceptance_repository.dart';
-import 'package:nexshift_app/core/repositories/station_repository.dart';
-import 'package:nexshift_app/core/repositories/user_repository.dart';
-import 'package:nexshift_app/core/services/replacement_notification_service.dart';
+import 'package:releve/core/config/environment_config.dart';
+import 'package:releve/core/data/datasources/notifiers.dart';
+import 'package:releve/core/data/models/replacement_acceptance_model.dart';
+import 'package:releve/core/data/models/station_model.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/repositories/replacement_acceptance_repository.dart';
+import 'package:releve/core/repositories/station_repository.dart';
+import 'package:releve/core/repositories/user_repository.dart';
+import 'package:releve/core/services/replacement_notification_service.dart';
 import 'package:intl/intl.dart';
 
 /// Onglet affichant les acceptations de remplacement en attente de validation

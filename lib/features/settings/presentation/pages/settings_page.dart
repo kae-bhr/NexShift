@@ -1,27 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:get_storage/get_storage.dart';
-import 'package:nexshift_app/core/data/datasources/notifiers.dart';
-import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
-import 'package:nexshift_app/core/presentation/pages/about_page.dart';
-import 'package:nexshift_app/core/presentation/pages/privacy_policy_page.dart';
-import 'package:nexshift_app/core/presentation/pages/terms_of_service_page.dart';
-import 'package:nexshift_app/core/repositories/team_repository.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
-import 'package:nexshift_app/core/services/push_notification_service.dart';
-import 'package:nexshift_app/core/services/local_reminder_service.dart';
-import 'package:nexshift_app/features/auth/presentation/pages/login_page.dart';
-import 'package:nexshift_app/features/auth/presentation/pages/station_search_page.dart';
-import 'package:nexshift_app/features/auth/presentation/pages/welcome_page.dart';
-import 'package:nexshift_app/features/settings/presentation/pages/logs_viewer_page.dart';
-import 'package:nexshift_app/features/skills/presentation/pages/skills_page.dart';
-import 'package:nexshift_app/features/settings/presentation/pages/notification_settings_page.dart';
-import 'package:nexshift_app/features/settings/presentation/pages/sync_settings_page.dart';
-import 'package:nexshift_app/features/settings/presentation/pages/similar_agents_page.dart';
+import 'package:releve/core/data/datasources/notifiers.dart';
+import 'package:releve/core/data/datasources/user_storage_helper.dart';
+import 'package:releve/core/presentation/pages/about_page.dart';
+import 'package:releve/core/presentation/pages/privacy_policy_page.dart';
+import 'package:releve/core/presentation/pages/terms_of_service_page.dart';
+import 'package:releve/core/repositories/team_repository.dart';
+import 'package:releve/core/utils/constants.dart';
+import 'package:releve/core/services/push_notification_service.dart';
+import 'package:releve/core/services/local_reminder_service.dart';
+import 'package:releve/features/auth/presentation/pages/login_page.dart';
+import 'package:releve/features/auth/presentation/pages/station_search_page.dart';
+import 'package:releve/features/auth/presentation/pages/welcome_page.dart';
+import 'package:releve/features/settings/presentation/pages/logs_viewer_page.dart';
+import 'package:releve/features/skills/presentation/pages/skills_page.dart';
+import 'package:releve/features/settings/presentation/pages/notification_settings_page.dart';
+import 'package:releve/features/settings/presentation/pages/sync_settings_page.dart';
+import 'package:releve/features/settings/presentation/pages/similar_agents_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
+import 'package:releve/core/presentation/widgets/custom_app_bar.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:nexshift_app/core/services/maintenance_service.dart';
+import 'package:releve/core/services/maintenance_service.dart';
 
 const String appVersion = '1.0.0';
 
@@ -70,7 +70,7 @@ class _SettingsPageState extends State<SettingsPage> {
           // Footer
           Center(
             child: Text(
-              '© NexShift 2025-2026',
+              '© Relève 2025-2026',
               style: TextStyle(fontSize: 12, color: Colors.grey[600]),
             ),
           ),
@@ -815,8 +815,8 @@ class _SettingsPageState extends State<SettingsPage> {
                             return;
                           }
 
-                          // Construire l'email complet avec @nexshift.app
-                          final email = '$matricule@nexshift.app';
+                          // Construire l'email complet avec @Relève.app
+                          final email = '$matricule@Relève.app';
 
                           setState(() => isLoading = true);
 

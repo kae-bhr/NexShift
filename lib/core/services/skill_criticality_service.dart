@@ -1,8 +1,8 @@
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/data/models/trucks_model.dart';
-import 'package:nexshift_app/core/repositories/vehicle_rules_repository.dart';
-import 'package:nexshift_app/features/replacement/services/crew_allocator.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/data/models/trucks_model.dart';
+import 'package:releve/core/repositories/vehicle_rules_repository.dart';
+import 'package:releve/features/replacement/services/crew_allocator.dart';
+import 'package:releve/core/utils/constants.dart';
 
 /// Résultat du calcul de criticité pour une compétence
 class SkillCriticalityScore {

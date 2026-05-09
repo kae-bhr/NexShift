@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/presentation/widgets/diagonal_stripe_painter.dart';
+import 'package:releve/core/presentation/widgets/diagonal_stripe_painter.dart';
 
 class PlanningBar extends StatelessWidget {
   final DateTime start;

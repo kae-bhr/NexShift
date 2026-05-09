@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
-import 'package:nexshift_app/core/data/models/team_event_model.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
-import 'package:nexshift_app/features/team_events/presentation/widgets/create_team_event_dialog.dart';
-import 'package:nexshift_app/core/utils/station_name_cache.dart';
+import 'package:releve/core/data/datasources/sdis_context.dart';
+import 'package:releve/core/data/models/team_event_model.dart';
+import 'package:releve/core/utils/constants.dart';
+import 'package:releve/features/team_events/presentation/widgets/create_team_event_dialog.dart';
+import 'package:releve/core/utils/station_name_cache.dart';
 
 /// Carte affichant un événement d'équipe dans la home_page.
 /// Format identique aux PlanningCard : barre gauche appNameColor,

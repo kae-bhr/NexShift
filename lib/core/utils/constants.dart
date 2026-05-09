@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 /// Enum représentant les niveaux de couleur pour les compétences
 enum SkillLevelColor {
@@ -680,7 +680,7 @@ class KTrucks {
 }
 
 class KColors {
-  static const Color appNameColor = Color.fromARGB(255, 144, 74, 68);
+  static const Color appNameColor = Color.fromARGB(255, 192, 57, 43);
   static Color get weak => Colors.redAccent;
   static Color get medium => Colors.orangeAccent;
   static Color get strong => Colors.greenAccent;

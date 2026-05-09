@@ -1,19 +1,19 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/data/models/position_model.dart';
-import 'package:nexshift_app/core/repositories/team_repository.dart';
-import 'package:nexshift_app/core/repositories/position_repository.dart';
-import 'package:nexshift_app/core/repositories/user_repository.dart';
-import 'package:nexshift_app/core/data/datasources/notifiers.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
-import 'package:nexshift_app/core/utils/design_system.dart';
-import 'package:nexshift_app/features/skills/presentation/pages/skills_page.dart';
-import 'package:nexshift_app/core/presentation/widgets/error_widget.dart'
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/data/models/position_model.dart';
+import 'package:releve/core/repositories/team_repository.dart';
+import 'package:releve/core/repositories/position_repository.dart';
+import 'package:releve/core/repositories/user_repository.dart';
+import 'package:releve/core/data/datasources/notifiers.dart';
+import 'package:releve/core/utils/constants.dart';
+import 'package:releve/core/utils/design_system.dart';
+import 'package:releve/features/skills/presentation/pages/skills_page.dart';
+import 'package:releve/core/presentation/widgets/error_widget.dart'
     as custom;
-import 'package:nexshift_app/core/presentation/widgets/skeleton_loader.dart';
-import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
+import 'package:releve/core/presentation/widgets/skeleton_loader.dart';
+import 'package:releve/core/presentation/widgets/custom_app_bar.dart';
 
 class TeamPage extends StatefulWidget {
   final String? teamId;

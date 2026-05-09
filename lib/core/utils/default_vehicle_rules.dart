@@ -1,7 +1,7 @@
-import 'package:nexshift_app/core/data/models/crew_mode_model.dart';
-import 'package:nexshift_app/core/data/models/crew_position_model.dart';
-import 'package:nexshift_app/core/data/models/vehicle_rule_set_model.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:releve/core/data/models/crew_mode_model.dart';
+import 'package:releve/core/data/models/crew_position_model.dart';
+import 'package:releve/core/data/models/vehicle_rule_set_model.dart';
+import 'package:releve/core/utils/constants.dart';
 
 /// Default vehicle crew rules for all vehicle types
 /// These serve as the baseline and can be overridden per station

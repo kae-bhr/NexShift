@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
-import 'package:nexshift_app/core/data/models/shift_exception_model.dart';
-import 'package:nexshift_app/core/services/firestore_service.dart';
-import 'package:nexshift_app/core/config/environment_config.dart';
+import 'package:releve/core/data/models/shift_exception_model.dart';
+import 'package:releve/core/services/firestore_service.dart';
+import 'package:releve/core/config/environment_config.dart';
 
 class ShiftExceptionRepository {
   static const _collectionName = 'shift_exceptions';

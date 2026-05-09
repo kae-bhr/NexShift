@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:nexshift_app/core/repositories/user_repository.dart';
-import 'package:nexshift_app/core/repositories/subshift_repositories.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
-import 'package:nexshift_app/core/data/models/planning_model.dart';
-import 'package:nexshift_app/core/data/models/subshift_model.dart';
-import 'package:nexshift_app/features/replacement/services/replacement_search_service.dart';
-import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
-import 'package:nexshift_app/core/presentation/widgets/planning_form_widgets.dart';
-import 'package:nexshift_app/core/config/environment_config.dart';
+import 'package:releve/core/repositories/user_repository.dart';
+import 'package:releve/core/repositories/subshift_repositories.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/utils/constants.dart';
+import 'package:releve/core/data/models/planning_model.dart';
+import 'package:releve/core/data/models/subshift_model.dart';
+import 'package:releve/features/replacement/services/replacement_search_service.dart';
+import 'package:releve/core/presentation/widgets/custom_app_bar.dart';
+import 'package:releve/core/presentation/widgets/planning_form_widgets.dart';
+import 'package:releve/core/config/environment_config.dart';
 
 class ReplacementPage extends StatefulWidget {
   final Planning planning;

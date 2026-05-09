@@ -5,8 +5,8 @@ library;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nexshift_app/core/data/models/trucks_model.dart';
-import 'package:nexshift_app/core/repositories/truck_repository.dart';
+import 'package:releve/core/data/models/trucks_model.dart';
+import 'package:releve/core/repositories/truck_repository.dart';
 
 void main() {
   group('TruckRepository', () {

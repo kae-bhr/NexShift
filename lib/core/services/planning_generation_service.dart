@@ -1,19 +1,19 @@
 import 'package:flutter/foundation.dart';
-import 'package:nexshift_app/core/data/models/generation_options_model.dart';
-import 'package:nexshift_app/core/data/models/planning_model.dart';
-import 'package:nexshift_app/core/data/models/planning_agent_model.dart';
-import 'package:nexshift_app/core/data/models/generated_shift_model.dart';
-import 'package:nexshift_app/core/data/models/shift_exception_model.dart';
-import 'package:nexshift_app/core/data/models/shift_rule_model.dart';
-import 'package:nexshift_app/core/data/models/subshift_model.dart';
-import 'package:nexshift_app/core/repositories/planning_repository.dart';
-import 'package:nexshift_app/core/repositories/shift_rule_repository.dart';
-import 'package:nexshift_app/core/repositories/station_repository.dart';
-import 'package:nexshift_app/core/repositories/subshift_repositories.dart';
-import 'package:nexshift_app/core/repositories/user_repository.dart';
-import 'package:nexshift_app/core/services/replacement_notification_service.dart';
-import 'package:nexshift_app/core/services/shift_generator.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:releve/core/data/models/generation_options_model.dart';
+import 'package:releve/core/data/models/planning_model.dart';
+import 'package:releve/core/data/models/planning_agent_model.dart';
+import 'package:releve/core/data/models/generated_shift_model.dart';
+import 'package:releve/core/data/models/shift_exception_model.dart';
+import 'package:releve/core/data/models/shift_rule_model.dart';
+import 'package:releve/core/data/models/subshift_model.dart';
+import 'package:releve/core/repositories/planning_repository.dart';
+import 'package:releve/core/repositories/shift_rule_repository.dart';
+import 'package:releve/core/repositories/station_repository.dart';
+import 'package:releve/core/repositories/subshift_repositories.dart';
+import 'package:releve/core/repositories/user_repository.dart';
+import 'package:releve/core/services/replacement_notification_service.dart';
+import 'package:releve/core/services/shift_generator.dart';
+import 'package:releve/core/utils/constants.dart';
 
 /// Service qui génère les plannings à partir des règles d'astreinte
 class PlanningGenerationService {

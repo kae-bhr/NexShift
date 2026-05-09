@@ -7,12 +7,12 @@
 library;
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/data/models/trucks_model.dart';
-import 'package:nexshift_app/core/data/models/vehicle_rule_set_model.dart';
-import 'package:nexshift_app/core/repositories/vehicle_rules_repository.dart';
-import 'package:nexshift_app/core/services/skill_criticality_service.dart';
-import 'package:nexshift_app/core/utils/default_vehicle_rules.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/data/models/trucks_model.dart';
+import 'package:releve/core/data/models/vehicle_rule_set_model.dart';
+import 'package:releve/core/repositories/vehicle_rules_repository.dart';
+import 'package:releve/core/services/skill_criticality_service.dart';
+import 'package:releve/core/utils/default_vehicle_rules.dart';
 
 /// Mock VehicleRulesRepository qui utilise uniquement les règles par défaut
 class MockVehicleRulesRepository extends VehicleRulesRepository {

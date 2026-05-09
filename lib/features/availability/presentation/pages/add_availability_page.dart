@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/data/models/availability_model.dart';
-import 'package:nexshift_app/core/data/models/on_call_level_model.dart';
-import 'package:nexshift_app/core/data/models/planning_model.dart';
-import 'package:nexshift_app/core/repositories/local_repositories.dart';
-import 'package:nexshift_app/core/repositories/on_call_level_repository.dart';
-import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
-import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:releve/core/data/models/availability_model.dart';
+import 'package:releve/core/data/models/on_call_level_model.dart';
+import 'package:releve/core/data/models/planning_model.dart';
+import 'package:releve/core/repositories/local_repositories.dart';
+import 'package:releve/core/repositories/on_call_level_repository.dart';
+import 'package:releve/core/data/datasources/user_storage_helper.dart';
+import 'package:releve/core/presentation/widgets/custom_app_bar.dart';
+import 'package:releve/core/utils/constants.dart';
 
 class AddAvailabilityPage extends StatefulWidget {
   const AddAvailabilityPage({super.key});

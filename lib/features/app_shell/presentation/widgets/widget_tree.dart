@@ -1,27 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lottie/lottie.dart';
-import 'package:nexshift_app/core/data/datasources/notifiers.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
-import 'package:nexshift_app/features/home/presentation/pages/home_page.dart';
-import 'package:nexshift_app/features/planning/presentation/pages/planning_page.dart';
-import 'package:nexshift_app/features/settings/presentation/pages/settings_page.dart';
-import 'package:nexshift_app/features/settings/presentation/pages/admin_page.dart';
-import 'package:nexshift_app/features/station/presentation/pages/station_shell_page.dart';
-import 'package:nexshift_app/features/skills/presentation/pages/skills_page.dart';
-import 'package:nexshift_app/features/app_shell/presentation/widgets/navbar_widget.dart';
-import 'package:nexshift_app/features/teams/presentation/pages/team_page.dart';
-import 'package:nexshift_app/features/teams/presentation/pages/team_dashboard_page.dart';
-import 'package:nexshift_app/features/availability/presentation/pages/add_availability_page.dart';
-import 'package:nexshift_app/features/replacement/presentation/pages/replacement_requests_list_page.dart';
-import 'package:nexshift_app/features/team_events/presentation/widgets/create_team_event_dialog.dart';
-import 'package:nexshift_app/features/planning/presentation/widgets/create_planning_dialog.dart';
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
-import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
-import 'package:nexshift_app/core/services/badge_count_service.dart';
-import 'package:nexshift_app/core/services/subscription_service.dart';
-import 'package:nexshift_app/core/services/cloud_functions_service.dart';
-import 'package:nexshift_app/core/services/push_notification_service.dart';
+import 'package:releve/core/data/datasources/notifiers.dart';
+import 'package:releve/core/utils/constants.dart';
+import 'package:releve/features/home/presentation/pages/home_page.dart';
+import 'package:releve/features/planning/presentation/pages/planning_page.dart';
+import 'package:releve/features/settings/presentation/pages/settings_page.dart';
+import 'package:releve/features/settings/presentation/pages/admin_page.dart';
+import 'package:releve/features/station/presentation/pages/station_shell_page.dart';
+import 'package:releve/features/skills/presentation/pages/skills_page.dart';
+import 'package:releve/features/app_shell/presentation/widgets/navbar_widget.dart';
+import 'package:releve/features/teams/presentation/pages/team_page.dart';
+import 'package:releve/features/teams/presentation/pages/team_dashboard_page.dart';
+import 'package:releve/features/availability/presentation/pages/add_availability_page.dart';
+import 'package:releve/features/replacement/presentation/pages/replacement_requests_list_page.dart';
+import 'package:releve/features/team_events/presentation/widgets/create_team_event_dialog.dart';
+import 'package:releve/features/planning/presentation/widgets/create_planning_dialog.dart';
+import 'package:releve/core/data/datasources/sdis_context.dart';
+import 'package:releve/core/data/datasources/user_storage_helper.dart';
+import 'package:releve/core/services/badge_count_service.dart';
+import 'package:releve/core/services/subscription_service.dart';
+import 'package:releve/core/services/cloud_functions_service.dart';
+import 'package:releve/core/services/push_notification_service.dart';
 
 class WidgetTree extends StatefulWidget {
   const WidgetTree({super.key});
@@ -129,7 +129,7 @@ class _WidgetTreeState extends State<WidgetTree> with WidgetsBindingObserver {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Voulez-vous vraiment quitter NexShift ?',
+              'Voulez-vous vraiment quitter Relève ?',
               style: TextStyle(
                 fontSize: 16,
                 color: Theme.of(context).colorScheme.tertiary,

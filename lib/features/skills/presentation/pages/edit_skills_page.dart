@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/repositories/local_repositories.dart';
-import 'package:nexshift_app/core/repositories/user_repository.dart';
-import 'package:nexshift_app/core/repositories/user_stations_repository.dart';
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
-import 'package:nexshift_app/core/utils/design_system.dart';
-import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
-import 'package:nexshift_app/core/data/datasources/notifiers.dart';
-import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/repositories/local_repositories.dart';
+import 'package:releve/core/repositories/user_repository.dart';
+import 'package:releve/core/repositories/user_stations_repository.dart';
+import 'package:releve/core/data/datasources/sdis_context.dart';
+import 'package:releve/core/utils/constants.dart';
+import 'package:releve/core/utils/design_system.dart';
+import 'package:releve/core/presentation/widgets/custom_app_bar.dart';
+import 'package:releve/core/data/datasources/notifiers.dart';
+import 'package:releve/core/data/datasources/user_storage_helper.dart';
 
 class EditSkillsPage extends StatefulWidget {
   final User user;

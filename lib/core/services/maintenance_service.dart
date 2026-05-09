@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/data/datasources/notifiers.dart';
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
-import 'package:nexshift_app/core/navigation/navigator_key.dart';
-import 'package:nexshift_app/core/presentation/pages/maintenance_page.dart';
-import 'package:nexshift_app/features/app_shell/presentation/widgets/widget_tree.dart';
+import 'package:releve/core/data/datasources/notifiers.dart';
+import 'package:releve/core/data/datasources/sdis_context.dart';
+import 'package:releve/core/navigation/navigator_key.dart';
+import 'package:releve/core/presentation/pages/maintenance_page.dart';
+import 'package:releve/features/app_shell/presentation/widgets/widget_tree.dart';
 
 /// Service qui écoute l'état de maintenance de l'application
 /// via les documents Firestore `app_config/maintenance` (global)

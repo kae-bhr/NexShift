@@ -30,7 +30,7 @@ class OfflinePage extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               Text(
-                'NexShift nécessite une connexion Internet pour fonctionner.\n\nVeuillez vérifier votre connexion et réessayer.',
+                'Relève nécessite une connexion Internet pour fonctionner.\n\nVeuillez vérifier votre connexion et réessayer.',
                 style: TextStyle(
                   fontSize: 16,
                   color: Colors.grey[600],

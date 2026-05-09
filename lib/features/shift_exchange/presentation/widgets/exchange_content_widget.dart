@@ -1,19 +1,19 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/presentation/widgets/app_empty_state.dart';
-import 'package:nexshift_app/core/presentation/widgets/tile_confirm_dialog.dart';
-import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/data/models/shift_exchange_request_model.dart';
-import 'package:nexshift_app/core/data/models/shift_exchange_proposal_model.dart';
-import 'package:nexshift_app/core/services/shift_exchange_service.dart';
-import 'package:nexshift_app/features/shift_exchange/presentation/widgets/propose_shift_dialog.dart';
-import 'package:nexshift_app/features/shift_exchange/presentation/widgets/proposal_selection_dialog.dart';
-import 'package:nexshift_app/features/shift_exchange/presentation/widgets/exchange_tile_wrapper.dart';
-import 'package:nexshift_app/features/replacement/presentation/widgets/replacement_sub_tabs.dart';
-import 'package:nexshift_app/features/replacement/presentation/widgets/icon_tab_bar.dart';
-import 'package:nexshift_app/core/presentation/widgets/unified_request_tile/unified_request_tile_exports.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
-import 'package:nexshift_app/features/replacement/presentation/widgets/agent_filter_bar.dart';
+import 'package:releve/core/presentation/widgets/app_empty_state.dart';
+import 'package:releve/core/presentation/widgets/tile_confirm_dialog.dart';
+import 'package:releve/core/data/datasources/user_storage_helper.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/data/models/shift_exchange_request_model.dart';
+import 'package:releve/core/data/models/shift_exchange_proposal_model.dart';
+import 'package:releve/core/services/shift_exchange_service.dart';
+import 'package:releve/features/shift_exchange/presentation/widgets/propose_shift_dialog.dart';
+import 'package:releve/features/shift_exchange/presentation/widgets/proposal_selection_dialog.dart';
+import 'package:releve/features/shift_exchange/presentation/widgets/exchange_tile_wrapper.dart';
+import 'package:releve/features/replacement/presentation/widgets/replacement_sub_tabs.dart';
+import 'package:releve/features/replacement/presentation/widgets/icon_tab_bar.dart';
+import 'package:releve/core/presentation/widgets/unified_request_tile/unified_request_tile_exports.dart';
+import 'package:releve/core/utils/constants.dart';
+import 'package:releve/features/replacement/presentation/widgets/agent_filter_bar.dart';
 
 /// Widget pour afficher le contenu des échanges d'astreinte
 /// Utilisé comme onglet dans la page de remplacements

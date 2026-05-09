@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/data/models/sdis_model.dart';
+import 'package:releve/core/data/models/sdis_model.dart';
 
 /// Dialog de sélection du SDIS
 /// Affiché au lancement de l'app pour choisir le SDIS avant le login

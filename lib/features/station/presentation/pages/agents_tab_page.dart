@@ -1,21 +1,21 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/data/models/team_model.dart';
-import 'package:nexshift_app/core/data/models/position_model.dart';
-import 'package:nexshift_app/core/repositories/user_repository.dart';
-import 'package:nexshift_app/core/repositories/position_repository.dart';
-import 'package:nexshift_app/core/repositories/user_stations_repository.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
-import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
-import 'package:nexshift_app/core/utils/station_name_cache.dart';
-import 'package:nexshift_app/core/services/cloud_functions_service.dart';
-import 'package:nexshift_app/core/services/agent_suspension_service.dart';
-import 'package:nexshift_app/core/services/agent_roster_service.dart';
-import 'package:nexshift_app/features/skills/presentation/pages/skills_page.dart';
-import 'package:nexshift_app/features/settings/presentation/pages/similar_agents_page.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/data/models/team_model.dart';
+import 'package:releve/core/data/models/position_model.dart';
+import 'package:releve/core/repositories/user_repository.dart';
+import 'package:releve/core/repositories/position_repository.dart';
+import 'package:releve/core/repositories/user_stations_repository.dart';
+import 'package:releve/core/utils/constants.dart';
+import 'package:releve/core/data/datasources/user_storage_helper.dart';
+import 'package:releve/core/data/datasources/sdis_context.dart';
+import 'package:releve/core/utils/station_name_cache.dart';
+import 'package:releve/core/services/cloud_functions_service.dart';
+import 'package:releve/core/services/agent_suspension_service.dart';
+import 'package:releve/core/services/agent_roster_service.dart';
+import 'package:releve/features/skills/presentation/pages/skills_page.dart';
+import 'package:releve/features/settings/presentation/pages/similar_agents_page.dart';
 
 /// Agents tab page - manages station personnel with drag & drop team assignment
 /// EXACT copy from StationPage with all functionalities

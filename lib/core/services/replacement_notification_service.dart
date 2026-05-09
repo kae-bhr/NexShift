@@ -1,22 +1,22 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
-import 'package:nexshift_app/core/repositories/user_repository.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/data/models/station_model.dart';
-import 'package:nexshift_app/core/data/models/availability_model.dart';
-import 'package:nexshift_app/core/data/models/subshift_model.dart';
-import 'package:nexshift_app/core/data/models/replacement_acceptance_model.dart';
-import 'package:nexshift_app/core/repositories/availability_repository.dart';
-import 'package:nexshift_app/core/repositories/subshift_repositories.dart';
-import 'package:nexshift_app/core/repositories/replacement_acceptance_repository.dart';
-import 'package:nexshift_app/core/repositories/station_repository.dart';
-import 'package:nexshift_app/core/repositories/planning_repository.dart';
-import 'package:nexshift_app/core/data/models/planning_model.dart';
-import 'package:nexshift_app/core/data/models/planning_agent_model.dart';
-import 'package:nexshift_app/core/services/on_call_disposition_service.dart';
-import 'package:nexshift_app/core/config/environment_config.dart';
-import 'package:nexshift_app/core/services/wave_calculation_service.dart';
-import 'package:nexshift_app/core/services/skill_criticality_service.dart';
+import 'package:releve/core/repositories/user_repository.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/data/models/station_model.dart';
+import 'package:releve/core/data/models/availability_model.dart';
+import 'package:releve/core/data/models/subshift_model.dart';
+import 'package:releve/core/data/models/replacement_acceptance_model.dart';
+import 'package:releve/core/repositories/availability_repository.dart';
+import 'package:releve/core/repositories/subshift_repositories.dart';
+import 'package:releve/core/repositories/replacement_acceptance_repository.dart';
+import 'package:releve/core/repositories/station_repository.dart';
+import 'package:releve/core/repositories/planning_repository.dart';
+import 'package:releve/core/data/models/planning_model.dart';
+import 'package:releve/core/data/models/planning_agent_model.dart';
+import 'package:releve/core/services/on_call_disposition_service.dart';
+import 'package:releve/core/config/environment_config.dart';
+import 'package:releve/core/services/wave_calculation_service.dart';
+import 'package:releve/core/services/skill_criticality_service.dart';
 // ReplacementMode est importé depuis station_model.dart
 
 /// Type de notification de remplacement

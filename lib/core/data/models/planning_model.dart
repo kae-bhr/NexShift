@@ -1,5 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:nexshift_app/core/data/models/planning_agent_model.dart';
+import 'package:releve/core/data/models/planning_agent_model.dart';
 
 class Planning {
   final String id;

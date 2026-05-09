@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/features/replacement/presentation/widgets/replacement_sub_tabs.dart';
+import 'package:releve/features/replacement/presentation/widgets/replacement_sub_tabs.dart';
 
 // Durée totale du cycle de défilement (pause + aller + pause + retour)
 const Duration _kMarqueeDuration = Duration(milliseconds: 5000);

@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/data/models/planning_model.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/repositories/user_repository.dart';
-import 'package:nexshift_app/core/services/shift_exchange_service.dart';
-import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
-import 'package:nexshift_app/core/presentation/widgets/planning_form_widgets.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:releve/core/data/models/planning_model.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/repositories/user_repository.dart';
+import 'package:releve/core/services/shift_exchange_service.dart';
+import 'package:releve/core/presentation/widgets/custom_app_bar.dart';
+import 'package:releve/core/presentation/widgets/planning_form_widgets.dart';
+import 'package:releve/core/utils/constants.dart';
 
 /// Page de création d'une demande d'échange d'astreinte
 /// Similaire à replacement_page.dart mais pour les échanges

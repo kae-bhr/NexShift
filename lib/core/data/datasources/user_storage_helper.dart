@@ -1,9 +1,9 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
-import 'package:nexshift_app/core/data/datasources/notifiers.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/utils/constants.dart';
+import 'package:releve/core/data/datasources/notifiers.dart';
 
 /// Gère la persistance locale de l'utilisateur connecté
 /// et synchronise avec le ValueNotifier [userNotifier].

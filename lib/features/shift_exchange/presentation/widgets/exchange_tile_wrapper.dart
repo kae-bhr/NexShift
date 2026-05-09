@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/presentation/widgets/unified_request_tile/unified_request_tile_exports.dart';
-import 'package:nexshift_app/core/data/models/shift_exchange_request_model.dart';
-import 'package:nexshift_app/core/data/models/shift_exchange_proposal_model.dart' hide TeamValidationState;
-import 'package:nexshift_app/core/data/models/shift_exchange_proposal_model.dart' as proposal_model show TeamValidationState;
-import 'package:nexshift_app/core/data/models/planning_model.dart';
-import 'package:nexshift_app/core/repositories/planning_repository.dart';
-import 'package:nexshift_app/core/repositories/user_repository.dart';
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
-import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
-import 'package:nexshift_app/core/utils/station_name_cache.dart';
+import 'package:releve/core/presentation/widgets/unified_request_tile/unified_request_tile_exports.dart';
+import 'package:releve/core/data/models/shift_exchange_request_model.dart';
+import 'package:releve/core/data/models/shift_exchange_proposal_model.dart' hide TeamValidationState;
+import 'package:releve/core/data/models/shift_exchange_proposal_model.dart' as proposal_model show TeamValidationState;
+import 'package:releve/core/data/models/planning_model.dart';
+import 'package:releve/core/repositories/planning_repository.dart';
+import 'package:releve/core/repositories/user_repository.dart';
+import 'package:releve/core/data/datasources/sdis_context.dart';
+import 'package:releve/core/data/datasources/user_storage_helper.dart';
+import 'package:releve/core/utils/station_name_cache.dart';
 
 /// Widget wrapper pour afficher une demande d'échange
 /// avec le nouveau design unifié

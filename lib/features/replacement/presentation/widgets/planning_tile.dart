@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:nexshift_app/core/data/models/planning_model.dart';
+import 'package:releve/core/data/models/planning_model.dart';
 
 /// Widget commun pour afficher la tuile d'astreinte avec sélection de dates
 class PlanningTile extends StatelessWidget {

@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/data/models/trucks_model.dart';
-import 'package:nexshift_app/core/data/models/crew_mode_model.dart';
-import 'package:nexshift_app/core/data/models/crew_position_model.dart';
-import 'package:nexshift_app/core/data/models/vehicle_rule_set_model.dart';
-import 'package:nexshift_app/core/repositories/vehicle_rules_repository.dart';
-import 'package:nexshift_app/core/repositories/truck_repository.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
-import 'package:nexshift_app/core/utils/default_vehicle_rules.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/data/models/trucks_model.dart';
+import 'package:releve/core/data/models/crew_mode_model.dart';
+import 'package:releve/core/data/models/crew_position_model.dart';
+import 'package:releve/core/data/models/vehicle_rule_set_model.dart';
+import 'package:releve/core/repositories/vehicle_rules_repository.dart';
+import 'package:releve/core/repositories/truck_repository.dart';
+import 'package:releve/core/utils/constants.dart';
+import 'package:releve/core/utils/default_vehicle_rules.dart';
 
 // Internal editable representation for dialog (top-level, private to file)
 class _EditablePosition {

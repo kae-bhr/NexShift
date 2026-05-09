@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/data/datasources/notifiers.dart';
-import 'package:nexshift_app/core/presentation/pages/about_page.dart';
-import 'package:nexshift_app/features/auth/presentation/pages/sdis_selection_page.dart';
-import 'package:nexshift_app/core/presentation/widgets/hero_widget.dart';
-import 'package:nexshift_app/features/auth/presentation/pages/sdis_selection_for_create_account_page.dart';
+import 'package:releve/core/data/datasources/notifiers.dart';
+import 'package:releve/core/presentation/pages/about_page.dart';
+import 'package:releve/features/auth/presentation/pages/sdis_selection_page.dart';
+import 'package:releve/core/presentation/widgets/hero_widget.dart';
+import 'package:releve/features/auth/presentation/pages/sdis_selection_for_create_account_page.dart';
 
 class WelcomePage extends StatelessWidget {
   const WelcomePage({super.key});
@@ -81,7 +81,7 @@ class WelcomePage extends StatelessWidget {
                       );
                     },
               child: const Text(
-                'À propos © NexShift 2025-2026',
+                'À propos © Relève 2025-2026',
                 textAlign: TextAlign.center,
               ),
             ),

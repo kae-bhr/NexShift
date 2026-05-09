@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
-import 'package:nexshift_app/core/data/models/team_event_model.dart';
-import 'package:nexshift_app/core/data/models/team_model.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/presentation/widgets/date_time_button.dart';
-import 'package:nexshift_app/core/repositories/team_repository.dart';
-import 'package:nexshift_app/core/repositories/user_repository.dart';
-import 'package:nexshift_app/core/services/team_event_service.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:releve/core/data/datasources/user_storage_helper.dart';
+import 'package:releve/core/data/models/team_event_model.dart';
+import 'package:releve/core/data/models/team_model.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/presentation/widgets/date_time_button.dart';
+import 'package:releve/core/repositories/team_repository.dart';
+import 'package:releve/core/repositories/user_repository.dart';
+import 'package:releve/core/services/team_event_service.dart';
+import 'package:releve/core/utils/constants.dart';
 
 /// Ouvre le dialog de création d'événement d'équipe.
 /// Retourne `true` si l'événement a été créé avec succès.

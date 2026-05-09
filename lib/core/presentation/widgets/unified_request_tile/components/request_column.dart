@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:releve/core/utils/constants.dart';
 import '../unified_tile_data.dart';
 
 /// Colonne d'informations pour un agent (gauche ou droite)

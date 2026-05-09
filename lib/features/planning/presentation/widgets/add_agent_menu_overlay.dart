@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:nexshift_app/core/data/models/on_call_level_model.dart';
-import 'package:nexshift_app/core/data/models/planning_model.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/features/replacement/presentation/pages/skill_search_page.dart';
+import 'package:releve/core/data/models/on_call_level_model.dart';
+import 'package:releve/core/data/models/planning_model.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/features/replacement/presentation/pages/skill_search_page.dart';
 
 /// Widget réutilisable pour afficher le menu d'ajout d'agent avec trois options :
 /// - Choix automatique (recherche par compétences → AgentQuery)

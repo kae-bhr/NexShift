@@ -1,5 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:nexshift_app/core/data/models/replacement_acceptance_model.dart';
+import 'package:releve/core/data/models/replacement_acceptance_model.dart';
 
 /// Information sur la couverture d'une demande de remplacement
 class CoverageInfo {

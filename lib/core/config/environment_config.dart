@@ -1,4 +1,4 @@
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
+import 'package:releve/core/data/datasources/sdis_context.dart';
 
 /// Configuration de l'environnement
 class EnvironmentConfig {

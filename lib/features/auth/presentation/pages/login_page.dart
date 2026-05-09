@@ -1,26 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart' as models;
-import 'package:nexshift_app/core/presentation/widgets/hero_widget.dart';
-import 'package:nexshift_app/core/repositories/local_repositories.dart';
-import 'package:nexshift_app/core/services/firebase_auth_service.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
-import 'package:nexshift_app/features/auth/presentation/pages/confirmation_page.dart';
-import 'package:nexshift_app/core/data/datasources/notifiers.dart';
-import 'package:nexshift_app/core/presentation/pages/subscription_expired_page.dart';
-import 'package:nexshift_app/core/services/subscription_service.dart';
-import 'package:nexshift_app/features/auth/presentation/widgets/enter_app_widget.dart';
-import 'package:nexshift_app/features/auth/presentation/widgets/password_strength_field_widget.dart';
-import 'package:nexshift_app/features/auth/presentation/widgets/snake_bar_widget.dart';
-import 'package:nexshift_app/features/auth/presentation/widgets/station_selection_dialog.dart';
-import 'package:nexshift_app/features/auth/presentation/pages/station_search_page.dart';
-import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
-import 'package:nexshift_app/features/app_shell/presentation/widgets/widget_tree.dart';
-import 'package:nexshift_app/core/services/cloud_functions_service.dart';
-import 'package:nexshift_app/core/services/maintenance_service.dart';
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
-import 'package:nexshift_app/core/presentation/pages/maintenance_page.dart';
+import 'package:releve/core/data/models/user_model.dart' as models;
+import 'package:releve/core/presentation/widgets/hero_widget.dart';
+import 'package:releve/core/repositories/local_repositories.dart';
+import 'package:releve/core/services/firebase_auth_service.dart';
+import 'package:releve/core/utils/constants.dart';
+import 'package:releve/features/auth/presentation/pages/confirmation_page.dart';
+import 'package:releve/core/data/datasources/notifiers.dart';
+import 'package:releve/core/presentation/pages/subscription_expired_page.dart';
+import 'package:releve/core/services/subscription_service.dart';
+import 'package:releve/features/auth/presentation/widgets/enter_app_widget.dart';
+import 'package:releve/features/auth/presentation/widgets/password_strength_field_widget.dart';
+import 'package:releve/features/auth/presentation/widgets/snake_bar_widget.dart';
+import 'package:releve/features/auth/presentation/widgets/station_selection_dialog.dart';
+import 'package:releve/features/auth/presentation/pages/station_search_page.dart';
+import 'package:releve/core/presentation/widgets/custom_app_bar.dart';
+import 'package:releve/features/app_shell/presentation/widgets/widget_tree.dart';
+import 'package:releve/core/services/cloud_functions_service.dart';
+import 'package:releve/core/services/maintenance_service.dart';
+import 'package:releve/core/data/datasources/sdis_context.dart';
+import 'package:releve/core/presentation/pages/maintenance_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({

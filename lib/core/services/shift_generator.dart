@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
-import 'package:nexshift_app/core/data/models/generated_shift_model.dart';
-import 'package:nexshift_app/core/data/models/shift_exception_model.dart';
-import 'package:nexshift_app/core/data/models/shift_rule_model.dart';
+import 'package:releve/core/data/models/generated_shift_model.dart';
+import 'package:releve/core/data/models/shift_exception_model.dart';
+import 'package:releve/core/data/models/shift_rule_model.dart';
 import 'package:uuid/uuid.dart';
 
 class ShiftGenerator {

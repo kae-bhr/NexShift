@@ -1,4 +1,4 @@
-import 'package:nexshift_app/core/data/models/crew_position_model.dart';
+import 'package:releve/core/data/models/crew_position_model.dart';
 
 /// Represents a crew mode for a vehicle (e.g., 'complet', '4h', '6h')
 /// Each mode defines the crew positions required and may have a restricted variant

@@ -32,7 +32,7 @@ class SubscriptionExpiredPage extends StatelessWidget {
               Text(
                 "L'abonnement de votre caserne a expiré.\n\n"
                 "Veuillez contacter votre responsable pour renouveler "
-                "la licence NexShift.",
+                "la licence Relève.",
                 style: TextStyle(
                   fontSize: 16,
                   color: Colors.grey[600],
@@ -47,7 +47,7 @@ class SubscriptionExpiredPage extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                'contact@nexshift.app',
+                'contact@Relève.app',
                 style: TextStyle(
                   fontSize: 14,
                   color: Colors.grey[500],

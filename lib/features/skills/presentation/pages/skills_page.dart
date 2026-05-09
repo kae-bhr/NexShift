@@ -1,18 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:nexshift_app/core/data/datasources/notifiers.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/data/models/position_model.dart';
-import 'package:nexshift_app/core/repositories/local_repositories.dart';
-import 'package:nexshift_app/core/repositories/position_repository.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
-import 'package:nexshift_app/core/utils/design_system.dart';
-import 'package:nexshift_app/features/skills/presentation/pages/edit_skills_page.dart';
-import 'package:nexshift_app/core/presentation/widgets/error_widget.dart'
+import 'package:releve/core/data/datasources/notifiers.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/data/models/position_model.dart';
+import 'package:releve/core/repositories/local_repositories.dart';
+import 'package:releve/core/repositories/position_repository.dart';
+import 'package:releve/core/utils/constants.dart';
+import 'package:releve/core/utils/design_system.dart';
+import 'package:releve/features/skills/presentation/pages/edit_skills_page.dart';
+import 'package:releve/core/presentation/widgets/error_widget.dart'
     as custom;
-import 'package:nexshift_app/core/presentation/widgets/skeleton_loader.dart';
-import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
-import 'package:nexshift_app/features/settings/presentation/pages/similar_agents_page.dart';
+import 'package:releve/core/presentation/widgets/skeleton_loader.dart';
+import 'package:releve/core/presentation/widgets/custom_app_bar.dart';
+import 'package:releve/features/settings/presentation/pages/similar_agents_page.dart';
 
 class SkillsPage extends StatefulWidget {
   final String? userId;

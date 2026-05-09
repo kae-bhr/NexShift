@@ -2,9 +2,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:flutter/foundation.dart';
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
-import 'package:nexshift_app/core/data/models/membership_request_model.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
+import 'package:releve/core/data/datasources/sdis_context.dart';
+import 'package:releve/core/data/models/membership_request_model.dart';
+import 'package:releve/core/data/models/user_model.dart';
 
 /// Service pour appeler les Cloud Functions
 /// Gère toutes les opérations d'authentification et de gestion utilisateurs

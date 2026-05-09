@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
-import 'package:nexshift_app/core/presentation/widgets/hero_widget.dart';
-import 'package:nexshift_app/core/presentation/pages/terms_of_service_page.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:releve/core/presentation/widgets/custom_app_bar.dart';
+import 'package:releve/core/presentation/widgets/hero_widget.dart';
+import 'package:releve/core/presentation/pages/terms_of_service_page.dart';
+import 'package:releve/core/utils/constants.dart';
 
 class AboutPage extends StatelessWidget {
   const AboutPage({super.key});
@@ -22,7 +22,7 @@ class AboutPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: CustomAppBar(
-        title: "À propos de NexShift",
+        title: "À propos de Relève",
         bottomColor: KColors.appNameColor,
       ),
       body: ListView(
@@ -48,7 +48,7 @@ class AboutPage extends StatelessWidget {
             icon: Icons.info_outline,
             title: "Présentation",
             content: [
-              "NexShift est une application de gestion des plannings d'astreinte "
+              "Relève est une application de gestion des plannings d'astreinte "
                   "développée spécifiquement pour les centres de secours et casernes de pompiers.",
               "",
               "Elle permet de gérer efficacement les effectifs, les compétences, "
@@ -168,7 +168,7 @@ class AboutPage extends StatelessWidget {
               "© 2025-2026 BHR - Benjamin HOLZER",
               "Tous droits réservés.",
               "",
-              "NexShift est une application propriétaire.\nAucun droit n'est transféré à l'utilisateur autre que celui d'exécuter l'application dans le cadre prévu par son usage normal.",
+              "Relève est une application propriétaire.\nAucun droit n'est transféré à l'utilisateur autre que celui d'exécuter l'application dans le cadre prévu par son usage normal.",
             ],
           ),
 
@@ -178,7 +178,7 @@ class AboutPage extends StatelessWidget {
             icon: Icons.card_membership,
             title: "Licence d'utilisation",
             content: [
-              "NexShift est disponible sous licence annuelle payante pour les centres de secours.",
+              "Relève est disponible sous licence annuelle payante pour les centres de secours.",
               "",
               "L'application est gratuite, seule la licence d'utilisation annuelle est payante.",
             ],
@@ -191,7 +191,7 @@ class AboutPage extends StatelessWidget {
             child: Column(
               children: [
                 Text(
-                  "NexShift - L'avenir de la gestion d'astreinte",
+                  "Relève - L'avenir de la gestion d'astreinte",
                   style: TextStyle(fontSize: 11, color: Colors.grey[500]),
                 ),
               ],

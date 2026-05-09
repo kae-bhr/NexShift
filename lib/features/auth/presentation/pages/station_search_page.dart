@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:nexshift_app/core/data/datasources/notifiers.dart';
-import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
-import 'package:nexshift_app/core/data/models/station_model.dart';
-import 'package:nexshift_app/core/presentation/widgets/custom_app_bar.dart';
-import 'package:nexshift_app/core/repositories/local_repositories.dart';
-import 'package:nexshift_app/core/repositories/station_repository.dart';
-import 'package:nexshift_app/core/services/cloud_functions_service.dart';
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:releve/core/data/datasources/notifiers.dart';
+import 'package:releve/core/data/datasources/user_storage_helper.dart';
+import 'package:releve/core/data/models/station_model.dart';
+import 'package:releve/core/presentation/widgets/custom_app_bar.dart';
+import 'package:releve/core/repositories/local_repositories.dart';
+import 'package:releve/core/repositories/station_repository.dart';
+import 'package:releve/core/services/cloud_functions_service.dart';
+import 'package:releve/core/data/datasources/sdis_context.dart';
+import 'package:releve/core/utils/constants.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
-import 'package:nexshift_app/features/auth/presentation/pages/welcome_page.dart';
-import 'package:nexshift_app/features/app_shell/presentation/widgets/widget_tree.dart';
+import 'package:releve/features/auth/presentation/pages/welcome_page.dart';
+import 'package:releve/features/app_shell/presentation/widgets/widget_tree.dart';
 
 /// Page de gestion des casernes
 /// Accessible depuis :
@@ -236,7 +236,7 @@ class _StationSearchPageState extends State<StationSearchPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Entrez le code d\'authentification fourni par NexShift pour créer votre caserne.',
+              'Entrez le code d\'authentification fourni par Relève pour créer votre caserne.',
               style: TextStyle(fontSize: 14),
             ),
             const SizedBox(height: 16),

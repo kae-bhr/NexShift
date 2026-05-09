@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:nexshift_app/core/data/models/planning_model.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
+import 'package:releve/core/data/models/planning_model.dart';
+import 'package:releve/core/utils/constants.dart';
 
 /// Card affichant les infos de l'astreinte en lecture seule (équipe, début, fin).
 /// Widget partagé entre replacement_page, shift_exchange_page et skill_search_page.

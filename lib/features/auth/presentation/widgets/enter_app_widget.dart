@@ -1,18 +1,18 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
-import 'package:nexshift_app/core/data/datasources/notifiers.dart';
-import 'package:nexshift_app/core/data/datasources/sdis_context.dart';
-import 'package:nexshift_app/core/data/datasources/user_storage_helper.dart';
-import 'package:nexshift_app/core/data/models/user_model.dart';
-import 'package:nexshift_app/core/repositories/local_repositories.dart';
-import 'package:nexshift_app/core/services/maintenance_service.dart';
-import 'package:nexshift_app/core/services/push_notification_service.dart';
-import 'package:nexshift_app/core/services/version_check_service.dart';
-import 'package:nexshift_app/core/services/local_reminder_service.dart';
-import 'package:nexshift_app/core/services/subscription_service.dart';
-import 'package:nexshift_app/core/utils/constants.dart';
-import 'package:nexshift_app/core/utils/station_name_cache.dart';
+import 'package:releve/core/data/datasources/notifiers.dart';
+import 'package:releve/core/data/datasources/sdis_context.dart';
+import 'package:releve/core/data/datasources/user_storage_helper.dart';
+import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/repositories/local_repositories.dart';
+import 'package:releve/core/services/maintenance_service.dart';
+import 'package:releve/core/services/push_notification_service.dart';
+import 'package:releve/core/services/version_check_service.dart';
+import 'package:releve/core/services/local_reminder_service.dart';
+import 'package:releve/core/services/subscription_service.dart';
+import 'package:releve/core/utils/constants.dart';
+import 'package:releve/core/utils/station_name_cache.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class EnterApp {
