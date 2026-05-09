@@ -13,6 +13,7 @@ import 'package:releve/core/repositories/station_repository.dart';
 import 'package:releve/core/repositories/planning_repository.dart';
 import 'package:releve/core/data/models/planning_model.dart';
 import 'package:releve/core/data/models/planning_agent_model.dart';
+import 'package:releve/core/data/models/on_call_level_model.dart';
 import 'package:releve/core/services/on_call_disposition_service.dart';
 import 'package:releve/core/config/environment_config.dart';
 import 'package:releve/core/services/wave_calculation_service.dart';
@@ -429,19 +430,30 @@ class ReplacementNotificationService {
           .get();
 
       // Vague 0 : exclure les agents dont la présence dans planning.agents
-      // chevauche la période demandée
+      // chevauche la période demandée, en ignorant les niveaux de disponibilité
+      // (isAvailability=true) qui ne sont pas des astreintes réelles
       final List<String> agentsInPlanning = [];
       String? planningTeam;
       if (planningDoc.exists) {
         final data = planningDoc.data();
         planningTeam = data?['team'] as String?;
         final planning = Planning.fromJson({'id': planningDoc.id, ...data!});
+
+        final levelsPath = EnvironmentConfig.getCollectionPath('onCallLevels', request.station);
+        final levelsSnap = await firestore.collection(levelsPath).get();
+        final availabilityLevelIds = levelsSnap.docs
+            .map((d) => OnCallLevel.fromJson({'id': d.id, ...d.data()}))
+            .where((l) => l.isAvailability)
+            .map((l) => l.id)
+            .toSet();
+
         // Agents dont au moins une entrée chevauche [startTime, endTime]
         agentsInPlanning.addAll(
           planning.agents
               .where((a) =>
                   a.start.isBefore(request.endTime) &&
-                  a.end.isAfter(request.startTime))
+                  a.end.isAfter(request.startTime) &&
+                  !availabilityLevelIds.contains(a.levelId))
               .map((a) => a.agentId)
               .toSet(),
         );

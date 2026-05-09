@@ -401,7 +401,7 @@ class _OnCallPresenceSectionState extends State<OnCallPresenceSection> {
             highlight: pa.agentId == widget.currentUser.id,
           );
 
-          if (widget.canManage && widget.onRemoveEntry != null) {
+          if ((widget.canManage || pa.agentId == widget.currentUser.id) && widget.onRemoveEntry != null) {
             final planningAgent = _findPlanningAgent(
               AgentPresenceSlot(
                 agentId: pa.agentId,
@@ -1338,8 +1338,8 @@ class _PersonalViewAgentGroup extends StatelessWidget {
             : null,
       );
 
-      if (canManage &&
-          !ps.isAvailability &&
+      if (!ps.isAvailability &&
+          canManage &&
           onRemoveEntry != null &&
           planningAgent != null) {
         children.add(
@@ -1367,8 +1367,39 @@ class _PersonalViewAgentGroup extends StatelessWidget {
             child: slotRow,
           ),
         );
+      } else if (ps.isAvailability &&
+          planningAgent != null &&
+          (canManage || ps.slot.agentId == agent.id) &&
+          onRemoveEntry != null) {
+        // PlanningAgent en niveau disponibilité — l'agent lui-même peut supprimer
+        children.add(
+          Dismissible(
+            key: ValueKey(
+              'personal_pa_avail_${ps.slot.agentId}_${ps.level.id}_${ps.slot.start}',
+            ),
+            direction: DismissDirection.endToStart,
+            background: Container(
+              alignment: Alignment.centerRight,
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              decoration: BoxDecoration(
+                color: Colors.red.shade400,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.delete_outline_rounded,
+                color: Colors.white,
+              ),
+            ),
+            confirmDismiss: (_) async {
+              await onRemoveEntry!(planningAgent);
+              return false;
+            },
+            child: slotRow,
+          ),
+        );
       } else if (canManage &&
           ps.isAvailability &&
+          planningAgent == null &&
           onRemoveAvailability != null) {
         final avail = Availability(
           id: '${ps.slot.agentId}_${ps.slot.start}',
