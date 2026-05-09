@@ -4,6 +4,7 @@ import 'package:releve/core/presentation/widgets/app_empty_state.dart';
 import 'package:releve/core/services/replacement_notification_service.dart';
 import 'package:releve/features/replacement/presentation/widgets/replacement_sub_tabs.dart';
 import 'package:releve/core/data/models/user_model.dart';
+import 'package:releve/core/data/models/replacement_acceptance_model.dart';
 import 'package:releve/core/config/environment_config.dart';
 
 /// Type de demande de remplacement
@@ -82,16 +83,29 @@ class UnifiedReplacementItem {
   final ReplacementItemType type;
   final ReplacementRequest? automaticRequest;
   final ManualReplacementProposal? manualProposal;
+  /// Acceptation spécifique — renseignée uniquement dans l'onglet "À valider"
+  /// pour distinguer chaque candidat sur une même demande.
+  final ReplacementAcceptance? pendingAcceptance;
 
   UnifiedReplacementItem.automatic(ReplacementRequest request)
       : type = ReplacementItemType.automatic,
         automaticRequest = request,
-        manualProposal = null;
+        manualProposal = null,
+        pendingAcceptance = null;
+
+  UnifiedReplacementItem.automaticWithAcceptance(
+    ReplacementRequest request,
+    ReplacementAcceptance acceptance,
+  )   : type = ReplacementItemType.automatic,
+        automaticRequest = request,
+        manualProposal = null,
+        pendingAcceptance = acceptance;
 
   UnifiedReplacementItem.manual(ManualReplacementProposal proposal)
       : type = ReplacementItemType.manual,
         automaticRequest = null,
-        manualProposal = proposal;
+        manualProposal = proposal,
+        pendingAcceptance = null;
 
   /// Date de début (pour le tri)
   DateTime get startTime {
@@ -130,7 +144,7 @@ class FilteredRequestsView extends StatefulWidget {
   final User? currentUser;
   final DateTime? selectedMonth; // Uniquement pour l'historique
   final String? selectedAgentId; // Uniquement pour l'historique — null = pas de filtre
-  final Widget Function(ReplacementRequest request, ReplacementSubTab subTab) buildCard;
+  final Widget Function(ReplacementRequest request, ReplacementSubTab subTab, {ReplacementAcceptance? acceptance}) buildCard;
   final Widget Function(ManualReplacementProposal proposal, ReplacementSubTab subTab)? buildManualCard;
 
   const FilteredRequestsView({
@@ -279,6 +293,66 @@ class _FilteredRequestsViewState extends State<FilteredRequestsView> {
         debugPrint('[DEBUG FilteredRequests] Combined items: ${combined.length}');
         return combined;
       });
+    });
+  }
+
+  /// Stream dédié à l'onglet "À valider" : émet 1 item par ReplacementAcceptance pendingValidation.
+  /// Combine le stream des acceptances et celui des demandes pour construire les items.
+  Stream<List<UnifiedReplacementItem>> _getToValidateStream() {
+    if (widget.currentUser == null || widget.currentStationId == null) {
+      return Stream.value([]);
+    }
+    final user = widget.currentUser!;
+    final isChief = user.status == 'chief' || user.status == 'leader' || user.admin;
+    if (!isChief) return Stream.value([]);
+
+    final acceptancesPath = EnvironmentConfig.getCollectionPath(
+      'replacements/automatic/replacementAcceptances',
+      widget.currentStationId,
+    );
+    final requestsPath = _getAutomaticRequestsPath();
+
+    // Stream des acceptances en pendingValidation pour l'équipe du chef
+    final acceptancesStream = _notificationService.firestore
+        .collection(acceptancesPath)
+        .where('chiefTeamId', isEqualTo: user.team)
+        .where('status', isEqualTo: 'pendingValidation')
+        .snapshots()
+        .map((snap) => snap.docs.map((doc) {
+              final data = doc.data();
+              data['id'] = doc.id;
+              return ReplacementAcceptance.fromJson(data);
+            }).toList());
+
+    return acceptancesStream.asyncMap((acceptances) async {
+      if (acceptances.isEmpty) return [];
+
+      // Récupérer les demandes uniques associées
+      final requestIds = acceptances.map((a) => a.requestId).toSet();
+      final requestMap = <String, ReplacementRequest>{};
+      for (final id in requestIds) {
+        final doc = await _notificationService.firestore
+            .collection(requestsPath)
+            .doc(id)
+            .get();
+        if (doc.exists) {
+          final req = ReplacementRequest.fromJson(doc.data()!);
+          if (req.status == ReplacementRequestStatus.pending &&
+              _isFutureOrToday(req.startTime)) {
+            requestMap[id] = req;
+          }
+        }
+      }
+
+      final items = <UnifiedReplacementItem>[];
+      for (final acceptance in acceptances) {
+        final request = requestMap[acceptance.requestId];
+        if (request != null) {
+          items.add(UnifiedReplacementItem.automaticWithAcceptance(request, acceptance));
+        }
+      }
+      items.sort((a, b) => a.startTime.compareTo(b.startTime));
+      return items;
     });
   }
 
@@ -529,7 +603,45 @@ class _FilteredRequestsViewState extends State<FilteredRequestsView> {
       );
     }
 
-    // Autres sous-onglets (pending, myRequests, toValidate) : StreamBuilder inchangé
+    // Onglet "À valider" : stream dédié (1 item par ReplacementAcceptance)
+    if (widget.subTab == ReplacementSubTab.toValidate) {
+      return StreamBuilder<List<UnifiedReplacementItem>>(
+        stream: _getToValidateStream(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return Center(child: Text('Erreur: ${snapshot.error}'));
+          }
+          final items = snapshot.data ?? [];
+          if (items.isEmpty) {
+            return RefreshIndicator(
+              onRefresh: () async { setState(() {}); },
+              child: _buildEmptyState(),
+            );
+          }
+          return RefreshIndicator(
+            onRefresh: () async { setState(() {}); },
+            child: ListView.builder(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(16),
+              itemCount: items.length,
+              itemBuilder: (context, index) {
+                final item = items[index];
+                return widget.buildCard(
+                  item.automaticRequest!,
+                  widget.subTab,
+                  acceptance: item.pendingAcceptance,
+                );
+              },
+            ),
+          );
+        },
+      );
+    }
+
+    // Autres sous-onglets (pending, myRequests) : StreamBuilder inchangé
     return StreamBuilder<List<UnifiedReplacementItem>>(
       stream: _getCombinedStream().asyncMap((allItems) async {
         debugPrint('[DEBUG FilteredRequests] Total items: ${allItems.length}');
@@ -633,7 +745,7 @@ class _FilteredRequestsViewState extends State<FilteredRequestsView> {
     );
   }
 
-  /// Carte par défaut pour les propositions manuelles (si aucun builder fourni)
+  /// Carte par défaut pour les propositions manuelles (si buildManualCard non fourni) (si aucun builder fourni)
   Widget _buildDefaultManualCard(ManualReplacementProposal proposal) {
     final isReplacer = proposal.replacerId == widget.currentUserId;
     final isReplaced = proposal.replacedId == widget.currentUserId;

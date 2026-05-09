@@ -37,6 +37,7 @@ import 'package:releve/core/presentation/widgets/notified_agents_sheet.dart';
 import 'package:releve/core/presentation/widgets/availability_picker_section.dart';
 import 'package:releve/core/utils/station_name_cache.dart';
 import 'package:releve/core/repositories/replacement_acceptance_repository.dart';
+import 'package:releve/core/data/models/replacement_acceptance_model.dart';
 import 'package:releve/features/replacement/presentation/widgets/agent_filter_bar.dart';
 
 // ManualReplacementProposal est maintenant importé depuis filtered_requests_view.dart
@@ -367,11 +368,9 @@ class _ReplacementRequestsListPageState
                       child: TabBarView(
                         controller: _replacementSubTabController,
                         children: replacementSubTabs.map((config) {
-                          // Pour l'historique, ajouter le navigateur mensuel
                           if (config.type == ReplacementSubTab.history) {
                             return _buildHistoryTabWithNavigator();
                           }
-                          // Pour les autres onglets, affichage normal
                           return FilteredRequestsView(
                             subTab: config.type,
                             currentUserId: _currentUserId,
@@ -1543,8 +1542,9 @@ class _ReplacementRequestsListPageState
 
   Widget _buildRequestCard(
     ReplacementRequest request,
-    ReplacementSubTab subTab,
-  ) {
+    ReplacementSubTab subTab, {
+    ReplacementAcceptance? acceptance,
+  }) {
     final viewMode = _subTabToViewMode(subTab);
 
     return ReplacementTileWrapper(
@@ -1553,13 +1553,18 @@ class _ReplacementRequestsListPageState
       stationId: _currentStationId ?? '',
       currentUser: _currentUser,
       viewMode: viewMode,
+      pendingAcceptance: acceptance,
       onDelete: () => _deleteRequest(request),
       onAccept: () =>
           _handleRequestTap(request), // Ouvre le dialog de confirmation
       onRefuse: subTab == ReplacementSubTab.toValidate
-          ? () => _rejectAcceptanceFromRequest(request)
+          ? () => acceptance != null
+              ? _rejectAcceptanceById(acceptance.id, request)
+              : _rejectAcceptanceFromRequest(request)
           : () => _declineReplacementRequest(request),
-      onValidate: () => _validateAcceptanceFromRequest(request),
+      onValidate: () => acceptance != null
+          ? _validateAcceptanceById(acceptance.id, request)
+          : _validateAcceptanceFromRequest(request),
       onWaveTap: () => request.requestType == RequestType.availability
           ? _showNotifiedUsersDialog(request)
           : _showWaveDetailsDialog(request),
@@ -3102,6 +3107,88 @@ class _ReplacementRequestsListPageState
             content: Text('Erreur lors du refus : $e'),
             backgroundColor: Colors.red,
           ),
+        );
+      }
+    }
+  }
+
+  /// Valide une acceptation spécifique par son ID (onglet "À valider", N candidats)
+  Future<void> _validateAcceptanceById(String acceptanceId, ReplacementRequest request) async {
+    if (_currentUserId == null) return;
+
+    if (!mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Valider le remplacement'),
+        content: const Text('Confirmez-vous la validation de cette proposition de remplacement ?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green.shade700,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Valider'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await _notificationService.validateAcceptance(
+        acceptanceId: acceptanceId,
+        validatedBy: _currentUserId!,
+        stationId: request.station,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Remplacement validé avec succès'), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur lors de la validation : $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  /// Refuse une acceptation spécifique par son ID (onglet "À valider", N candidats)
+  Future<void> _rejectAcceptanceById(String acceptanceId, ReplacementRequest request) async {
+    if (_currentUserId == null) return;
+
+    if (!mounted) return;
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (context) => _AcceptanceRejectionReasonDialog(),
+    );
+
+    if (reason == null || reason.trim().isEmpty) return;
+
+    try {
+      await _acceptanceRepository.reject(
+        acceptanceId,
+        _currentUserId!,
+        reason,
+        stationId: request.station,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Proposition refusée'), backgroundColor: Colors.orange),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur lors du refus : $e'), backgroundColor: Colors.red),
         );
       }
     }

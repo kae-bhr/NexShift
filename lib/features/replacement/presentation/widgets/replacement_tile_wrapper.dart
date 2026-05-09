@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:releve/core/data/models/replacement_acceptance_model.dart';
 import 'package:releve/core/presentation/widgets/unified_request_tile/unified_request_tile_exports.dart';
 import 'package:releve/core/services/replacement_notification_service.dart';
 import 'package:releve/core/data/models/user_model.dart';
@@ -60,6 +61,9 @@ class ReplacementTileWrapper extends StatefulWidget {
   /// Callback pour débloquer les compétences-clés (myRequests, vague 5+, chef/admin)
   final VoidCallback? onUnlockKeySkills;
 
+  /// Acceptation spécifique à afficher (onglet "À valider" avec N candidats)
+  final ReplacementAcceptance? pendingAcceptance;
+
   const ReplacementTileWrapper({
     super.key,
     required this.request,
@@ -67,6 +71,7 @@ class ReplacementTileWrapper extends StatefulWidget {
     required this.stationId,
     required this.viewMode,
     this.currentUser,
+    this.pendingAcceptance,
     this.onTap,
     this.onDelete,
     this.onAccept,
@@ -113,6 +118,7 @@ class _ReplacementTileWrapperState extends State<ReplacementTileWrapper> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.request.id != widget.request.id ||
         oldWidget.request.replacerId != widget.request.replacerId ||
+        oldWidget.pendingAcceptance?.id != widget.pendingAcceptance?.id ||
         !listEquals(oldWidget.request.pendingValidationUserIds,
             widget.request.pendingValidationUserIds)) {
       _loadData();
@@ -135,9 +141,13 @@ class _ReplacementTileWrapperState extends State<ReplacementTileWrapper> {
       DateTime? pendingEnd;
       if (widget.request.replacerId != null) {
         replacer = await _userRepository.getById(widget.request.replacerId!);
+      } else if (widget.pendingAcceptance != null) {
+        // Acceptation spécifique fournie (onglet "À valider" — une tuile par candidat)
+        replacer = await _userRepository.getById(widget.pendingAcceptance!.userId);
+        pendingStart = widget.pendingAcceptance!.acceptedStartTime;
+        pendingEnd = widget.pendingAcceptance!.acceptedEndTime;
       } else if (widget.request.pendingValidationUserIds.isNotEmpty) {
-        // En attente de validation chef : requête Firestore ciblée (évite fromJson
-        // qui échoue si userName n'est pas persisté dans le document)
+        // Fallback : requête Firestore pour les autres contextes (1 seule acceptation attendue)
         final acceptancesPath = EnvironmentConfig.getCollectionPath(
           'replacements/automatic/replacementAcceptances',
           widget.request.station,

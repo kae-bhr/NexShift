@@ -27,56 +27,30 @@ class _PendingAcceptancesTabState extends State<PendingAcceptancesTab> {
   final ReplacementNotificationService _notificationService =
       ReplacementNotificationService();
 
-  List<ReplacementAcceptance> _pendingAcceptances = [];
-  bool _isLoading = true;
   Station? _currentStation;
+  Stream<List<ReplacementAcceptance>>? _stream;
 
   @override
   void initState() {
     super.initState();
-    _loadPendingAcceptances();
+    _initStream();
   }
 
-  Future<void> _loadPendingAcceptances() async {
+  Future<void> _initStream() async {
     final currentUser = userNotifier.value;
     if (currentUser == null) return;
+    if (currentUser.status != 'chief' && currentUser.status != 'leader') return;
 
-    // Vérifier que l'utilisateur est chef ou leader
-    if (currentUser.status != 'chief' && currentUser.status != 'leader') {
-      setState(() {
-        _isLoading = false;
-      });
-      return;
-    }
+    final station = await _stationRepository.getById(currentUser.station);
+    if (!mounted) return;
 
-    setState(() => _isLoading = true);
-
-    try {
-      // Récupérer les données de la station pour les poids de compétences
-      final station = await _stationRepository.getById(currentUser.station);
-
-      // Récupérer les acceptations en attente pour l'équipe du chef
-      final acceptances = await _acceptanceRepository.getPendingForTeam(
+    setState(() {
+      _currentStation = station;
+      _stream = _acceptanceRepository.watchPendingForTeam(
         currentUser.team,
         stationId: currentUser.station,
       );
-
-      // Trier par date de création (plus anciennes en premier)
-      acceptances.sort((a, b) => a.createdAt.compareTo(b.createdAt));
-
-      setState(() {
-        _currentStation = station;
-        _pendingAcceptances = acceptances;
-      });
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Erreur de chargement: $e')));
-      }
-    } finally {
-      setState(() => _isLoading = false);
-    }
+    });
   }
 
   Future<void> _validateAcceptance(ReplacementAcceptance acceptance) async {
@@ -100,8 +74,6 @@ class _PendingAcceptancesTabState extends State<PendingAcceptancesTab> {
         );
       }
 
-      // Recharger la liste
-      await _loadPendingAcceptances();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -115,16 +87,12 @@ class _PendingAcceptancesTabState extends State<PendingAcceptancesTab> {
     final currentUser = userNotifier.value;
     if (currentUser == null) return;
 
-    // Afficher un dialog pour saisir le motif de refus
     final reason = await showDialog<String>(
       context: context,
       builder: (context) => _RejectionReasonDialog(),
     );
 
-    if (reason == null || reason.trim().isEmpty) {
-      // L'utilisateur a annulé ou n'a pas saisi de motif
-      return;
-    }
+    if (reason == null || reason.trim().isEmpty) return;
 
     try {
       await _acceptanceRepository.reject(
@@ -142,9 +110,6 @@ class _PendingAcceptancesTabState extends State<PendingAcceptancesTab> {
           ),
         );
       }
-
-      // Recharger la liste
-      await _loadPendingAcceptances();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -158,7 +123,6 @@ class _PendingAcceptancesTabState extends State<PendingAcceptancesTab> {
   Widget build(BuildContext context) {
     final currentUser = userNotifier.value;
 
-    // Vérifier que l'utilisateur est chef ou leader
     if (currentUser == null ||
         (currentUser.status != 'chief' && currentUser.status != 'leader')) {
       return const Center(
@@ -169,40 +133,66 @@ class _PendingAcceptancesTabState extends State<PendingAcceptancesTab> {
       );
     }
 
-    if (_isLoading) {
+    if (_stream == null) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    if (_pendingAcceptances.isEmpty) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(16.0),
-          child: Text(
-            'Aucune acceptation en attente de validation',
-            style: TextStyle(fontSize: 16),
-            textAlign: TextAlign.center,
-          ),
-        ),
-      );
-    }
+    return StreamBuilder<List<ReplacementAcceptance>>(
+      stream: _stream,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
 
-    return RefreshIndicator(
-      onRefresh: _loadPendingAcceptances,
-      child: ListView.builder(
-        padding: const EdgeInsets.all(8.0),
-        itemCount: _pendingAcceptances.length,
-        itemBuilder: (context, index) {
-          final acceptance = _pendingAcceptances[index];
-          return _AcceptanceCard(
-            acceptance: acceptance,
-            onValidate: () => _validateAcceptance(acceptance),
-            onReject: () => _rejectAcceptance(acceptance),
-            userRepository: _userRepository,
-            notificationService: _notificationService,
-            station: _currentStation,
+        if (snapshot.hasError) {
+          return Center(child: Text('Erreur: ${snapshot.error}'));
+        }
+
+        final acceptances = List<ReplacementAcceptance>.from(snapshot.data ?? [])
+          ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+
+        if (acceptances.isEmpty) {
+          return RefreshIndicator(
+            onRefresh: _initStream,
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(16),
+              children: const [
+                Center(
+                  child: Padding(
+                    padding: EdgeInsets.only(top: 64),
+                    child: Text(
+                      'Aucune acceptation en attente de validation',
+                      style: TextStyle(fontSize: 16),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           );
-        },
-      ),
+        }
+
+        return RefreshIndicator(
+          onRefresh: _initStream,
+          child: ListView.builder(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(8.0),
+            itemCount: acceptances.length,
+            itemBuilder: (context, index) {
+              final acceptance = acceptances[index];
+              return _AcceptanceCard(
+                acceptance: acceptance,
+                onValidate: () => _validateAcceptance(acceptance),
+                onReject: () => _rejectAcceptance(acceptance),
+                userRepository: _userRepository,
+                notificationService: _notificationService,
+                station: _currentStation,
+              );
+            },
+          ),
+        );
+      },
     );
   }
 }

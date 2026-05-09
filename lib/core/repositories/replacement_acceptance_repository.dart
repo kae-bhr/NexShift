@@ -121,6 +121,22 @@ class ReplacementAcceptanceRepository {
     }
   }
 
+  /// Stream temps réel des acceptations en attente de validation pour une équipe
+  Stream<List<ReplacementAcceptance>> watchPendingForTeam(String teamId, {required String stationId}) {
+    final collectionPath = _getCollectionPath(stationId);
+    final firestore = _directFirestore ?? FirebaseFirestore.instance;
+    return firestore
+        .collection(collectionPath)
+        .where('chiefTeamId', isEqualTo: teamId)
+        .where('status', isEqualTo: 'pendingValidation')
+        .snapshots()
+        .map((snap) => snap.docs.map((doc) {
+              final data = doc.data();
+              data['id'] = doc.id;
+              return ReplacementAcceptance.fromJson(data);
+            }).toList());
+  }
+
   /// Récupère les acceptations avec un statut spécifique
   Future<List<ReplacementAcceptance>> getByStatus(
     ReplacementAcceptanceStatus status,
