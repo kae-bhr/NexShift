@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:lottie/lottie.dart';
+
 import 'package:releve/core/data/datasources/notifiers.dart';
 import 'package:releve/core/utils/constants.dart';
 import 'package:releve/features/home/presentation/pages/home_page.dart';
@@ -210,20 +210,12 @@ class _WidgetTreeState extends State<WidgetTree> with WidgetsBindingObserver {
         appBar: AppBar(
           backgroundColor: Colors.transparent,
           elevation: 0,
-          title: Row(
-            children: [
-              Image.asset(
-                "assets/images/NexShift.png",
-                width: MediaQuery.of(context).size.width * 0.3,
-                fit: BoxFit.contain,
-              ),
-              Lottie.asset(
-                "assets/lotties/animated_logo.json", // animated_logo
-                fit: BoxFit.contain,
-                width: MediaQuery.of(context).size.width * 0.12,
-              ),
-            ],
+          title: Image.asset(
+            "assets/images/RELÈVE.png",
+            height: 24,
+            fit: BoxFit.contain,
           ),
+          centerTitle: true,
           toolbarHeight: 40,
           leading: DrawerButton(color: Theme.of(context).colorScheme.primary),
           actions: [

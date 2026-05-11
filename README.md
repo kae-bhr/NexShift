@@ -149,4 +149,4 @@ Pour toute question ou demande de support :
 
 ---
 
-© 2025 NexShift - Tous droits réservés
+© 2025-2026 NexShift - Tous droits réservés

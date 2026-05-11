@@ -7,7 +7,7 @@ class HeroWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final taille = MediaQuery.of(context).size;
+    final size = MediaQuery.of(context).size;
 
     return ValueListenableBuilder(
       valueListenable: isDarkModeNotifier,
@@ -24,21 +24,27 @@ class HeroWidget extends StatelessWidget {
               ) {
                 return fromHeroContext.widget;
               },
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              Lottie.asset(
-                "assets/lotties/animated_logo.json", // animated_logo
-                fit: BoxFit.contain,
-                width: taille.width * 0.9,
-                height: taille.height * 0.4,
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 24),
+            child: SizedBox(
+              width: size.width * 0.85,
+              height: size.height * 0.40,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Lottie.asset(
+                    "assets/lotties/background.json",
+                    fit: BoxFit.contain,
+                  ),
+                  Image.asset(
+                    "assets/images/RELÈVE.png",
+                    width: size.width * 0.55,
+                    height: size.height * 0.40,
+                    fit: BoxFit.contain,
+                  ),
+                ],
               ),
-              Image.asset(
-                "assets/images/NexShift.png",
-                width: taille.width * 0.5,
-                fit: BoxFit.contain,
-              ),
-            ],
+            ),
           ),
         );
       },

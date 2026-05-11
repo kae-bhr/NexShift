@@ -17,45 +17,83 @@ class WelcomePage extends StatelessWidget {
         return Scaffold(
           body: Stack(
             children: [
-              // Contenu principal
-              Padding(
-                padding: const EdgeInsets.all(20.0),
+              SafeArea(
                 child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    HeroWidget(),
-                    FilledButton(
-                      onPressed: isRestoring
-                          ? null
-                          : () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) =>
-                                      const SDISSelectionForCreateAccountPage(),
-                                ),
-                              );
-                            },
-                      child: const Text(
-                        'Créer un compte',
-                        style: TextStyle(fontSize: 16),
+                    // Zone logo — 60% de l'écran, centrée verticalement
+                    Expanded(
+                      flex: 5,
+                      child: Center(
+                        child: HeroWidget(),
                       ),
                     ),
-                    TextButton(
-                      onPressed: isRestoring
-                          ? null
-                          : () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) =>
-                                      const SDISSelectionPage(),
+
+                    // Zone boutons — ancrée en bas
+                    Expanded(
+                      flex: 3,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 32),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton(
+                                onPressed: isRestoring
+                                    ? null
+                                    : () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (context) =>
+                                                const SDISSelectionForCreateAccountPage(),
+                                          ),
+                                        );
+                                      },
+                                style: FilledButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 16),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
                                 ),
-                              );
-                            },
-                      child: const Text(
-                        'Se connecter',
-                        style: TextStyle(fontSize: 16),
+                                child: const Text(
+                                  'Créer un compte',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            SizedBox(
+                              width: double.infinity,
+                              child: TextButton(
+                                onPressed: isRestoring
+                                    ? null
+                                    : () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (context) =>
+                                                const SDISSelectionPage(),
+                                          ),
+                                        );
+                                      },
+                                style: TextButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 14),
+                                ),
+                                child: const Text(
+                                  'Se connecter',
+                                  style: TextStyle(fontSize: 16),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                          ],
+                        ),
                       ),
                     ),
                   ],
@@ -102,15 +140,12 @@ class _RestoringSessionOverlay extends StatelessWidget {
 
     return Positioned.fill(
       child: IgnorePointer(
-        // Bloque les taps mais laisse la page visible en dessous
         ignoring: false,
         child: Container(
-          // Fond semi-transparent léger pour ne pas masquer le logo/animation
           color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.6),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              // Zone de chargement en bas, au-dessus des boutons
               Container(
                 margin: const EdgeInsets.symmetric(
                   horizontal: 32,

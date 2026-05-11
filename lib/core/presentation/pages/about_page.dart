@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:releve/core/presentation/widgets/custom_app_bar.dart';
-import 'package:releve/core/presentation/widgets/hero_widget.dart';
+import 'package:lottie/lottie.dart';
 import 'package:releve/core/presentation/pages/terms_of_service_page.dart';
 import 'package:releve/core/utils/constants.dart';
 
@@ -29,7 +29,13 @@ class AboutPage extends StatelessWidget {
         padding: const EdgeInsets.all(20.0),
         children: [
           // Logo et version
-          HeroWidget(),
+          Center(
+            child: Lottie.asset(
+              "assets/lotties/question.json",
+              height: 140,
+              fit: BoxFit.contain,
+            ),
+          ),
           Center(
             child: Text(
               "Version 1.0.0",
