@@ -17,7 +17,6 @@ import 'package:releve/core/data/models/on_call_level_model.dart';
 import 'package:releve/core/services/on_call_disposition_service.dart';
 import 'package:releve/core/config/environment_config.dart';
 import 'package:releve/core/services/wave_calculation_service.dart';
-import 'package:releve/core/services/skill_criticality_service.dart';
 // ReplacementMode est importé depuis station_model.dart
 
 /// Type de notification de remplacement
@@ -247,7 +246,6 @@ class ReplacementNotificationService {
   final SubshiftRepository _subshiftRepository;
   final ReplacementAcceptanceRepository _acceptanceRepository;
   final StationRepository _stationRepository;
-  final SkillCriticalityService _criticalityService = SkillCriticalityService();
 
   /// Constructeur avec injection de dépendances (pour les tests)
   ReplacementNotificationService({
@@ -526,9 +524,11 @@ class ReplacementNotificationService {
       // Pré-calculer toutes les vagues 1-5 pour un affichage cohérent immédiat.
       // La CF lira ces valeurs depuis waveUserIds au lieu de les recalculer.
       final waveCalculationService = WaveCalculationService();
-      final skillRarityWeights = waveCalculationService.calculateSkillRarityWeights(
-        teamMembers: allUsers,
-        requesterSkills: requester.skills,
+      final stationForWaves = await _stationRepository.getById(request.station);
+      final stationSkillWeightsForWaves = stationForWaves?.skillWeights ?? {};
+      final skillWeightsForWaves = waveCalculationService.buildUniformSkillWeights(
+        allUsers: allUsers,
+        stationSkillWeights: stationSkillWeightsForWaves,
       );
       final Map<String, List<String>> allWaveUserIds = {};
       for (final user in allUsers) {
@@ -539,7 +539,8 @@ class ReplacementNotificationService {
           candidate: user,
           planningTeam: planningTeam ?? request.team ?? '',
           agentsInPlanning: agentsInPlanning,
-          skillRarityWeights: skillRarityWeights,
+          skillRarityWeights: skillWeightsForWaves,
+          stationSkillWeights: stationSkillWeightsForWaves,
         );
         if (wave > 0 && wave <= 5) {
           allWaveUserIds.putIfAbsent('$wave', () => []).add(user.id);
@@ -630,10 +631,11 @@ class ReplacementNotificationService {
       // Calculer les vagues pour tous les utilisateurs
       final waveCalculationService = WaveCalculationService();
 
-      // Récupérer les poids de rareté des compétences
-      final skillRarityWeights = _criticalityService.calculateSkillRarityWeights(
-        teamMembers: allUsers,
-        requesterSkills: requester.skills,
+      final stationForSos = await _stationRepository.getById(request.station);
+      final stationSkillWeightsForSos = stationForSos?.skillWeights ?? {};
+      final skillWeightsForSos = waveCalculationService.buildUniformSkillWeights(
+        allUsers: allUsers,
+        stationSkillWeights: stationSkillWeightsForSos,
       );
 
       // Grouper les utilisateurs par vague (de 1 à 5)
@@ -652,7 +654,8 @@ class ReplacementNotificationService {
           candidate: user,
           planningTeam: planningTeam ?? request.team ?? '',
           agentsInPlanning: agentsInPlanning,
-          skillRarityWeights: skillRarityWeights,
+          skillRarityWeights: skillWeightsForSos,
+          stationSkillWeights: stationSkillWeightsForSos,
         );
 
         // Ignorer vague 0 (non notifiés)
@@ -766,13 +769,10 @@ class ReplacementNotificationService {
       // Calculer la distribution des vagues pour tous les utilisateurs
       final waveService = WaveCalculationService();
 
-      // Calculer les poids de rareté des compétences
-      final skillRarityWeights = <String, int>{};
-      for (final user in allUsers) {
-        for (final skill in user.skills) {
-          skillRarityWeights[skill] = (skillRarityWeights[skill] ?? 0) + 1;
-        }
-      }
+      final skillWeightsResidual = waveService.buildUniformSkillWeights(
+        allUsers: allUsers,
+        stationSkillWeights: station.skillWeights,
+      );
 
       // Calculer la vague pour chaque utilisateur et grouper par vague
       final waveDistribution = <int, List<String>>{};
@@ -786,7 +786,7 @@ class ReplacementNotificationService {
           candidate: user,
           planningTeam: planningTeam,
           agentsInPlanning: agentsInPlanning,
-          skillRarityWeights: skillRarityWeights,
+          skillRarityWeights: skillWeightsResidual,
           stationSkillWeights: station.skillWeights,
         );
 
@@ -2455,13 +2455,10 @@ class ReplacementNotificationService {
         // Récupérer l'équipe du planning
         final planningTeam = planningData['team'] as String? ?? '';
 
-        // Calculer les poids de rareté des compétences
-        final skillRarityWeights = <String, int>{};
-        for (final user in allUsers) {
-          for (final skill in user.skills) {
-            skillRarityWeights[skill] = (skillRarityWeights[skill] ?? 0) + 1;
-          }
-        }
+        final skillWeightsNext = waveService.buildUniformSkillWeights(
+          allUsers: allUsers,
+          stationSkillWeights: station.skillWeights,
+        );
 
         // Calculer la vague pour chaque utilisateur et grouper par vague
         final waveDistribution = <int, List<String>>{};
@@ -2474,7 +2471,7 @@ class ReplacementNotificationService {
             candidate: user,
             planningTeam: planningTeam,
             agentsInPlanning: agentsInPlanning,
-            skillRarityWeights: skillRarityWeights,
+            skillRarityWeights: skillWeightsNext,
             stationSkillWeights: station.skillWeights,
           );
 

@@ -15,7 +15,6 @@ import 'package:releve/core/data/models/user_model.dart';
 import 'package:releve/core/data/models/availability_model.dart';
 import 'package:releve/features/planning/presentation/widgets/planning_bar.dart';
 import 'package:releve/features/planning/presentation/pages/planning_team_details_page.dart';
-import 'package:releve/features/planning/presentation/widgets/planning_header_widget.dart';
 import 'package:releve/core/data/datasources/user_storage_helper.dart';
 import 'package:releve/core/data/datasources/notifiers.dart';
 import 'package:releve/core/repositories/team_repository.dart';
@@ -25,7 +24,6 @@ import 'package:releve/features/app_shell/presentation/widgets/absence_menu_over
 import 'package:releve/core/utils/constants.dart';
 import 'package:releve/core/config/environment_config.dart';
 import 'package:releve/core/data/datasources/sdis_context.dart';
-import 'package:releve/core/data/models/team_model.dart';
 import 'package:releve/features/planning/presentation/widgets/view_mode.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -43,7 +41,6 @@ class _PlanningPageState extends State<PlanningPage> {
   Set<String> _availabilityLevelIds = {};
   User? _currentUser;
   Map<String, Color> _teamColorById = {};
-  List<Team> _availableTeams = [];
   Color? _userTeamColor;
   bool _isLoading = false;
   String? _lastLoadedUserId;
@@ -73,6 +70,7 @@ class _PlanningPageState extends State<PlanningPage> {
     userNotifier.addListener(_onUserChanged);
     viewModeNotifier.addListener(_onViewModeChanged);
     currentMonthNotifier.addListener(_onCurrentMonthChanged);
+    currentWeekStartNotifier.addListener(_onWeekStartChanged);
     customDateRangeNotifier.addListener(_onCustomRangeChanged);
     selectedTeamNotifier.addListener(_onSelectedTeamChanged);
   }
@@ -93,10 +91,13 @@ class _PlanningPageState extends State<PlanningPage> {
     userNotifier.removeListener(_onUserChanged);
     viewModeNotifier.removeListener(_onViewModeChanged);
     currentMonthNotifier.removeListener(_onCurrentMonthChanged);
+    currentWeekStartNotifier.removeListener(_onWeekStartChanged);
     customDateRangeNotifier.removeListener(_onCustomRangeChanged);
     selectedTeamNotifier.removeListener(_onSelectedTeamChanged);
     super.dispose();
   }
+
+  void _onWeekStartChanged() => _loadUserAndPlanning();
 
   void _onViewModeChanged() {
     if (viewModeNotifier.value == ViewMode.month && _monthPlannings.isEmpty) {
@@ -638,13 +639,9 @@ class _PlanningPageState extends State<PlanningPage> {
       debugPrint('📅 [PLANNING_PAGE] _loadUserAndPlanning() - After cascade resolution: ${subshifts.length} subshifts');
       // Load teams to colorize bars by team in station view
       Color? userTeamColor;
-      List<Team> availableTeams = [];
       try {
         final teams = await TeamRepository().getByStation(user.station);
-        teams.sort((a, b) => a.order.compareTo(b.order));
-        availableTeams = teams;
         _teamColorById = {for (final t in teams) t.id: t.color};
-        // Récupérer la couleur de l'équipe de l'utilisateur
         final userTeam = teams.firstWhere(
           (t) => t.id == user.team,
           orElse: () => teams.first,
@@ -779,7 +776,6 @@ class _PlanningPageState extends State<PlanningPage> {
         _teamEvents = teamEvents;
         _currentUser = user;
         _userTeamColor = userTeamColor;
-        _availableTeams = availableTeams;
         _isLoading = false;
         _lastLoadedUserId = user.id;
       });
@@ -1298,13 +1294,6 @@ class _PlanningPageState extends State<PlanningPage> {
         builder: (context, stationView, _) {
           return Column(
             children: [
-              PlanningHeader(
-                onWeekChanged: (dt) {
-                  currentWeekStartNotifier.value = dt;
-                  _loadUserAndPlanning();
-                },
-                availableTeams: _availableTeams,
-              ),
               if (viewModeNotifier.value == ViewMode.month)
                 _buildMonthView(stationView, isDark)
               else ...[

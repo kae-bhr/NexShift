@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:releve/core/presentation/widgets/custom_app_bar.dart';
 import 'package:lottie/lottie.dart';
 import 'package:releve/core/presentation/pages/terms_of_service_page.dart';
@@ -36,15 +37,23 @@ class AboutPage extends StatelessWidget {
               fit: BoxFit.contain,
             ),
           ),
-          Center(
-            child: Text(
-              "Version 1.0.0",
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey[600],
-                fontWeight: FontWeight.w500,
-              ),
-            ),
+          FutureBuilder<PackageInfo>(
+            future: PackageInfo.fromPlatform(),
+            builder: (context, snapshot) {
+              final version = snapshot.data?.version ?? '…';
+              final build = snapshot.data?.buildNumber ?? '';
+              final label = build.isNotEmpty ? 'Version $version (#$build)' : 'Version $version';
+              return Center(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[600],
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              );
+            },
           ),
           const SizedBox(height: 30),
 

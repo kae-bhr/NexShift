@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 
 import 'package:releve/core/data/datasources/notifiers.dart';
+import 'package:releve/core/data/models/team_model.dart';
+import 'package:releve/core/repositories/team_repository.dart';
 import 'package:releve/core/utils/constants.dart';
 import 'package:releve/features/home/presentation/pages/home_page.dart';
 import 'package:releve/features/planning/presentation/pages/planning_page.dart';
+import 'package:releve/features/planning/presentation/widgets/planning_header_widget.dart';
+import 'package:releve/features/planning/presentation/widgets/view_mode.dart';
 import 'package:releve/features/settings/presentation/pages/settings_page.dart';
 import 'package:releve/features/settings/presentation/pages/admin_page.dart';
 import 'package:releve/features/station/presentation/pages/station_shell_page.dart';
@@ -36,6 +41,7 @@ class _WidgetTreeState extends State<WidgetTree> with WidgetsBindingObserver {
   // pour éviter que HomePage/PlanningPage soient instanciées avant que
   // SDISContext et userNotifier soient restaurés au démarrage.
   late final List<Widget> _pages;
+  List<Team> _availableTeams = [];
 
   @override
   void initState() {
@@ -48,11 +54,23 @@ class _WidgetTreeState extends State<WidgetTree> with WidgetsBindingObserver {
     // Initialiser le BadgeCountService dès que l'utilisateur est disponible
     userNotifier.addListener(_onUserChanged);
     _initializeBadgeService();
+    _loadAvailableTeams();
     WidgetsBinding.instance.addObserver(this);
   }
 
   void _onUserChanged() {
     _initializeBadgeService();
+    _loadAvailableTeams();
+  }
+
+  Future<void> _loadAvailableTeams() async {
+    final user = userNotifier.value;
+    if (user == null || user.station.isEmpty) return;
+    try {
+      final teams = await TeamRepository().getByStation(user.station);
+      teams.sort((a, b) => a.order.compareTo(b.order));
+      if (mounted) setState(() => _availableTeams = teams);
+    } catch (_) {}
   }
 
   void _initializeBadgeService() {
@@ -207,33 +225,13 @@ class _WidgetTreeState extends State<WidgetTree> with WidgetsBindingObserver {
         }
       },
       child: Scaffold(
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          title: Image.asset(
-            "assets/images/RELÈVE.png",
-            height: 24,
-            fit: BoxFit.contain,
+        appBar: _AppShellHeader(
+          availableTeams: _availableTeams,
+          topPadding: MediaQuery.of(context).padding.top,
+          onSettingsTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const SettingsPage()),
           ),
-          centerTitle: true,
-          toolbarHeight: 40,
-          leading: DrawerButton(color: Theme.of(context).colorScheme.primary),
-          actions: [
-            const _RequestsAppBarButton(),
-            // Bouton paramètres
-            IconButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const SettingsPage()),
-                );
-              },
-              icon: Icon(
-                Icons.settings,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-            ),
-          ],
         ),
         drawer: ValueListenableBuilder(
           valueListenable: userNotifier,
@@ -637,6 +635,327 @@ class _WidgetTreeState extends State<WidgetTree> with WidgetsBindingObserver {
 }
 
 // ============================================================================
+// APP SHELL HEADER (persistent, 2 rows)
+// ============================================================================
+
+class _AppShellHeader extends StatefulWidget implements PreferredSizeWidget {
+  final List<Team> availableTeams;
+  final VoidCallback onSettingsTap;
+  final double topPadding;
+
+  const _AppShellHeader({
+    required this.availableTeams,
+    required this.onSettingsTap,
+    required this.topPadding,
+  });
+
+  static const double _row1H = 52.0;
+  static const double _row2H = kPlanningFilterH + 4 + 6; // 4 gap + 6 bottom
+
+  @override
+  Size get preferredSize => Size.fromHeight(topPadding + _row1H + _row2H);
+
+  @override
+  State<_AppShellHeader> createState() => _AppShellHeaderState();
+}
+
+class _AppShellHeaderState extends State<_AppShellHeader> {
+  @override
+  void initState() {
+    super.initState();
+    viewModeNotifier.addListener(_rebuild);
+    currentMonthNotifier.addListener(_rebuild);
+    currentWeekStartNotifier.addListener(_rebuild);
+    customDateRangeNotifier.addListener(_rebuild);
+    stationViewNotifier.addListener(_rebuild);
+  }
+
+  @override
+  void dispose() {
+    viewModeNotifier.removeListener(_rebuild);
+    currentMonthNotifier.removeListener(_rebuild);
+    currentWeekStartNotifier.removeListener(_rebuild);
+    customDateRangeNotifier.removeListener(_rebuild);
+    stationViewNotifier.removeListener(_rebuild);
+    super.dispose();
+  }
+
+  void _rebuild() => setState(() {});
+
+  static DateTime _getStartOfWeek(DateTime date) {
+    final monday = date.subtract(Duration(days: date.weekday - 1));
+    return DateTime(monday.year, monday.month, monday.day);
+  }
+
+  void _goToPrevious() {
+    if (viewModeNotifier.value == ViewMode.week) {
+      currentWeekStartNotifier.value = currentWeekStartNotifier.value.subtract(
+        const Duration(days: 7),
+      );
+    } else {
+      final current = currentMonthNotifier.value;
+      currentMonthNotifier.value = DateTime(current.year, current.month - 1);
+    }
+  }
+
+  void _goToNext() {
+    if (viewModeNotifier.value == ViewMode.week) {
+      currentWeekStartNotifier.value = currentWeekStartNotifier.value.add(
+        const Duration(days: 7),
+      );
+    } else {
+      final current = currentMonthNotifier.value;
+      currentMonthNotifier.value = DateTime(current.year, current.month + 1);
+    }
+  }
+
+  Future<void> _showPicker() async {
+    if (viewModeNotifier.value == ViewMode.week) {
+      final selectedDate = await showDatePicker(
+        context: context,
+        initialDate: currentWeekStartNotifier.value,
+        firstDate: DateTime(2020),
+        lastDate: DateTime(2030),
+        helpText: 'Sélectionner une date',
+        cancelText: 'Annuler',
+        confirmText: 'Confirmer',
+      );
+      if (selectedDate != null && mounted) {
+        currentWeekStartNotifier.value = _getStartOfWeek(selectedDate);
+      }
+    } else {
+      final current = currentMonthNotifier.value;
+      final selectedDate = await showDatePicker(
+        context: context,
+        initialDate: DateTime(current.year, current.month, 15),
+        firstDate: DateTime(2020),
+        lastDate: DateTime(2030),
+        helpText: 'Sélectionner un mois',
+        cancelText: 'Annuler',
+        confirmText: 'Confirmer',
+      );
+      if (selectedDate != null && mounted) {
+        currentMonthNotifier.value = DateTime(
+          selectedDate.year,
+          selectedDate.month,
+        );
+      }
+    }
+  }
+
+  String _capitalizeFirst(String s) =>
+      s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primary = Theme.of(context).colorScheme.primary;
+    final viewMode = viewModeNotifier.value;
+    final customRange = customDateRangeNotifier.value;
+    final isCustom = customRange != null;
+    final stationView = stationViewNotifier.value;
+
+    final daysOfWeek = List.generate(
+      7,
+      (i) => currentWeekStartNotifier.value.add(Duration(days: i)),
+    );
+    final currentMonth = currentMonthNotifier.value;
+
+    final String dateLabel;
+    final IconData dateIcon;
+    if (isCustom) {
+      final fmt = DateFormat('d MMM', 'fr_FR');
+      dateLabel =
+          '${fmt.format(customRange.start)} – ${fmt.format(customRange.end)}';
+      dateIcon = Icons.date_range_rounded;
+    } else if (viewMode == ViewMode.week) {
+      dateLabel =
+          '${DateFormat('d MMM', 'fr_FR').format(daysOfWeek.first)} - ${DateFormat('d MMM', 'fr_FR').format(daysOfWeek.last)}';
+      dateIcon = Icons.calendar_month_rounded;
+    } else {
+      dateLabel = _capitalizeFirst(
+        DateFormat('MMMM yyyy', 'fr_FR').format(currentMonth),
+      );
+      dateIcon = Icons.calendar_today_rounded;
+    }
+
+    return Material(
+      color: Theme.of(context).scaffoldBackgroundColor,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(height: widget.topPadding),
+          // ── Row 1 : Drawer | Personnel/Caserne toggle | Actions ──────────
+          SizedBox(
+            height: 52,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // Côté gauche — flex 1, aligné à gauche
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: DrawerButton(color: primary),
+                  ),
+                ),
+                // Toggle Personnel/Centre — taille naturelle, centré
+                Container(
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? Colors.white.withValues(alpha: 0.08)
+                        : Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  padding: const EdgeInsets.all(3),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SegmentButton(
+                        icon: Icons.person_rounded,
+                        label: 'Personnel',
+                        isSelected: !stationView,
+                        onTap: () => stationViewNotifier.value = false,
+                      ),
+                      SegmentButton(
+                        icon: Icons.fire_truck_rounded,
+                        label: 'Centre',
+                        isSelected: stationView,
+                        onTap: () => stationViewNotifier.value = true,
+                      ),
+                    ],
+                  ),
+                ),
+                // Côté droit — flex 1, aligné à droite
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const _RequestsAppBarButton(),
+                        IconButton(
+                          tooltip: 'Paramètres',
+                          onPressed: widget.onSettingsTap,
+                          icon: Icon(Icons.settings, color: primary),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 4),
+          // ── Row 2 : TeamFilter | Date nav | PeriodFilter ─────────────────
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: SizedBox(
+            height: kPlanningFilterH,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12.0),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // Filtre équipe
+                  ValueListenableBuilder<bool>(
+                    valueListenable: stationViewNotifier,
+                    builder: (_, sv, __) => ValueListenableBuilder<String?>(
+                      valueListenable: selectedTeamNotifier,
+                      builder: (_, __, ___) => TeamFilterButton(
+                        stationView: sv,
+                        availableTeams: widget.availableTeams,
+                        isDark: isDark,
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(width: 8),
+
+                  // Navigateur date (centre)
+                  Expanded(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        if (!isCustom) ...[
+                          NavArrowButton(
+                            icon: Icons.chevron_left_rounded,
+                            onTap: _goToPrevious,
+                          ),
+                          const SizedBox(width: 4),
+                        ],
+                        Flexible(
+                          child: GestureDetector(
+                            onTap: _showPicker,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                color: isDark
+                                    ? KColors.appNameColor.withValues(alpha: 0.15)
+                                    : KColors.appNameColor.withValues(alpha: 0.08),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    dateIcon,
+                                    size: 18,
+                                    color: KColors.appNameColor,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Flexible(
+                                    child: FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      alignment: Alignment.centerLeft,
+                                      child: Text(
+                                        dateLabel,
+                                        style: TextStyle(
+                                          color: Theme.of(context).colorScheme.primary,
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w600,
+                                          letterSpacing: -0.2,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        if (!isCustom) ...[
+                          const SizedBox(width: 4),
+                          NavArrowButton(
+                            icon: Icons.chevron_right_rounded,
+                            onTap: _goToNext,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(width: 8),
+
+                  // Sélecteur période
+                  UnconstrainedBox(
+                    child: PeriodFilterButton(isDark: isDark),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================================================
 // APPBAR REQUESTS BUTTON
 // ============================================================================
 
@@ -729,6 +1048,7 @@ class _RequestsAppBarButtonState extends State<_RequestsAppBarButton>
       alignment: Alignment.center,
       children: [
         IconButton(
+          tooltip: 'Demandes',
           onPressed: () => Navigator.push(
             context,
             MaterialPageRoute(
@@ -893,12 +1213,12 @@ class _FabMenuState extends State<_FabMenu>
 
   @override
   Widget build(BuildContext context) {
-    return FloatingActionButton(
+    return FloatingActionButton.small(
       key: _fabKey,
       backgroundColor: Theme.of(context).colorScheme.primary,
       onPressed: _toggleMenu,
       tooltip: 'Actions',
-      child: const Icon(Icons.add),
+      child: const Icon(Icons.add, size: 20),
     );
   }
 }

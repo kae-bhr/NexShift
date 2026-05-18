@@ -198,6 +198,16 @@ class _AdminPageState extends State<AdminPage> {
           ),
           const Divider(height: 1),
           ListTile(
+            leading: const Icon(Icons.timer_outlined),
+            title: const Text('Quota d\'heures mensuel'),
+            subtitle: Text('${_currentStation!.shiftMonthlyQuota} h / mois'),
+            trailing: IconButton(
+              icon: const Icon(Icons.edit),
+              onPressed: () => _editShiftMonthlyQuota(context),
+            ),
+          ),
+          const Divider(height: 1),
+          ListTile(
             leading: const Icon(Icons.timer),
             title: const Text('Délai entre les vagues'),
             subtitle: Text(
@@ -1333,6 +1343,49 @@ class _AdminPageState extends State<AdminPage> {
     if (result != null) {
       setState(() {
         _currentStation = _currentStation!.copyWith(maxAgentsPerShift: result);
+      });
+      await _saveStationConfig();
+    }
+  }
+
+  Future<void> _editShiftMonthlyQuota(BuildContext context) async {
+    final controller = TextEditingController(
+      text: _currentStation!.shiftMonthlyQuota.toString(),
+    );
+
+    final result = await showDialog<int>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Quota d\'heures mensuel'),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Heures',
+            suffixText: 'h / mois',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annuler'),
+          ),
+          TextButton(
+            onPressed: () {
+              final value = int.tryParse(controller.text);
+              if (value != null && value > 0) {
+                Navigator.pop(context, value);
+              }
+            },
+            child: const Text('Enregistrer'),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null) {
+      setState(() {
+        _currentStation = _currentStation!.copyWith(shiftMonthlyQuota: result);
       });
       await _saveStationConfig();
     }

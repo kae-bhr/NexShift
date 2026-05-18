@@ -4065,7 +4065,7 @@ class _WaveDetailsDialogState extends State<_WaveDetailsDialog> {
       case 1:
         return "Vague 1 : Équipe (hors astreinte)";
       case 2:
-        return "Vague 2 : Compétences identiques";
+        return "Vague 2 : Compétences équivalentes (100%)";
       case 3:
         return "Vague 3 : Compétences très proches (80%+)";
       case 4:

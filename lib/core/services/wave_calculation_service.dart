@@ -111,11 +111,6 @@ class WaveCalculationService {
     Map<String, int> skillRarityWeights,
     Map<String, double>? stationSkillWeights,
   ) {
-    // Vérifier si les compétences sont exactement les mêmes
-    if (_hasExactSameSkills(requester, candidate)) {
-      return 2; // Vague 2 : Compétences identiques
-    }
-
     // Calculer le score de similarité pondéré
     final similarity = _calculateSkillSimilarity(
       requester,
@@ -125,10 +120,13 @@ class WaveCalculationService {
     );
 
     // Définir les seuils pour chaque vague
-    // similarity = 1.0 signifie identique
+    // similarity = 1.0 signifie équivalent (100% des points couverts, y compris si la seule
+    // différence concerne des compétences pondérées à 0 qui n'impactent pas le score)
     // similarity = 0.0 signifie complètement différent
     int baseWave;
-    if (similarity >= 0.8) {
+    if (similarity >= 1.0) {
+      return 2; // Vague 2 : Compétences équivalentes (100% de similarité calculée)
+    } else if (similarity >= 0.8) {
       baseWave = 3; // Vague 3 : Très similaire (80%+ de match)
     } else if (similarity >= 0.6) {
       baseWave = 4; // Vague 4 : Relativement similaire (60%+ de match)
@@ -157,31 +155,18 @@ class WaveCalculationService {
     return false;
   }
 
-  /// Vérifie si deux utilisateurs ont exactement les mêmes compétences
-  bool _hasExactSameSkills(User user1, User user2) {
-    final skills1 = Set<String>.from(user1.skills);
-    final skills2 = Set<String>.from(user2.skills);
-
-    return skills1.length == skills2.length &&
-        skills1.containsAll(skills2);
-  }
-
-  /// Calcule la similarité pondérée entre deux ensembles de compétences
+  /// Calcule la similarité entre deux agents via la formule couverture/précision.
   ///
-  /// Retourne un score entre 0.0 et 1.0
-  /// - 1.0 = match parfait (candidat a exactement les compétences du demandeur)
-  /// - 0.0 = aucune compétence en commun
+  /// Formule : (couverture + précision) / 2
+  ///   - couverture = pts communs / pts du référent  (à quel point le candidat couvre les besoins)
+  ///   - précision  = pts communs / pts du candidat  (à quel point les compétences du candidat sont utiles)
   ///
-  /// Avec le nouveau système de points (0-100) :
-  /// - Les compétences rares et critiques ont des poids élevés
-  /// - La similarité reflète la capacité de remplacement opérationnel
-  /// - Pénalité de surqualification pour préserver les agents très qualifiés
-  ///   pour des remplacements futurs plus critiques
-  /// - Pondération configurable par station (skillWeights) si fournie
+  /// Les poids sont uniformes (1.0) multipliés par le stationMultiplier.
+  /// Une compétence avec stationMultiplier = 0 a un poids 0 et n'influence pas le score.
   double _calculateSkillSimilarity(
     User requester,
     User candidate,
-    Map<String, int> skillRarityWeights,
+    Map<String, int> skillWeights,       // poids uniformes × stationMultiplier × 100
     Map<String, double>? stationSkillWeights,
   ) {
     final requesterSkills = Set<String>.from(requester.skills);
@@ -189,64 +174,48 @@ class WaveCalculationService {
 
     if (requesterSkills.isEmpty) return 0.0;
 
-    // Calculer le poids total des compétences du demandeur
-    // En combinant la rareté ET la pondération de la station
-    double totalRequiredWeight = 0.0;
+    double totalWeightRequester = 0.0;
     for (final skill in requesterSkills) {
-      final rarityWeight = (skillRarityWeights[skill] ?? 0).toDouble();
-      final stationWeight = stationSkillWeights?[skill] ?? 1.0; // Défaut 1.0
-      totalRequiredWeight += rarityWeight * stationWeight;
+      totalWeightRequester += (skillWeights[skill] ?? 0).toDouble();
     }
 
-    // Si le demandeur n'a que des compétences non requises (poids 0),
-    // retourner 100% si le candidat les a aussi, 0% sinon
-    if (totalRequiredWeight == 0) {
+    if (totalWeightRequester == 0) {
       return candidateSkills.containsAll(requesterSkills) ? 1.0 : 0.0;
     }
 
-    // Calculer le poids des compétences en commun
-    // En combinant rareté ET pondération station
+    double totalWeightCandidate = 0.0;
+    for (final skill in candidateSkills) {
+      totalWeightCandidate += (skillWeights[skill] ?? 0).toDouble();
+    }
+
     double matchedWeight = 0.0;
     for (final skill in requesterSkills) {
       if (candidateSkills.contains(skill)) {
-        final rarityWeight = (skillRarityWeights[skill] ?? 0).toDouble();
-        final stationWeight = stationSkillWeights?[skill] ?? 1.0;
-        matchedWeight += rarityWeight * stationWeight;
+        matchedWeight += (skillWeights[skill] ?? 0).toDouble();
       }
     }
 
-    // Calculer le poids des compétences supplémentaires (surqualification)
-    double extraWeight = 0.0;
-    final extraSkills = candidateSkills.difference(requesterSkills);
-    for (final skill in extraSkills) {
-      final rarityWeight = (skillRarityWeights[skill] ?? 0).toDouble();
-      final stationWeight = stationSkillWeights?[skill] ?? 1.0;
-      extraWeight += rarityWeight * stationWeight;
+    final coverage = matchedWeight / totalWeightRequester;
+    final precision = totalWeightCandidate > 0 ? matchedWeight / totalWeightCandidate : 0.0;
+    return ((coverage + precision) / 2).clamp(0.0, 1.0);
+  }
+
+  /// Construit les poids uniformes (1.0 × stationMultiplier) pour toutes les compétences
+  /// de la station. C'est la référence utilisée pour le calcul de similarité.
+  Map<String, int> buildUniformSkillWeights({
+    required List<User> allUsers,
+    required Map<String, double> stationSkillWeights,
+  }) {
+    final allSkills = <String>{};
+    for (final user in allUsers) {
+      allSkills.addAll(user.skills);
     }
-
-    // Calculer le poids total du candidat
-    double totalCandidateWeight = matchedWeight + extraWeight;
-
-    // Pénalité de surqualification basée sur le ratio de compétences supplémentaires
-    // Si le candidat a beaucoup de compétences rares supplémentaires,
-    // il devrait être réservé pour des remplacements plus critiques
-    double overqualificationPenalty = 0.0;
-    if (totalCandidateWeight > 0 && totalRequiredWeight > 0) {
-      // Ratio de surqualification : combien de points supplémentaires vs requis
-      final overqualificationRatio = extraWeight / totalRequiredWeight;
-
-      // Pénalité progressive :
-      // - Si candidat a 50% de points en plus : -5% de similarité
-      // - Si candidat a 100% de points en plus : -10% de similarité
-      // - Si candidat a 200% de points en plus : -20% de similarité
-      // - Plafonné à -30% maximum
-      overqualificationPenalty = (overqualificationRatio * 0.1).clamp(0.0, 0.3);
+    final weights = <String, int>{};
+    for (final skill in allSkills) {
+      final multiplier = stationSkillWeights[skill] ?? 1.0;
+      weights[skill] = (multiplier * 100).round();
     }
-
-    final baseSimilarity = matchedWeight / totalRequiredWeight;
-    final adjustedSimilarity = baseSimilarity - overqualificationPenalty;
-
-    return adjustedSimilarity.clamp(0.0, 1.0);
+    return weights;
   }
 
   /// Calcule les poids de rareté pour chaque compétence (version contextuelle)

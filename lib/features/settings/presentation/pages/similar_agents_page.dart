@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lottie/lottie.dart';
 import 'package:releve/core/data/datasources/notifiers.dart';
 import 'package:releve/core/data/models/user_model.dart';
 import 'package:releve/core/repositories/user_repository.dart';
@@ -54,7 +55,7 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
   static const Map<int, String> _waveTitles = {
     0: 'Non notifiés',
     1: 'Même équipe',
-    2: 'Identiques',
+    2: 'Équivalents',
     3: 'Très similaires',
     4: 'Similaires',
     5: 'Autres',
@@ -63,7 +64,7 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
   static const Map<int, String> _waveFullTitles = {
     0: 'Agents non notifiés',
     1: 'Vague 1 — Même équipe',
-    2: 'Vague 2 — Compétences identiques',
+    2: 'Vague 2 — Compétences équivalentes (100%)',
     3: 'Vague 3 — Très similaires (80%+)',
     4: 'Vague 4 — Similaires (60%+)',
     5: 'Vague 5 — Autres agents',
@@ -127,18 +128,23 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
         skillRarityWeights: skillWeightsInt,
         stationSkillWeights: stationSkillWeights,
       );
-      final similarity =
-          _calculateSkillSimilarity(currentUser, user, skillWeights);
+      final similarity = _calculateSkillSimilarity(
+        currentUser,
+        user,
+        skillWeights,
+      );
       double agentTotalPoints = 0.0;
       for (final skill in user.skills) {
         agentTotalPoints += skillWeights[skill] ?? 0.0;
       }
-      agentsWithSimilarity.add(AgentWithSimilarity(
-        user: user,
-        wave: wave,
-        similarity: similarity,
-        totalPoints: agentTotalPoints,
-      ));
+      agentsWithSimilarity.add(
+        AgentWithSimilarity(
+          user: user,
+          wave: wave,
+          similarity: similarity,
+          totalPoints: agentTotalPoints,
+        ),
+      );
     }
 
     agentsWithSimilarity.sort((a, b) {
@@ -156,7 +162,10 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
   }
 
   double _calculateSkillSimilarity(
-      User user1, User user2, Map<String, double> skillWeights) {
+    User user1,
+    User user2,
+    Map<String, double> skillWeights,
+  ) {
     final skills1 = Set<String>.from(user1.skills);
     final skills2 = Set<String>.from(user2.skills);
     if (skills1.isEmpty) return 0.0;
@@ -182,13 +191,18 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
     }
 
     final coverage = matchedWeight / totalWeightUser1;
-    final precision =
-        totalWeightUser2 > 0 ? matchedWeight / totalWeightUser2 : 0.0;
+    final precision = totalWeightUser2 > 0
+        ? matchedWeight / totalWeightUser2
+        : 0.0;
     return ((coverage + precision) / 2).clamp(0.0, 1.0);
   }
 
-  String _getSimilarityExplanation(User user1, User user2,
-      Map<String, double> skillWeights, double compatibility) {
+  String _getSimilarityExplanation(
+    User user1,
+    User user2,
+    Map<String, double> skillWeights,
+    double compatibility,
+  ) {
     final skills1 = Set<String>.from(user1.skills);
     final skills2 = Set<String>.from(user2.skills);
     if (skills1.isEmpty) return 'Aucune compétence à comparer';
@@ -213,16 +227,21 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
       }
     }
     final coverage = matchedWeight / totalWeightUser1;
-    final precision =
-        totalWeightUser2 > 0 ? matchedWeight / totalWeightUser2 : 0.0;
+    final precision = totalWeightUser2 > 0
+        ? matchedWeight / totalWeightUser2
+        : 0.0;
 
     final buffer = StringBuffer();
     buffer.writeln('Détails du calcul\n');
-    buffer.writeln('Points requis : ${totalWeightUser1.toStringAsFixed(1)} pts');
     buffer.writeln(
-        'Points de l\'agent : ${totalWeightUser2.toStringAsFixed(1)} pts');
+      'Points requis : ${totalWeightUser1.toStringAsFixed(1)} pts',
+    );
     buffer.writeln(
-        'Points en commun : ${matchedWeight.toStringAsFixed(1)} pts\n');
+      'Points de l\'agent : ${totalWeightUser2.toStringAsFixed(1)} pts',
+    );
+    buffer.writeln(
+      'Points en commun : ${matchedWeight.toStringAsFixed(1)} pts\n',
+    );
     buffer.writeln('Couverture : ${(coverage * 100).round()}%');
     buffer.writeln('Précision : ${(precision * 100).round()}%');
     buffer.write('Compatibilité : ${(compatibility * 100).round()}%');
@@ -241,6 +260,10 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
       appBar: CustomAppBar(
         title: 'Agents similaires',
         bottomColor: KColors.appNameColor,
+        actions: [
+          _SimilarityHelpButton(isDark: isDark),
+          const SizedBox(width: 4),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -288,7 +311,9 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
             ),
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
-              color: KColors.appNameColor.withValues(alpha: isDark ? 0.28 : 0.18),
+              color: KColors.appNameColor.withValues(
+                alpha: isDark ? 0.28 : 0.18,
+              ),
             ),
           ),
           child: Row(
@@ -315,7 +340,9 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
-                        color: isDark ? Colors.grey.shade100 : Colors.grey.shade900,
+                        color: isDark
+                            ? Colors.grey.shade100
+                            : Colors.grey.shade900,
                       ),
                     ),
                     const SizedBox(height: 3),
@@ -345,7 +372,9 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
                       '${_currentUser!.skills.length} compétences — ${_currentUserTotalPoints.toStringAsFixed(1)} pts',
                       style: TextStyle(
                         fontSize: 11,
-                        color: isDark ? Colors.grey.shade400 : Colors.grey.shade500,
+                        color: isDark
+                            ? Colors.grey.shade400
+                            : Colors.grey.shade500,
                       ),
                     ),
                   ],
@@ -362,7 +391,7 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
   Widget _buildWaveLegendCard(bool isDark) {
     final waveEntries = [
       (1, 'Même équipe', 'Agents de votre équipe'),
-      (2, 'Compétences identiques', 'Exactement les mêmes compétences'),
+      (2, 'Compétences équivalentes', 'Score de similarité calculé à 100%'),
       (3, 'Très similaires (80%+)', 'Compétences très proches'),
       (4, 'Similaires (60%+)', 'Compétences relativement proches'),
       (5, 'Autres agents', 'Tous les autres agents disponibles'),
@@ -387,9 +416,11 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
         children: [
           Row(
             children: [
-              Icon(Icons.info_outline_rounded,
-                  size: 14,
-                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600),
+              Icon(
+                Icons.info_outline_rounded,
+                size: 14,
+                color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+              ),
               const SizedBox(width: 6),
               Text(
                 'VAGUES DE NOTIFICATION',
@@ -418,8 +449,7 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
                     decoration: BoxDecoration(
                       color: color.withValues(alpha: 0.15),
                       shape: BoxShape.circle,
-                      border: Border.all(
-                          color: color.withValues(alpha: 0.50)),
+                      border: Border.all(color: color.withValues(alpha: 0.50)),
                     ),
                     child: Center(
                       child: Text(
@@ -480,8 +510,10 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
         const Center(
           child: Padding(
             padding: EdgeInsets.all(32),
-            child: Text('Aucun agent trouvé',
-                style: TextStyle(color: Colors.grey)),
+            child: Text(
+              'Aucun agent trouvé',
+              style: TextStyle(color: Colors.grey),
+            ),
           ),
         ),
       ];
@@ -498,7 +530,10 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
   }
 
   Widget _buildWaveSection(
-      int wave, List<AgentWithSimilarity> agents, bool isDark) {
+    int wave,
+    List<AgentWithSimilarity> agents,
+    bool isDark,
+  ) {
     final color = _waveColor(wave);
     final description = _waveDescriptions[wave];
 
@@ -511,7 +546,9 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
           decoration: BoxDecoration(
             color: color.withValues(alpha: isDark ? 0.12 : 0.07),
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: color.withValues(alpha: isDark ? 0.30 : 0.20)),
+            border: Border.all(
+              color: color.withValues(alpha: isDark ? 0.30 : 0.20),
+            ),
           ),
           child: Row(
             children: [
@@ -548,7 +585,9 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
                         description,
                         style: TextStyle(
                           fontSize: 11,
-                          color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                          color: isDark
+                              ? Colors.grey.shade400
+                              : Colors.grey.shade600,
                         ),
                       ),
                   ],
@@ -573,14 +612,16 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
           ),
         ),
         const SizedBox(height: 8),
-        ...agents
-            .map((agent) => _buildAgentCard(agent, color, isDark)),
+        ...agents.map((agent) => _buildAgentCard(agent, color, isDark)),
       ],
     );
   }
 
   Widget _buildAgentCard(
-      AgentWithSimilarity agentSimilarity, Color waveColor, bool isDark) {
+    AgentWithSimilarity agentSimilarity,
+    Color waveColor,
+    bool isDark,
+  ) {
     final agent = agentSimilarity.user;
     final similarity = agentSimilarity.similarity;
     final pct = (similarity * 100).toInt();
@@ -663,11 +704,13 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
                               ),
                             ),
                             const SizedBox(width: 8),
-                            Icon(Icons.verified_rounded,
-                                size: 11,
-                                color: isDark
-                                    ? Colors.grey.shade500
-                                    : Colors.grey.shade500),
+                            Icon(
+                              Icons.verified_rounded,
+                              size: 11,
+                              color: isDark
+                                  ? Colors.grey.shade500
+                                  : Colors.grey.shade500,
+                            ),
                             const SizedBox(width: 3),
                             Text(
                               '${agent.skills.length}',
@@ -686,7 +729,11 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
                   // Gauge de compatibilité
                   Tooltip(
                     message: _getSimilarityExplanation(
-                        _currentUser!, agent, _skillWeights, similarity),
+                      _currentUser!,
+                      agent,
+                      _skillWeights,
+                      similarity,
+                    ),
                     preferBelow: false,
                     child: SizedBox(
                       width: 44,
@@ -699,8 +746,9 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
                             backgroundColor: isDark
                                 ? Colors.white.withValues(alpha: 0.10)
                                 : Colors.grey.shade200,
-                            valueColor:
-                                AlwaysStoppedAnimation<Color>(waveColor),
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              waveColor,
+                            ),
                             strokeWidth: 3.5,
                           ),
                           Text(
@@ -732,16 +780,11 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
 
     final currentSkills = Set<String>.from(_currentUser!.skills);
     final agentSkills = Set<String>.from(agent.skills);
-    final commonSkills = currentSkills.intersection(agentSkills).toList()..sort();
-    final onlyCurrentSkills = currentSkills
-        .difference(agentSkills)
-        .where((s) => (_skillWeights[s] ?? 1.0) > 0.0)
-        .toList()
+    final commonSkills = currentSkills.intersection(agentSkills).toList()
       ..sort();
-    final onlyAgentSkills = agentSkills
-        .difference(currentSkills)
-        .where((s) => (_skillWeights[s] ?? 1.0) > 0.0)
-        .toList()
+    final onlyCurrentSkills = currentSkills.difference(agentSkills).toList()
+      ..sort();
+    final onlyAgentSkills = agentSkills.difference(currentSkills).toList()
       ..sort();
 
     showModalBottomSheet(
@@ -759,8 +802,9 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
             return Container(
               decoration: BoxDecoration(
                 color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-                borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(20)),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(20),
+                ),
               ),
               child: FutureBuilder(
                 future: agent.team.isNotEmpty
@@ -865,11 +909,15 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
                       Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: waveColor.withValues(alpha: isDark ? 0.12 : 0.07),
+                          color: waveColor.withValues(
+                            alpha: isDark ? 0.12 : 0.07,
+                          ),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                              color: waveColor.withValues(
-                                  alpha: isDark ? 0.30 : 0.20)),
+                            color: waveColor.withValues(
+                              alpha: isDark ? 0.30 : 0.20,
+                            ),
+                          ),
                         ),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -952,8 +1000,7 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
 
                       // Compétences manquantes
                       if (onlyCurrentSkills.isNotEmpty) ...[
-                        if (commonSkills.isNotEmpty)
-                          const SizedBox(height: 10),
+                        if (commonSkills.isNotEmpty) const SizedBox(height: 10),
                         _SkillSection(
                           label: 'Manquantes',
                           count: onlyCurrentSkills.length,
@@ -1020,6 +1067,217 @@ class _SimilarAgentsPageState extends State<SimilarAgentsPage> {
 
 // ── Widgets locaux ─────────────────────────────────────────────────────────────
 
+class _SimilarityHelpButton extends StatelessWidget {
+  final bool isDark;
+  const _SimilarityHelpButton({required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: () => showDialog(
+        context: context,
+        builder: (_) => const _SimilarityHelpDialog(),
+      ),
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.06)
+              : Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.1)
+                : Colors.grey.shade200,
+          ),
+        ),
+        child: Icon(
+          Icons.help_outline_rounded,
+          size: 18,
+          color: scheme.primary,
+        ),
+      ),
+    );
+  }
+}
+
+class _SimilarityHelpDialog extends StatelessWidget {
+  const _SimilarityHelpDialog();
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final scheme = Theme.of(context).colorScheme;
+    final bg = isDark ? const Color(0xFF1E1E2E) : Colors.white;
+    final titleColor = isDark ? Colors.grey.shade200 : Colors.grey.shade800;
+    final subtitleColor = isDark ? Colors.grey.shade400 : Colors.grey.shade600;
+    final screenH = MediaQuery.of(context).size.height;
+    final lottieH = (screenH * 0.18).clamp(60.0, 100.0);
+
+    Widget rule({
+      required IconData icon,
+      required Color color,
+      required String title,
+      required String description,
+    }) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, size: 17, color: color),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: color,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    description,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: subtitleColor,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Dialog(
+      backgroundColor: bg,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: screenH * 0.85),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ClipRRect(
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(20),
+              ),
+              child: Stack(
+                children: [
+                  SizedBox(
+                    height: lottieH,
+                    width: double.infinity,
+                    child: Lottie.asset(
+                      'assets/lotties/question.json',
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                  Positioned(
+                    top: 6,
+                    right: 6,
+                    child: IconButton(
+                      icon: Icon(
+                        Icons.close_rounded,
+                        size: 18,
+                        color: subtitleColor,
+                      ),
+                      onPressed: () => Navigator.of(context).pop(),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Comment est calculée la similarité ?',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: titleColor,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Le score reflète la capacité de remplacement opérationnel entre deux agents.',
+                      style: TextStyle(fontSize: 12, color: subtitleColor),
+                    ),
+                    const SizedBox(height: 16),
+                    rule(
+                      icon: Icons.star_rounded,
+                      color: Colors.amber.shade700,
+                      title: 'Poids des compétences',
+                      description:
+                          'Chaque compétence est pondérée par l\'administrateur de la caserne. La pondération permet d\'appuyer la différence entre deux agents possédant des compétences différentes.',
+                    ),
+                    rule(
+                      icon: Icons.check_circle_rounded,
+                      color: Colors.green.shade600,
+                      title: 'Couverture',
+                      description:
+                          'Proportion des points requis couverts par l\'agent candidat. Ex : si le référent a 10 pts et le candidat en couvre 8, la couverture est 80 %.',
+                    ),
+                    rule(
+                      icon: Icons.adjust_rounded,
+                      color: Colors.blue.shade600,
+                      title: 'Précision',
+                      description:
+                          'Proportion des points du candidat qui correspondent aux besoins du référent. Les compétences supplémentaires à points élevés réduisent légèrement la précision.',
+                    ),
+                    rule(
+                      icon: Icons.calculate_rounded,
+                      color: scheme.primary,
+                      title: 'Score final',
+                      description:
+                          'Score = (Couverture + Précision) ÷ 2\n'
+                          '• Couverture = pts communs ÷ pts du référent\n'
+                          '• Précision = pts communs ÷ pts du candidat\n\n'
+                          'Score = 100 % → vague 2\n'
+                          'Score ≥ 80 % → vague 3\n'
+                          'Score ≥ 60 % → vague 4\n'
+                          'Score < 60 % → vague 5',
+                    ),
+                    rule(
+                      icon: Icons.visibility_off_rounded,
+                      color: Colors.grey.shade500,
+                      title: 'Compétences pondérées à 0',
+                      description:
+                          'Certaines compétences ont un poids de 0 dans la configuration de la caserne. Elles n\'influencent pas le score mais sont affichées dans le détail pour information.',
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _SkillSection extends StatelessWidget {
   final String label;
   final int count;
@@ -1047,7 +1305,8 @@ class _SkillSection extends StatelessWidget {
         color: color.withValues(alpha: isDark ? 0.08 : 0.05),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
-            color: color.withValues(alpha: isDark ? 0.25 : 0.18)),
+          color: color.withValues(alpha: isDark ? 0.25 : 0.18),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1080,13 +1339,16 @@ class _SkillSection extends StatelessWidget {
               return Tooltip(
                 message: '$skill : ${pts.toStringAsFixed(1)} pts',
                 child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 9,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: skillColor.withValues(alpha: isDark ? 0.18 : 0.12),
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
-                        color: skillColor.withValues(alpha: 0.40)),
+                      color: skillColor.withValues(alpha: 0.40),
+                    ),
                   ),
                   child: Text(
                     skill,

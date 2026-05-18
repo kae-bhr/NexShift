@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
-import 'package:releve/core/data/models/availability_model.dart';
+import 'package:lottie/lottie.dart';
 import 'package:releve/core/data/models/planning_model.dart';
 import 'package:releve/core/data/models/station_model.dart';
 import 'package:releve/core/data/models/user_model.dart';
@@ -15,39 +15,113 @@ import 'package:releve/core/data/datasources/sdis_context.dart';
 import 'package:releve/core/utils/constants.dart';
 
 // ---------------------------------------------------------------------------
+// Entrées détaillées (pour le déroulé par colonne)
+// ---------------------------------------------------------------------------
+
+class _DutyEntry {
+  final DateTime start;
+  final DateTime end;
+  final double hours;
+
+  _DutyEntry({required this.start, required this.end, required this.hours});
+}
+
+class _ReplacementEntry {
+  final DateTime start;
+  final DateTime end;
+  final double hours;
+  final String replacedAgentName; // nom de l'agent remplacé
+
+  _ReplacementEntry({
+    required this.start,
+    required this.end,
+    required this.hours,
+    required this.replacedAgentName,
+  });
+}
+
+class _ReplacedEntry {
+  final DateTime start;
+  final DateTime end;
+  final double hours;
+  final String replacementAgentName; // nom du remplaçant
+
+  _ReplacedEntry({
+    required this.start,
+    required this.end,
+    required this.hours,
+    required this.replacementAgentName,
+  });
+}
+
+class _AbsenceEntry {
+  final DateTime start;
+  final DateTime end;
+  final double hours;
+  final String? label;
+
+  _AbsenceEntry({
+    required this.start,
+    required this.end,
+    required this.hours,
+    this.label,
+  });
+}
+
+class _AvailabilityEntry {
+  final DateTime start;
+  final DateTime end;
+  final double hours;
+
+  _AvailabilityEntry({
+    required this.start,
+    required this.end,
+    required this.hours,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Modèle de stats par agent
 // ---------------------------------------------------------------------------
 
 class _AgentStats {
   final User agent;
 
-  // Heures en tant que titulaire (PlanningAgent sans replacedAgentId)
-  // Inclut : garde standard, ajout d'agent (AgentQuery)
+  // Astreinte = titulaire non remplacé + remplacement intra-équipe
   double baseHours = 0;
 
-  // Heures où l'agent a été remplacé par quelqu'un d'autre
+  // Remplacé = remplacé par un agent d'une autre équipe (inter-équipe uniquement)
   double replacedHours = 0;
 
-  // Astreinte nette = baseHours - replacedHours (plancher 0)
-  double get dutyHours =>
-      (baseHours - replacedHours).clamp(0.0, double.infinity);
-
-  // Heures de remplacement effectuées (remplacement classique + échanges)
+  // Remplaçant = remplace quelqu'un d'une autre équipe (inter-équipe uniquement)
   double replacementHours = 0;
 
-  // Heures de disponibilité déclarées
+  // Disponibilité = dispo hors planning de son équipe
   double availabilityHours = 0;
 
-  // Heures de planning d'équipe auxquelles l'agent était absent
+  // Absence = absent de l'effectif équipe OU remplacé intra OU dispo pendant planning équipe
   double absenceHours = 0;
 
-  // Ratio (dutyHours + replacementHours) / (dutyHours + replacedHours)
-  double get activityRate {
-    final numerator = dutyHours + replacementHours;
-    final denominator = dutyHours + replacedHours;
-    if (denominator == 0) return numerator > 0 ? double.infinity : 0;
-    return (numerator / denominator).clamp(0.0, 10.0);
-  }
+  // Détail des astreintes (titulaire + remplaçant intra)
+  final List<_DutyEntry> duties = [];
+
+  // Détail des remplacements inter-équipe effectués
+  final List<_ReplacementEntry> replacements = [];
+
+  // Détail des créneaux remplacés par inter-équipe
+  final List<_ReplacedEntry> replacedEntries = [];
+
+  // Détail des absences
+  final List<_AbsenceEntry> absences = [];
+
+  // Détail des disponibilités hors planning équipe
+  final List<_AvailabilityEntry> availabilities = [];
+
+  // Heures réalisées = astreinte + remplaçant inter-équipe
+  double get performedHours => baseHours + replacementHours;
+
+  // Créneaux d'absence issus de plannings (pour éviter double-compte avec les dispos)
+  final List<(DateTime, DateTime)> absenceSlots = [];
 
   _AgentStats({required this.agent});
 
@@ -113,6 +187,12 @@ class _TeamDashboardPageState extends State<TeamDashboardPage> {
   // --- Scope résolu ---
   DashboardScope _scope = DashboardScope.station;
 
+  // --- Expansion des lignes ---
+  final Set<String> _expandedAgents = {};
+
+  // --- Génération de chargement (anti-concurrence) ---
+  int _loadGeneration = 0;
+
   // ---------------------------------------------------------------------------
   // Lifecycle
   // ---------------------------------------------------------------------------
@@ -174,6 +254,7 @@ class _TeamDashboardPageState extends State<TeamDashboardPage> {
   }
 
   Future<void> _load() async {
+    final generation = ++_loadGeneration;
     setState(() {
       _loading = true;
       _error = null;
@@ -233,8 +314,17 @@ class _TeamDashboardPageState extends State<TeamDashboardPage> {
       };
 
       // Calculer les stats sur TOUS les plannings et TOUS les agents
+      // On capture les bornes localement pour éviter toute mutation concurrente
+      final rangeStart = _startDate;
+      final rangeEnd = _endDate;
       for (final planning in plannings) {
-        _processPlanningForStats(planning, allStatsMap);
+        _processPlanningForStats(planning, allStatsMap, rangeStart, rangeEnd);
+      }
+
+      // Index des plannings par équipe (pour le croisement avec les disponibilités)
+      final planningsByTeam = <String, List<Planning>>{};
+      for (final p in plannings) {
+        planningsByTeam.putIfAbsent(p.team, () => []).add(p);
       }
 
       // Charger les disponibilités pour tous les agents
@@ -247,9 +337,68 @@ class _TeamDashboardPageState extends State<TeamDashboardPage> {
             ? avail.start
             : _startDate;
         final end = avail.end.isBefore(_endDate) ? avail.end : _endDate;
-        if (end.isAfter(start)) {
-          stats.availabilityHours += end.difference(start).inMinutes / 60.0;
+        if (!end.isAfter(start)) continue;
+
+        // Chevauchement avec les plannings de l'équipe de l'agent
+        final agentTeam = stats.agent.team;
+        final teamPlannings = planningsByTeam[agentTeam] ?? [];
+        double overlapH = 0;
+        for (final p in teamPlannings) {
+          final oStart = start.isAfter(p.startTime) ? start : p.startTime;
+          final oEnd = end.isBefore(p.endTime) ? end : p.endTime;
+          if (oEnd.isAfter(oStart)) {
+            overlapH += oEnd.difference(oStart).inMinutes / 60.0;
+          }
         }
+
+        final availH = end.difference(start).inMinutes / 60.0;
+        final netAvailH = (availH - overlapH).clamp(0.0, double.infinity);
+
+        // Disponibilité hors planning d'équipe
+        if (netAvailH > 0) {
+          stats.availabilityHours += netAvailH;
+          stats.availabilities.add(
+            _AvailabilityEntry(start: start, end: end, hours: netAvailH),
+          );
+        }
+
+        // Dispo pendant un planning d'équipe → Absence, sauf si déjà comptée
+        // (remplacement intra ou absence totale déjà enregistrée via absenceSlots)
+        if (overlapH > 0) {
+          // Calculer la fraction réellement non encore comptabilisée
+          double alreadyCounted = 0;
+          for (final slot in stats.absenceSlots) {
+            final oStart = start.isAfter(slot.$1) ? start : slot.$1;
+            final oEnd = end.isBefore(slot.$2) ? end : slot.$2;
+            if (oEnd.isAfter(oStart)) {
+              alreadyCounted += oEnd.difference(oStart).inMinutes / 60.0;
+            }
+          }
+          final newAbsenceH = (overlapH - alreadyCounted).clamp(
+            0.0,
+            double.infinity,
+          );
+          if (newAbsenceH > 0) {
+            stats.absenceHours += newAbsenceH;
+            stats.absences.add(
+              _AbsenceEntry(
+                start: start,
+                end: end,
+                hours: newAbsenceH,
+                label: 'Disponibilité pendant planning équipe',
+              ),
+            );
+          }
+        }
+      }
+
+      // Trier toutes les listes de détail par date de début
+      for (final s in allStatsMap.values) {
+        s.duties.sort((a, b) => a.start.compareTo(b.start));
+        s.replacements.sort((a, b) => a.start.compareTo(b.start));
+        s.replacedEntries.sort((a, b) => a.start.compareTo(b.start));
+        s.absences.sort((a, b) => a.start.compareTo(b.start));
+        s.availabilities.sort((a, b) => a.start.compareTo(b.start));
       }
 
       // Filtrer pour l'affichage uniquement (après le calcul complet)
@@ -259,15 +408,18 @@ class _TeamDashboardPageState extends State<TeamDashboardPage> {
           .toList();
       _applySort(sorted);
 
+      if (generation != _loadGeneration) return;
       setState(() {
         _station = station;
         _scope = scope;
         _allTeams = teams;
         _selectedTeam = resolvedTeam;
         _stats = sorted;
+        _expandedAgents.clear();
         _loading = false;
       });
     } catch (e) {
+      if (generation != _loadGeneration) return;
       setState(() {
         _error = e.toString();
         _loading = false;
@@ -278,34 +430,115 @@ class _TeamDashboardPageState extends State<TeamDashboardPage> {
   void _processPlanningForStats(
     Planning planning,
     Map<String, _AgentStats> statsMap,
+    DateTime rangeStart,
+    DateTime rangeEnd,
   ) {
-    final planningDurationH =
-        planning.endTime.difference(planning.startTime).inMinutes / 60.0;
+    final pStart = planning.startTime.isAfter(rangeStart)
+        ? planning.startTime
+        : rangeStart;
+    final pEnd = planning.endTime.isBefore(rangeEnd)
+        ? planning.endTime
+        : rangeEnd;
+    if (!pEnd.isAfter(pStart)) return;
+    final planningDurationH = pEnd.difference(pStart).inMinutes / 60.0;
+    final planningTeam = planning.team;
+
+    // Agents présents dans l'effectif (titulaires + remplaçants inter)
     final presentAgentIds = <String>{};
+    // Agents remplacés intra-équipe → absence (avec la durée exacte du remplacement)
+    final replacedIntraMap = <String, double>{}; // agentId → heures remplacées
 
     for (final pa in planning.agents) {
-      final durationH = pa.end.difference(pa.start).inMinutes / 60.0;
+      final aStart = pa.start.isAfter(rangeStart) ? pa.start : rangeStart;
+      final aEnd = pa.end.isBefore(rangeEnd) ? pa.end : rangeEnd;
+      if (!aEnd.isAfter(aStart)) continue;
+      final durationH = aEnd.difference(aStart).inMinutes / 60.0;
+
       final stats = statsMap[pa.agentId];
       if (stats == null) continue;
 
-      presentAgentIds.add(pa.agentId);
-
       if (pa.replacedAgentId == null) {
-        // Titulaire de base
+        // Titulaire standard
+        presentAgentIds.add(pa.agentId);
         stats.baseHours += durationH;
+        stats.duties.add(
+          _DutyEntry(start: aStart, end: aEnd, hours: durationH),
+        );
       } else {
-        // Remplaçant (remplacement classique ou échange — traitement identique)
-        stats.replacementHours += durationH;
-        statsMap[pa.replacedAgentId]?.replacedHours += durationH;
+        final replacedStats = statsMap[pa.replacedAgentId];
+        final replacerTeam = stats.agent.team;
+        final replacedTeam = replacedStats?.agent.team;
+        final isIntra =
+            replacerTeam == planningTeam && replacedTeam == planningTeam;
+
+        if (isIntra) {
+          // Remplacement intra-équipe : le remplaçant compte en Astreinte
+          presentAgentIds.add(pa.agentId);
+          stats.baseHours += durationH;
+          stats.duties.add(
+            _DutyEntry(start: aStart, end: aEnd, hours: durationH),
+          );
+          // L'agent remplacé accumule du temps d'absence (exact, pas toute la durée du planning)
+          replacedIntraMap[pa.replacedAgentId!] =
+              (replacedIntraMap[pa.replacedAgentId!] ?? 0) + durationH;
+          // Détail pour l'agent remplacé (colonne Absence, pas Remplacé)
+          final replacerName = stats.displayName;
+          replacedStats?.absences.add(
+            _AbsenceEntry(
+              start: aStart,
+              end: aEnd,
+              hours: durationH,
+              label: 'Remplacé par $replacerName',
+            ),
+          );
+          replacedStats?.absenceSlots.add((aStart, aEnd));
+        } else {
+          // Remplacement inter-équipe : le remplaçant compte en Remplaçant
+          presentAgentIds.add(pa.agentId);
+          stats.replacementHours += durationH;
+          final replacedName =
+              replacedStats?.displayName ?? pa.replacedAgentId!;
+          stats.replacements.add(
+            _ReplacementEntry(
+              start: aStart,
+              end: aEnd,
+              hours: durationH,
+              replacedAgentName: replacedName,
+            ),
+          );
+          // L'agent remplacé inter est considéré présent (colonne Remplacé)
+          presentAgentIds.add(pa.replacedAgentId!);
+          replacedStats?.replacedHours += durationH;
+          replacedStats?.replacedEntries.add(
+            _ReplacedEntry(
+              start: aStart,
+              end: aEnd,
+              hours: durationH,
+              replacementAgentName: stats.displayName,
+            ),
+          );
+        }
       }
     }
 
-    // Absences : agents de l'équipe du planning absents de ce planning
+    // Absences intra-équipe exactes (déjà ajoutées dans absences, on cumule juste le total)
+    for (final entry in replacedIntraMap.entries) {
+      final s = statsMap[entry.key];
+      if (s != null) s.absenceHours += entry.value;
+    }
+
+    // Absences pour agents totalement absents du planning de leur équipe
     for (final entry in statsMap.entries) {
       final agent = entry.value.agent;
-      if (agent.team == planning.team && !presentAgentIds.contains(agent.id)) {
-        entry.value.absenceHours += planningDurationH;
-      }
+      if (agent.team != planningTeam) continue;
+      if (presentAgentIds.contains(agent.id)) continue;
+      if (replacedIntraMap.containsKey(agent.id)) continue; // déjà traité
+      // Agent complètement absent du planning de son équipe
+      entry.value.absenceHours += planningDurationH;
+      entry.value.absences.add(
+        _AbsenceEntry(start: pStart, end: pEnd, hours: planningDurationH),
+      );
+      entry.value.absenceSlots.add((pStart, pEnd));
     }
   }
 
@@ -320,7 +553,7 @@ class _TeamDashboardPageState extends State<TeamDashboardPage> {
         case _SortColumn.name:
           cmp = a.displayName.compareTo(b.displayName);
         case _SortColumn.dutyHours:
-          cmp = a.dutyHours.compareTo(b.dutyHours);
+          cmp = a.baseHours.compareTo(b.baseHours);
         case _SortColumn.availabilityHours:
           cmp = a.availabilityHours.compareTo(b.availabilityHours);
         case _SortColumn.absenceHours:
@@ -330,7 +563,7 @@ class _TeamDashboardPageState extends State<TeamDashboardPage> {
         case _SortColumn.replacedHours:
           cmp = a.replacedHours.compareTo(b.replacedHours);
         case _SortColumn.activity:
-          cmp = a.activityRate.compareTo(b.activityRate);
+          cmp = a.performedHours.compareTo(b.performedHours);
       }
       return _sortAscending ? cmp : -cmp;
     });
@@ -391,9 +624,10 @@ class _TeamDashboardPageState extends State<TeamDashboardPage> {
         });
         _load();
       case _Period.currentMonth:
+        final prevStart = DateTime(_startDate.year, _startDate.month - 1, 1);
         setState(() {
-          _startDate = DateTime(_startDate.year, _startDate.month - 1, 1);
-          _endDate = DateTime(_startDate.year, _startDate.month + 1, 1);
+          _startDate = prevStart;
+          _endDate = DateTime(prevStart.year, prevStart.month + 1, 1);
         });
         _load();
       case _Period.custom:
@@ -410,9 +644,10 @@ class _TeamDashboardPageState extends State<TeamDashboardPage> {
         });
         _load();
       case _Period.currentMonth:
+        final nextStart = DateTime(_startDate.year, _startDate.month + 1, 1);
         setState(() {
-          _startDate = DateTime(_startDate.year, _startDate.month + 1, 1);
-          _endDate = DateTime(_startDate.year, _startDate.month + 2, 1);
+          _startDate = nextStart;
+          _endDate = DateTime(nextStart.year, nextStart.month + 1, 1);
         });
         _load();
       case _Period.custom:
@@ -425,6 +660,12 @@ class _TeamDashboardPageState extends State<TeamDashboardPage> {
   // ---------------------------------------------------------------------------
 
   String _fmtH(double h) => h == 0 ? '—' : '${h.toStringAsFixed(1)} h';
+
+  double _quotaForPeriod() {
+    final quota = (_station?.shiftMonthlyQuota ?? 100).toDouble();
+    final periodDays = _endDate.difference(_startDate).inDays;
+    return quota * periodDays / 30.0;
+  }
 
   String get _periodLabel {
     switch (_period) {
@@ -474,91 +715,96 @@ class _TeamDashboardPageState extends State<TeamDashboardPage> {
       title: Padding(
         padding: EdgeInsets.only(right: sidePadding.right),
         child: Row(
-        children: [
-          // ── Titre ─────────────────────────────────────────────
-          Expanded(
-            child: Text(
-              _scope == DashboardScope.personal
-                  ? 'Mes statistiques'
-                  : (_selectedTeam?.name ?? 'Tableau de bord'),
-              style: TextStyle(
-                color: _selectedTeam?.color ?? scheme.primary,
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-
-          const SizedBox(width: 8),
-
-          // ── Sélecteur / badge équipe ──────────────────────────
-          if (_canChangeTeam)
-            _TeamSelectorButton(
-              selectedTeam: _selectedTeam,
-              allTeams: _allTeams,
-              isDark: isDark,
-              onChanged: _onTeamChanged,
-            )
-          else
-            _TeamBadge(
-              team: _scope == DashboardScope.personal ? null : _selectedTeam,
-              isDark: isDark,
-              label: _scope == DashboardScope.personal
-                  ? 'Toutes les équipes'
-                  : null,
-            ),
-
-          const SizedBox(width: 8),
-
-          // ── Navigation période ─────────────────────────────────
-          if (_period != _Period.custom) ...[
-            _AppBarNavButton(
-              icon: Icons.chevron_left_rounded,
-              onTap: _goToPrevious,
-              isDark: isDark,
-              scheme: scheme,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              _periodLabel,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+          children: [
+            // ── Titre ─────────────────────────────────────────────
+            Expanded(
+              child: Text(
+                _scope == DashboardScope.personal
+                    ? 'Mes statistiques'
+                    : (_selectedTeam?.name ?? 'Tableau de bord'),
+                style: TextStyle(
+                  color: _selectedTeam?.color ?? scheme.primary,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+                overflow: TextOverflow.ellipsis,
               ),
             ),
-            const SizedBox(width: 6),
-            _AppBarNavButton(
-              icon: Icons.chevron_right_rounded,
-              onTap: _goToNext,
-              isDark: isDark,
-              scheme: scheme,
-            ),
+
             const SizedBox(width: 8),
-          ] else ...[
-            Text(
-              _periodLabel,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: Colors.purple.shade400,
+
+            // ── Sélecteur / badge équipe ──────────────────────────
+            if (_canChangeTeam)
+              _TeamSelectorButton(
+                selectedTeam: _selectedTeam,
+                allTeams: _allTeams,
+                isDark: isDark,
+                onChanged: _onTeamChanged,
+              )
+            else
+              _TeamBadge(
+                team: _scope == DashboardScope.personal ? null : _selectedTeam,
+                isDark: isDark,
+                label: _scope == DashboardScope.personal
+                    ? 'Toutes les équipes'
+                    : null,
               ),
+
+            const SizedBox(width: 8),
+
+            // ── Navigation période ─────────────────────────────────
+            if (_period != _Period.custom) ...[
+              _AppBarNavButton(
+                icon: Icons.chevron_left_rounded,
+                onTap: _goToPrevious,
+                isDark: isDark,
+                scheme: scheme,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                _periodLabel,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+                ),
+              ),
+              const SizedBox(width: 6),
+              _AppBarNavButton(
+                icon: Icons.chevron_right_rounded,
+                onTap: _goToNext,
+                isDark: isDark,
+                scheme: scheme,
+              ),
+              const SizedBox(width: 8),
+            ] else ...[
+              Text(
+                _periodLabel,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.purple.shade400,
+                ),
+              ),
+              const SizedBox(width: 8),
+            ],
+
+            // ── Sélecteur période ──────────────────────────────────
+            _DashboardPeriodButton(
+              period: _period,
+              isDark: isDark,
+              onChanged: _onPeriodChanged,
+              onCustomTap: _pickCustomRange,
             ),
+
+            const SizedBox(width: 6),
+
+            // ── Aide / règles d'affichage ──────────────────────────
+            _RulesButton(isDark: isDark),
+
             const SizedBox(width: 8),
           ],
-
-          // ── Sélecteur période ──────────────────────────────────
-          _DashboardPeriodButton(
-            period: _period,
-            isDark: isDark,
-            onChanged: _onPeriodChanged,
-            onCustomTap: _pickCustomRange,
-          ),
-
-          const SizedBox(width: 8),
-        ],
-      ),
+        ),
       ),
     );
   }
@@ -668,7 +914,7 @@ class _TeamDashboardPageState extends State<TeamDashboardPage> {
           Expanded(
             flex: 2,
             child: _SortableHeader(
-              label: 'Activité',
+              label: 'Quota',
               column: _SortColumn.activity,
               current: _sortColumn,
               ascending: _sortAscending,
@@ -687,150 +933,334 @@ class _TeamDashboardPageState extends State<TeamDashboardPage> {
         .where((t) => t.id == s.agent.team)
         .firstOrNull
         ?.color;
+    final isExpanded = _expandedAgents.contains(s.agent.id);
+    final hasDuties =
+        s.duties.isNotEmpty ||
+        s.replacements.isNotEmpty ||
+        s.replacedEntries.isNotEmpty ||
+        s.absences.isNotEmpty ||
+        s.availabilities.isNotEmpty;
 
-    return Container(
-      decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(
-            color: isDark ? Colors.grey.shade800 : Colors.grey.shade200,
-          ),
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Row(
-          children: [
-            // ── Nom + pastille équipe ──────────────────────────────
-            Expanded(
-              flex: 3,
+    return Column(
+      children: [
+        InkWell(
+          onTap: hasDuties
+              ? () => setState(() {
+                  if (isExpanded) {
+                    _expandedAgents.remove(s.agent.id);
+                  } else {
+                    _expandedAgents.add(s.agent.id);
+                  }
+                })
+              : null,
+          child: Container(
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(
+                  color: isDark ? Colors.grey.shade800 : Colors.grey.shade200,
+                ),
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               child: Row(
                 children: [
-                  if (teamColor != null)
-                    Container(
-                      width: 8,
-                      height: 8,
-                      margin: const EdgeInsets.only(right: 6),
-                      decoration: BoxDecoration(
-                        color: teamColor,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
+                  // ── Nom + pastille équipe + chevron ───────────────
                   Expanded(
-                    child: Text(
-                      s.displayName,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                    flex: 3,
+                    child: Row(
+                      children: [
+                        if (teamColor != null)
+                          Container(
+                            width: 8,
+                            height: 8,
+                            margin: const EdgeInsets.only(right: 6),
+                            decoration: BoxDecoration(
+                              color: teamColor,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        if (hasDuties)
+                          Icon(
+                            isExpanded ? Icons.expand_less : Icons.expand_more,
+                            size: 14,
+                            color: subtitleColor,
+                          ),
+                        if (hasDuties) const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            s.displayName,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
                     ),
+                  ),
+
+                  // ── Astreinte (avec tooltip) ───────────────────────
+                  Expanded(
+                    flex: 2,
+                    child: _DutyCell(
+                      stats: s,
+                      subtitleColor: subtitleColor,
+                      scheme: scheme,
+                    ),
+                  ),
+
+                  // ── Disponibilité ──────────────────────────────────
+                  Expanded(
+                    flex: 2,
+                    child: Text(
+                      _fmtH(s.availabilityHours),
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: s.availabilityHours > 0
+                            ? Colors.blue.shade600
+                            : subtitleColor,
+                        fontWeight: s.availabilityHours > 0
+                            ? FontWeight.w600
+                            : FontWeight.normal,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+
+                  // ── Absence ───────────────────────────────────────
+                  Expanded(
+                    flex: 2,
+                    child: Text(
+                      _fmtH(s.absenceHours),
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: s.absenceHours > 0
+                            ? Colors.blueGrey.shade400
+                            : subtitleColor,
+                        fontWeight: s.absenceHours > 0
+                            ? FontWeight.w600
+                            : FontWeight.normal,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+
+                  // ── Remplaçant ────────────────────────────────────
+                  Expanded(
+                    flex: 2,
+                    child: Text(
+                      _fmtH(s.replacementHours),
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: s.replacementHours > 0
+                            ? Colors.teal.shade600
+                            : subtitleColor,
+                        fontWeight: s.replacementHours > 0
+                            ? FontWeight.w600
+                            : FontWeight.normal,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+
+                  // ── Remplacé ──────────────────────────────────────
+                  Expanded(
+                    flex: 2,
+                    child: Text(
+                      _fmtH(s.replacedHours),
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: s.replacedHours > 0
+                            ? Colors.orange.shade700
+                            : subtitleColor,
+                        fontWeight: s.replacedHours > 0
+                            ? FontWeight.w600
+                            : FontWeight.normal,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+
+                  // ── Quota ─────────────────────────────────────────
+                  Expanded(
+                    flex: 2,
+                    child: s.performedHours == 0
+                        ? Text(
+                            '—',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: subtitleColor,
+                            ),
+                            textAlign: TextAlign.center,
+                          )
+                        : _ActivityBar(stats: s, quota: _quotaForPeriod()),
                   ),
                 ],
               ),
             ),
-
-            // ── Astreinte (avec tooltip) ───────────────────────────
-            Expanded(
-              flex: 2,
-              child: _DutyCell(
-                stats: s,
-                subtitleColor: subtitleColor,
-                scheme: scheme,
-              ),
-            ),
-
-            // ── Disponibilité ──────────────────────────────────────
-            Expanded(
-              flex: 2,
-              child: Text(
-                _fmtH(s.availabilityHours),
-                style: TextStyle(
-                  fontSize: 13,
-                  color: s.availabilityHours > 0
-                      ? Colors.blue.shade600
-                      : subtitleColor,
-                  fontWeight: s.availabilityHours > 0
-                      ? FontWeight.w600
-                      : FontWeight.normal,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ),
-
-            // ── Absence ───────────────────────────────────────────
-            Expanded(
-              flex: 2,
-              child: Text(
-                _fmtH(s.absenceHours),
-                style: TextStyle(
-                  fontSize: 13,
-                  color: s.absenceHours > 0
-                      ? Colors.blueGrey.shade400
-                      : subtitleColor,
-                  fontWeight: s.absenceHours > 0
-                      ? FontWeight.w600
-                      : FontWeight.normal,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ),
-
-            // ── Remplaçant ────────────────────────────────────────
-            Expanded(
-              flex: 2,
-              child: Text(
-                _fmtH(s.replacementHours),
-                style: TextStyle(
-                  fontSize: 13,
-                  color: s.replacementHours > 0
-                      ? Colors.teal.shade600
-                      : subtitleColor,
-                  fontWeight: s.replacementHours > 0
-                      ? FontWeight.w600
-                      : FontWeight.normal,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ),
-
-            // ── Remplacé ──────────────────────────────────────────
-            Expanded(
-              flex: 2,
-              child: Text(
-                _fmtH(s.replacedHours),
-                style: TextStyle(
-                  fontSize: 13,
-                  color: s.replacedHours > 0
-                      ? Colors.orange.shade700
-                      : subtitleColor,
-                  fontWeight: s.replacedHours > 0
-                      ? FontWeight.w600
-                      : FontWeight.normal,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ),
-
-            // ── Activité ──────────────────────────────────────────
-            Expanded(
-              flex: 2,
-              child: s.dutyHours == 0 && s.replacementHours == 0
-                  ? Text(
-                      '—',
-                      style: TextStyle(fontSize: 13, color: subtitleColor),
-                      textAlign: TextAlign.center,
-                    )
-                  : _ActivityBar(stats: s),
-            ),
-          ],
+          ),
         ),
-      ),
+        if (isExpanded) _buildDutyDetail(s, isDark, scheme),
+      ],
     );
   }
 
+  Widget _buildDutyDetail(_AgentStats s, bool isDark, ColorScheme scheme) {
+    final bgColor = isDark ? Colors.grey.shade900 : Colors.grey.shade50;
+    final textColor = isDark ? Colors.grey.shade300 : Colors.grey.shade700;
+    final fmt = DateFormat('dd/MM HH:mm');
+    final fmtEnd = DateFormat('HH:mm');
+
+    // Construit une sous-ligne alignée sur les 7 colonnes du header
+    Widget detailRow({
+      required Color accent,
+      required String label, // colonne Nom (créneau ou info)
+      String? col1, // Astreinte
+      String? col2, // Disponibilité
+      String? col3, // Absence
+      String? col4, // Remplaçant
+      String? col5, // Remplacé
+    }) {
+      Widget cell(String? val, Color color) => Expanded(
+        flex: 2,
+        child: val == null
+            ? const SizedBox()
+            : Text(
+                val,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: color,
+                  fontWeight: FontWeight.w600,
+                ),
+                textAlign: TextAlign.center,
+              ),
+      );
+
+      return GestureDetector(
+        onLongPress: () {
+          final overlay = Overlay.of(context);
+          late OverlayEntry entry;
+          entry = OverlayEntry(
+            builder: (_) =>
+                _TooltipOverlay(text: label, onDismiss: () => entry.remove()),
+          );
+          overlay.insert(entry);
+        },
+        child: Container(
+          color: bgColor,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: Row(
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 2,
+                        height: 14,
+                        margin: const EdgeInsets.only(left: 8, right: 10),
+                        decoration: BoxDecoration(
+                          color: accent.withValues(alpha: 0.5),
+                          borderRadius: BorderRadius.circular(1),
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(
+                          label,
+                          style: TextStyle(fontSize: 12, color: textColor),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                cell(col1, scheme.primary),
+                cell(col2, Colors.blue.shade600),
+                cell(col3, Colors.blueGrey.shade400),
+                cell(col4, Colors.teal.shade600),
+                cell(col5, Colors.orange.shade700),
+                const Expanded(flex: 2, child: SizedBox()), // Quota
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    String fmtSlot(DateTime start, DateTime end) =>
+        '${fmt.format(start)} → ${fmtEnd.format(end)}';
+    String fmtH(double h) => '${h.toStringAsFixed(1)} h';
+
+    final rows = <Widget>[];
+
+    // ── Astreintes titulaires (heures brutes) ────────────────────────────────
+    for (final d in s.duties) {
+      rows.add(
+        detailRow(
+          accent: scheme.primary,
+          label: fmtSlot(d.start, d.end),
+          col1: fmtH(d.hours),
+        ),
+      );
+    }
+
+    // ── Disponibilités ────────────────────────────────────────────────────────
+    for (final a in s.availabilities) {
+      rows.add(
+        detailRow(
+          accent: Colors.blue.shade600,
+          label: fmtSlot(a.start, a.end),
+          col2: fmtH(a.hours),
+        ),
+      );
+    }
+
+    // ── Absences ──────────────────────────────────────────────────────────────
+    for (final a in s.absences) {
+      final absLabel = a.label != null
+          ? '${fmtSlot(a.start, a.end)} · ${a.label}'
+          : fmtSlot(a.start, a.end);
+      rows.add(
+        detailRow(
+          accent: Colors.blueGrey.shade400,
+          label: absLabel,
+          col3: fmtH(a.hours),
+        ),
+      );
+    }
+
+    // ── Remplaçant (agent remplacé par cet agent) ─────────────────────────────
+    for (final r in s.replacements) {
+      rows.add(
+        detailRow(
+          accent: Colors.teal.shade600,
+          label: '${fmtSlot(r.start, r.end)} · ${r.replacedAgentName}',
+          col4: fmtH(r.hours),
+        ),
+      );
+    }
+
+    // ── Remplacé (agent qui a remplacé cet agent) ─────────────────────────────
+    for (final r in s.replacedEntries) {
+      rows.add(
+        detailRow(
+          accent: Colors.orange.shade700,
+          label: '${fmtSlot(r.start, r.end)} · ${r.replacementAgentName}',
+          col5: fmtH(r.hours),
+        ),
+      );
+    }
+
+    return Column(children: rows);
+  }
+
   Widget _buildFooter(bool isDark) {
-    final totalDuty = _stats.fold<double>(0, (s, a) => s + a.dutyHours);
+    final totalDuty = _stats.fold<double>(0, (s, a) => s + a.baseHours);
     final totalAvail = _stats.fold<double>(
       0,
       (s, a) => s + a.availabilityHours,
@@ -954,7 +1384,11 @@ class _TeamDashboardPageState extends State<TeamDashboardPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.error_outline, size: 48, color: Colors.red.shade400),
+            Icon(
+              Icons.help_outline_rounded,
+              size: 48,
+              color: Colors.red.shade400,
+            ),
             const SizedBox(height: 12),
             Text(
               'Erreur de chargement',
@@ -980,6 +1414,221 @@ class _TeamDashboardPageState extends State<TeamDashboardPage> {
 }
 
 // ---------------------------------------------------------------------------
+// _RulesButton — bouton d'aide affichant les règles de calcul
+// ---------------------------------------------------------------------------
+
+class _RulesButton extends StatelessWidget {
+  final bool isDark;
+  const _RulesButton({required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: () => _showRules(context),
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.06)
+              : Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.1)
+                : Colors.grey.shade200,
+          ),
+        ),
+        child: Icon(
+          Icons.info_outline_rounded,
+          size: 18,
+          color: scheme.primary,
+        ),
+      ),
+    );
+  }
+
+  static void _showRules(BuildContext context) {
+    showDialog(context: context, builder: (_) => const _RulesDialog());
+  }
+}
+
+class _RulesDialog extends StatelessWidget {
+  const _RulesDialog();
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final scheme = Theme.of(context).colorScheme;
+    final bg = isDark ? const Color(0xFF1E1E2E) : Colors.white;
+    final titleColor = isDark ? Colors.grey.shade200 : Colors.grey.shade800;
+    final subtitleColor = isDark ? Colors.grey.shade400 : Colors.grey.shade600;
+
+    Widget rule({
+      required IconData icon,
+      required Color color,
+      required String title,
+      required String description,
+    }) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, size: 17, color: color),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: color,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    description,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: subtitleColor,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final screenH = MediaQuery.of(context).size.height;
+    final lottieH = (screenH * 0.18).clamp(60.0, 100.0);
+
+    return Dialog(
+      backgroundColor: bg,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: screenH * 0.85),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // ── En-tête Lottie + bouton fermer ──────────────────────────────
+            ClipRRect(
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(20),
+              ),
+              child: Stack(
+                children: [
+                  SizedBox(
+                    height: lottieH,
+                    width: double.infinity,
+                    child: Lottie.asset(
+                      'assets/lotties/question.json',
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                  Positioned(
+                    top: 6,
+                    right: 6,
+                    child: IconButton(
+                      icon: Icon(
+                        Icons.close_rounded,
+                        size: 18,
+                        color: subtitleColor,
+                      ),
+                      onPressed: () => Navigator.of(context).pop(),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // ── Corps scrollable ─────────────────────────────────────────────
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Règles de calcul',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: titleColor,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Chaque heure appartient à une seule colonne.',
+                      style: TextStyle(fontSize: 12, color: subtitleColor),
+                    ),
+                    const SizedBox(height: 16),
+                    rule(
+                      icon: Icons.shield_rounded,
+                      color: scheme.primary,
+                      title: 'Astreinte',
+                      description:
+                          'Titulaire non remplacé, OU remplaçant intra-équipe (coéquipier dans un planning de sa propre équipe).',
+                    ),
+                    rule(
+                      icon: Icons.swap_horiz_rounded,
+                      color: Colors.teal.shade600,
+                      title: 'Remplaçant',
+                      description:
+                          'Remplace un agent d\'une autre équipe (inter-équipe uniquement).',
+                    ),
+                    rule(
+                      icon: Icons.person_off_outlined,
+                      color: Colors.orange.shade700,
+                      title: 'Remplacé',
+                      description:
+                          'Remplacé par un agent d\'une autre équipe dans son propre planning.',
+                    ),
+                    rule(
+                      icon: Icons.event_busy_rounded,
+                      color: Colors.blueGrey.shade400,
+                      title: 'Absence',
+                      description:
+                          '• Absent de l\'effectif de son équipe\n'
+                          '• OU remplacé par un coéquipier (durée exacte)\n'
+                          '• OU en disponibilité pendant un planning équipe',
+                    ),
+                    rule(
+                      icon: Icons.volunteer_activism_rounded,
+                      color: Colors.blue.shade600,
+                      title: 'Disponibilité',
+                      description:
+                          'Disponibilité déclarée hors planning de son équipe.',
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // _DutyCell — cellule Astreinte avec tooltip au long-press
 // ---------------------------------------------------------------------------
 
@@ -995,9 +1644,7 @@ class _DutyCell extends StatelessWidget {
   });
 
   String _tooltip() {
-    return 'Titulaire : ${stats.baseHours.toStringAsFixed(1)} h\n'
-        'Remplacé : −${stats.replacedHours.toStringAsFixed(1)} h\n'
-        'Net : ${stats.dutyHours.toStringAsFixed(1)} h';
+    return 'Astreinte (titulaire + intra) : ${stats.baseHours.toStringAsFixed(1)} h';
   }
 
   @override
@@ -1015,11 +1662,11 @@ class _DutyCell extends StatelessWidget {
         overlay.insert(entry);
       },
       child: Text(
-        stats.dutyHours == 0 ? '—' : '${stats.dutyHours.toStringAsFixed(1)} h',
+        stats.baseHours == 0 ? '—' : '${stats.baseHours.toStringAsFixed(1)} h',
         style: TextStyle(
           fontSize: 13,
-          color: stats.dutyHours > 0 ? scheme.primary : subtitleColor,
-          fontWeight: stats.dutyHours > 0 ? FontWeight.w600 : FontWeight.normal,
+          color: stats.baseHours > 0 ? scheme.primary : subtitleColor,
+          fontWeight: stats.baseHours > 0 ? FontWeight.w600 : FontWeight.normal,
         ),
         textAlign: TextAlign.center,
       ),
@@ -1033,8 +1680,9 @@ class _DutyCell extends StatelessWidget {
 
 class _ActivityBar extends StatelessWidget {
   final _AgentStats stats;
+  final double quota; // quota proratisé sur la période
 
-  const _ActivityBar({required this.stats});
+  const _ActivityBar({required this.stats, required this.quota});
 
   Color _baseColor(double rate) {
     if (rate >= 1.0) return Colors.green.shade600;
@@ -1043,26 +1691,25 @@ class _ActivityBar extends StatelessWidget {
   }
 
   String _tooltip() {
-    final duty = stats.dutyHours;
-    final repl = stats.replacementHours;
-    final replaced = stats.replacedHours;
-    final pct = duty == 0 ? '—' : '${(stats.activityRate * 100).round()}%';
-    return 'Astreinte : ${duty.toStringAsFixed(1)} h\n'
-        'Remplaçant : +${repl.toStringAsFixed(1)} h\n'
-        'Remplacé : −${replaced.toStringAsFixed(1)} h\n'
+    final performed = stats.performedHours;
+    final pct = quota == 0 ? '—' : '${(performed / quota * 100).round()}%';
+    return 'Astreinte : ${stats.baseHours.toStringAsFixed(1)} h\n'
+        'Remplaçant : +${stats.replacementHours.toStringAsFixed(1)} h\n'
+        'Total réalisé : ${performed.toStringAsFixed(1)} h\n'
+        'Quota période : ${quota.toStringAsFixed(1)} h\n'
         'Ratio : $pct';
   }
 
   @override
   Widget build(BuildContext context) {
-    final rate = stats.activityRate;
+    final rate = quota == 0
+        ? 0.0
+        : (stats.performedHours / quota).clamp(0.0, 10.0);
     final baseColor = _baseColor(rate);
     final overflowRate = (rate - 1.0).clamp(0.0, 1.0);
     final baseRate = rate.clamp(0.0, 1.0);
     final hasOverflow = rate > 1.0;
-    final pct = stats.dutyHours == 0 && stats.replacementHours > 0
-        ? '∞'
-        : '${(rate * 100).round()}%';
+    final pct = '${(rate * 100).round()}%';
 
     return GestureDetector(
       onLongPress: () {
@@ -1328,7 +1975,9 @@ class _DashboardPeriodButtonState extends State<_DashboardPeriodButton> {
 
     // ~3 options × 52px + padding
     const estimatedOverlayHeight = 3 * 52.0 + 16.0;
-    final fitsBelow = offset.dy + size.height + 6 + estimatedOverlayHeight <= screenSize.height;
+    final fitsBelow =
+        offset.dy + size.height + 6 + estimatedOverlayHeight <=
+        screenSize.height;
     final right = screenSize.width - (offset.dx + size.width);
 
     _overlayEntry = OverlayEntry(
@@ -1653,11 +2302,11 @@ class _TeamSelectorButtonState extends State<_TeamSelectorButton> {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeInOut,
-          width: 46,
-          height: 56,
+          width: 36,
+          height: 36,
           decoration: BoxDecoration(
             color: bgColor,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(8),
             border: Border.all(color: borderColor),
           ),
           child: Center(child: inner),
@@ -1684,26 +2333,31 @@ class _TeamBadge extends StatelessWidget {
     Widget child;
     if (label != null) {
       // Mode personal : icône groupes + label "Toutes les équipes"
-      child = Icon(Icons.groups_rounded, size: 20, color: color);
+      child = Icon(Icons.groups_rounded, size: 18, color: color);
     } else if (team != null) {
-      child = Text(
-        team!.id,
-        style: TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w800,
-          color: color,
+      child = FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Text(
+          team!.id,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+            color: color,
+            letterSpacing: -0.5,
+            height: 1,
+          ),
         ),
       );
     } else {
-      child = Icon(Icons.groups_rounded, size: 20, color: color);
+      child = Icon(Icons.groups_rounded, size: 18, color: color);
     }
 
     return Container(
-      width: 46,
-      height: 56,
+      width: 36,
+      height: 36,
       decoration: BoxDecoration(
         color: color.withValues(alpha: isDark ? 0.25 : 0.15),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(color: color.withValues(alpha: 0.4)),
       ),
       child: Center(child: child),

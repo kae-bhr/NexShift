@@ -15,7 +15,6 @@ import 'package:releve/features/replacement/services/crew_allocator.dart';
 import 'package:releve/core/utils/constants.dart';
 import 'package:releve/features/replacement/presentation/pages/replacement_page.dart';
 import 'package:releve/features/subshift/presentation/widgets/subshift_item.dart';
-import 'package:releve/features/planning/presentation/widgets/planning_header_widget.dart';
 import 'package:releve/features/planning/presentation/widgets/on_call_presence_section.dart';
 import 'package:releve/core/data/datasources/sdis_context.dart';
 import 'package:releve/core/data/models/on_call_level_model.dart';
@@ -71,10 +70,8 @@ class _HomePageState extends State<HomePage> {
 
   // Vue mensuelle
   List<Planning> _allMonthPlannings = [];
+  List<TeamEvent> _allMonthTeamEvents = [];
   bool _isMonthLoading = false;
-
-  // Filtre équipe (mode Centre)
-  List<Team> _availableTeams = [];
 
   // Événements d'équipe
   List<TeamEvent> _teamEvents = [];
@@ -98,6 +95,7 @@ class _HomePageState extends State<HomePage> {
     stationViewNotifier.addListener(_onStationViewChanged);
     viewModeNotifier.addListener(_onViewModeChanged);
     currentMonthNotifier.addListener(_onCurrentMonthChanged);
+    currentWeekStartNotifier.addListener(_onWeekStartChanged);
     selectedTeamNotifier.addListener(_onSelectedTeamChanged);
     // Reload when the connected user changes
     userNotifier.addListener(_onUserChanged);
@@ -108,6 +106,7 @@ class _HomePageState extends State<HomePage> {
     stationViewNotifier.removeListener(_onStationViewChanged);
     viewModeNotifier.removeListener(_onViewModeChanged);
     currentMonthNotifier.removeListener(_onCurrentMonthChanged);
+    currentWeekStartNotifier.removeListener(_onWeekStartChanged);
     selectedTeamNotifier.removeListener(_onSelectedTeamChanged);
     userNotifier.removeListener(_onUserChanged);
     super.dispose();
@@ -195,13 +194,10 @@ class _HomePageState extends State<HomePage> {
         stationId: user.station,
       );
 
-      // Charger les équipes (couleur utilisateur + liste pour filtre)
+      // Charger les équipes (couleur utilisateur)
       Color? teamColor;
-      List<Team> availableTeams = [];
       try {
         final teams = await TeamRepository().getByStation(user.station);
-        teams.sort((a, b) => a.order.compareTo(b.order));
-        availableTeams = teams;
         final userTeam = teams.firstWhere(
           (t) => t.id == user.team,
           orElse: () => teams.isNotEmpty
@@ -325,7 +321,6 @@ class _HomePageState extends State<HomePage> {
         _station = station;
         _user = user;
         _userTeamColor = teamColor;
-        _availableTeams = availableTeams;
         _teamEvents = teamEvents;
         _lastUserId = user.id;
         _isLoading = false;
@@ -339,9 +334,8 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  void _onWeekChanged(DateTime newWeekStart) {
-    currentWeekStartNotifier.value = newWeekStart;
-    _reloadPlanningsForWeek(newWeekStart);
+  void _onWeekStartChanged() {
+    _reloadPlanningsForWeek(currentWeekStartNotifier.value);
   }
 
   Future<void> _reloadPlanningsForWeek(DateTime weekStart) async {
@@ -389,10 +383,19 @@ class _HomePageState extends State<HomePage> {
     final availabilities = await repo.getAvailabilities(
       stationId: user.station,
     );
+    List<TeamEvent> monthTeamEvents = [];
+    try {
+      final allEvents = await TeamEventRepository().getAll(stationId: user.station);
+      monthTeamEvents = allEvents.where((e) {
+        if (e.status != TeamEventStatus.upcoming) return false;
+        return e.endTime.isAfter(monthStart) && e.startTime.isBefore(monthEnd);
+      }).toList();
+    } catch (_) {}
     if (!mounted) return;
     setState(() {
       _allMonthPlannings = plannings;
       _allAvailabilities = availabilities;
+      _allMonthTeamEvents = monthTeamEvents;
       _isMonthLoading = false;
     });
   }
@@ -822,10 +825,32 @@ class _HomePageState extends State<HomePage> {
     }).toList();
 
     if (!stationView) {
+      final availabilityLevelIds = _onCallLevels
+          .where((l) => l.isAvailability)
+          .map((l) => l.id)
+          .toSet();
+
+      final chiefAssignedAvailPlannings = <Planning>[];
+
       final userPlannings = planningsInMonth.where((planning) {
         final isAgent = planning.agentsId.contains(_user.id);
         final isReplacedEntirely = _isUserReplacedEntirely(planning, _user.id);
-        if (isAgent && !isReplacedEntirely) return true;
+
+        if (isAgent && !isReplacedEntirely) {
+          if (availabilityLevelIds.isNotEmpty) {
+            final userEntries = planning.agents
+                .where((a) => a.agentId == _user.id && a.replacedAgentId == null)
+                .toList();
+            final allDispo = userEntries.isNotEmpty &&
+                userEntries.every((a) => availabilityLevelIds.contains(a.levelId));
+            if (allDispo) {
+              chiefAssignedAvailPlannings.add(planning);
+              return false;
+            }
+          }
+          return true;
+        }
+
         return _allSubshifts.any(
           (s) =>
               s.planningId == planning.id &&
@@ -834,8 +859,33 @@ class _HomePageState extends State<HomePage> {
               s.start.isBefore(planning.endTime),
         );
       }).toList();
-      userPlannings.sort((a, b) => a.startTime.compareTo(b.startTime));
-      return userPlannings;
+
+      for (final p in chiefAssignedAvailPlannings) {
+        final userEntries = p.agents
+            .where((a) => a.agentId == _user.id && a.replacedAgentId == null)
+            .toList();
+        if (userEntries.isEmpty) continue;
+        final levelId = userEntries.first.levelId;
+        final virtualAvail = Availability(
+          id: 'chief_${p.id}_${_user.id}',
+          agentId: _user.id,
+          start: userEntries.first.start,
+          end: userEntries.first.end,
+          planningId: p.id,
+          levelId: levelId.isNotEmpty ? levelId : null,
+        );
+        _allAvailabilities.add(virtualAvail);
+      }
+
+      final availabilityPlannings = _getAvailabilityPlanningsForRange(
+        monthStart,
+        monthEnd,
+        userPlannings,
+      );
+
+      final allItems = [...userPlannings, ...availabilityPlannings];
+      allItems.sort((a, b) => a.startTime.compareTo(b.startTime));
+      return allItems;
     }
 
     var stationPlannings = planningsInMonth
@@ -854,11 +904,23 @@ class _HomePageState extends State<HomePage> {
     DateTime weekEnd,
     List<Planning> realPlannings,
   ) {
-    // Filtrer les disponibilités de l'utilisateur dans la semaine
+    return _getAvailabilityPlanningsForRange(
+      currentWeekStartNotifier.value,
+      weekEnd,
+      realPlannings,
+    );
+  }
+
+  List<Planning> _getAvailabilityPlanningsForRange(
+    DateTime rangeStart,
+    DateTime rangeEnd,
+    List<Planning> realPlannings,
+  ) {
+    // Filtrer les disponibilités de l'utilisateur dans la plage
     final userAvailabilities = _allAvailabilities.where((a) {
       if (a.agentId != _user.id) return false;
-      if (!a.end.isAfter(currentWeekStartNotifier.value)) return false;
-      if (!a.start.isBefore(weekEnd)) return false;
+      if (!a.end.isAfter(rangeStart)) return false;
+      if (!a.start.isBefore(rangeEnd)) return false;
       // Exclure si la disponibilité chevauche un planning réel où l'utilisateur est agent
       final overlapsReal = realPlannings.any(
         (p) => p.startTime.isBefore(a.end) && p.endTime.isAfter(a.start),
@@ -2690,10 +2752,6 @@ class _HomePageState extends State<HomePage> {
 
           return Column(
             children: [
-              PlanningHeader(
-                onWeekChanged: _onWeekChanged,
-                availableTeams: _availableTeams,
-              ),
               if (viewModeNotifier.value == ViewMode.month)
                 _buildMonthView(stationView, isDark)
               else
@@ -3248,7 +3306,27 @@ class _HomePageState extends State<HomePage> {
 
     final plannings = _getFilteredPlanningsForMonth();
 
-    if (plannings.isEmpty) {
+    final isAdminOrLeader = _user.admin || _user.status == KConstants.statusLeader;
+    final monthTeamEvents = _allMonthTeamEvents.where((e) {
+      if (stationView) {
+        if (isAdminOrLeader) return true;
+        return e.createdById == _user.id ||
+            e.invitedUserIds.contains(_user.id) ||
+            e.acceptedUserIds.contains(_user.id) ||
+            e.declinedUserIds.contains(_user.id);
+      } else {
+        return e.acceptedUserIds.contains(_user.id);
+      }
+    }).toList();
+
+    final mergedItems = <Object>[...plannings, ...monthTeamEvents]
+      ..sort((a, b) {
+        final aStart = a is Planning ? a.startTime : (a as TeamEvent).startTime;
+        final bStart = b is Planning ? b.startTime : (b as TeamEvent).startTime;
+        return aStart.compareTo(bStart);
+      });
+
+    if (mergedItems.isEmpty) {
       return Expanded(
         child: RefreshIndicator(
           color: KColors.appNameColor,
@@ -3314,16 +3392,24 @@ class _HomePageState extends State<HomePage> {
         onRefresh: () => _reloadPlanningsForMonth(currentMonthNotifier.value),
         child: ListView.builder(
           physics: const AlwaysScrollableScrollPhysics(),
-          key: ValueKey(plannings.length),
+          key: ValueKey(mergedItems.length),
           padding: const EdgeInsets.only(
             left: 12,
             right: 12,
             top: 4,
             bottom: 16,
           ),
-          itemCount: plannings.length,
+          itemCount: mergedItems.length,
           itemBuilder: (context, i) {
-            final planning = plannings[i];
+            final item = mergedItems[i];
+            if (item is TeamEvent) {
+              return _buildEventItem(
+                item,
+                'event_${item.id}',
+                _expandedEvents['event_${item.id}'] ?? false,
+              );
+            }
+            final planning = item as Planning;
             final id = "${planning.team}_${planning.startTime}";
             final isExpanded = _expanded[id] ?? false;
 

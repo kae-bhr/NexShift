@@ -404,20 +404,8 @@ class _AcceptanceCardState extends State<_AcceptanceCard> {
       return const SizedBox.shrink();
     }
 
-    // Filtrer les compétences avec poids > 0 (basé sur la config de la station)
-    final skillWeights = widget.station?.skillWeights ?? {};
-
-    // Filtrer les compétences qui ont un poids de 0 dans la configuration
-    final requesterSkillsFiltered = _requester!.skills.where((skill) {
-      // Si la compétence n'est pas dans skillWeights, on considère qu'elle a un poids par défaut de 1.0
-      final weight = skillWeights[skill] ?? 1.0;
-      return weight > 0;
-    }).toList();
-
-    final acceptorSkillsFiltered = _acceptor!.skills.where((skill) {
-      final weight = skillWeights[skill] ?? 1.0;
-      return weight > 0;
-    }).toList();
+    final requesterSkillsFiltered = _requester!.skills.toList();
+    final acceptorSkillsFiltered = _acceptor!.skills.toList();
 
     final missingSkills = ReplacementAcceptance.getMissingSkills(
       requesterSkillsFiltered,

@@ -63,6 +63,9 @@ class Station {
   final DashboardScope dashboardAgentScope; // défaut: personal
   final DashboardScope dashboardChiefScope; // défaut: team
 
+  // Quota mensuel d'heures d'astreinte par agent (pour le tableau de bord)
+  final int shiftMonthlyQuota;
+
   const Station({
     required this.id,
     required this.name,
@@ -84,6 +87,7 @@ class Station {
     this.enableCumulativeThreshold = false,
     this.dashboardAgentScope = DashboardScope.personal,
     this.dashboardChiefScope = DashboardScope.team,
+    this.shiftMonthlyQuota = 100,
   });
 
   /// Vérifie si l'abonnement est expiré
@@ -126,6 +130,7 @@ class Station {
     bool? enableCumulativeThreshold,
     DashboardScope? dashboardAgentScope,
     DashboardScope? dashboardChiefScope,
+    int? shiftMonthlyQuota,
   }) =>
       Station(
         id: id ?? this.id,
@@ -148,6 +153,7 @@ class Station {
         enableCumulativeThreshold: enableCumulativeThreshold ?? this.enableCumulativeThreshold,
         dashboardAgentScope: dashboardAgentScope ?? this.dashboardAgentScope,
         dashboardChiefScope: dashboardChiefScope ?? this.dashboardChiefScope,
+        shiftMonthlyQuota: shiftMonthlyQuota ?? this.shiftMonthlyQuota,
       );
 
   Map<String, dynamic> toJson() => {
@@ -176,6 +182,7 @@ class Station {
         'enableCumulativeThreshold': enableCumulativeThreshold,
         'dashboardAgentScope': dashboardAgentScope.name,
         'dashboardChiefScope': dashboardChiefScope.name,
+        'shiftMonthlyQuota': shiftMonthlyQuota,
       };
 
   factory Station.fromJson(Map<String, dynamic> json) => Station(
@@ -221,5 +228,6 @@ class Station {
                 orElse: () => DashboardScope.team,
               )
             : DashboardScope.team,
+        shiftMonthlyQuota: json['shiftMonthlyQuota'] as int? ?? 100,
       );
 }

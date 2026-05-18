@@ -21,9 +21,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:releve/core/presentation/widgets/custom_app_bar.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:releve/core/services/maintenance_service.dart';
-
-const String appVersion = '1.0.0';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -316,10 +315,18 @@ class _SettingsPageState extends State<SettingsPage> {
     return Card(
       child: Column(
         children: [
-          ListTile(
-            leading: const Icon(Icons.info_outline),
-            title: const Text('Version'),
-            subtitle: const Text(appVersion),
+          FutureBuilder<PackageInfo>(
+            future: PackageInfo.fromPlatform(),
+            builder: (context, snapshot) {
+              final version = snapshot.data?.version ?? '…';
+              final build = snapshot.data?.buildNumber ?? '';
+              final label = build.isNotEmpty ? '$version (#$build)' : version;
+              return ListTile(
+                leading: const Icon(Icons.info_outline),
+                title: const Text('Version'),
+                subtitle: Text(label),
+              );
+            },
           ),
           const Divider(height: 1),
           ListTile(
